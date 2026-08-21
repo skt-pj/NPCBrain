@@ -6,6 +6,11 @@ on:
       - main
     paths-ignore:
       - 'ci-output/**'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - 'ci-output/**'
   workflow_dispatch:
 
 permissions:
@@ -96,7 +101,7 @@ jobs:
           if-no-files-found: error
 
       - name: Record CI result
-        if: always()
+        if: ${{ always() && github.event_name != 'pull_request' }}
         shell: bash
         env:
           JOB_STATUS: ${{ job.status }}

@@ -106,6 +106,22 @@ final class LifeState {
         );
     }
 
+    LifeState refreshCurrentSlot(long newWorldTimeMs, ScheduleSlot slot, JSONObject schedule) {
+        if (slot == null) return withSchedule(newWorldTimeMs, schedule);
+        return new LifeState(
+                npcId,
+                Math.max(worldTimeMs, newWorldTimeMs),
+                slot.location(),
+                slot.activity(),
+                activityStartedAtMs,
+                slot.goal(),
+                slot.context(),
+                slot.entryId(),
+                currentActivityEventId,
+                schedule
+        );
+    }
+
     LifeState transitionTo(
             long newWorldTimeMs,
             String newLocation,
@@ -165,6 +181,10 @@ final class LifeState {
 
     String currentActivityEventId() {
         return currentActivityEventId;
+    }
+
+    JSONObject dailySchedule() {
+        return copy(dailySchedule);
     }
 
     JSONObject toJson() {
