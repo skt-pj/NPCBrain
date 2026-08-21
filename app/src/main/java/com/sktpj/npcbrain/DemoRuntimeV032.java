@@ -198,6 +198,7 @@ final class DemoRuntimeV032 {
             if (utterance.isEmpty()) utterance = extractQuotedUtterance(result);
 
             boolean sent = !utterance.trim().isEmpty();
+            String outputCauseEventId = worldRuntime.messageCauseForNpc(npcId, causeEventId);
             if (sent) {
                 conversations.appendNpcMessage(
                         roomId,
@@ -206,7 +207,7 @@ final class DemoRuntimeV032 {
                         utterance,
                         action,
                         System.currentTimeMillis(),
-                        causeEventId,
+                        outputCauseEventId,
                         trace
                 );
             } else {
@@ -216,7 +217,7 @@ final class DemoRuntimeV032 {
                         name,
                         action,
                         System.currentTimeMillis(),
-                        causeEventId,
+                        outputCauseEventId,
                         trace
                 );
             }
