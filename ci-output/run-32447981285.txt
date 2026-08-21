@@ -1,0 +1,6 @@
+run_id=32447981285
+status=failure
+job_commit=b3935eaaae16242d67164d71286644b74ac3eb11
+artifact_id=
+artifact_name=
+versionName=
