@@ -73,24 +73,34 @@ jobs:
             build-metadata.txt
           if-no-files-found: error
 
-      - name: Record successful build
+      - name: Record CI result
+        if: always()
         shell: bash
         env:
+          JOB_STATUS: ${{ job.status }}
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
           ARTIFACT_NAME: ${{ steps.artifact.outputs.name }}
           VERSION_NAME: ${{ steps.artifact.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p ci-output
+          RESULT_FILE="ci-output/run-${GITHUB_RUN_ID}.txt"
           {
             echo "run_id=${GITHUB_RUN_ID}"
+            echo "status=${JOB_STATUS}"
             echo "job_commit=${GITHUB_SHA}"
             echo "artifact_id=${ARTIFACT_ID}"
             echo "artifact_name=${ARTIFACT_NAME}"
             echo "versionName=${VERSION_NAME}"
-          } > ci-output/latest-run.txt
+          } > "$RESULT_FILE"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add ci-output/latest-run.txt
-          git commit -m "Record successful Android CI run [skip ci]"
-          git push
+          git add "$RESULT_FILE"
+          git commit -m "Record Android CI run ${GITHUB_RUN_ID} [skip ci]"
+          for i in 1 2 3; do
+            if git push; then
+              exit 0
+            fi
+            git pull --rebase origin main
+          done
+          exit 1
