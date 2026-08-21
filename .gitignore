@@ -1,0 +1,7 @@
+.gradle/
+.idea/
+local.properties
+**/build/
+ci/skt-common-signing.jks
+ci/skt-common-signing.jks.b64
+*.iml
