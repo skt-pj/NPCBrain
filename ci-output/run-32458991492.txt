@@ -1,0 +1,6 @@
+run_id=32458991492
+status=success
+job_commit=d92741ae656b0af3551a36749ad4c6e14ea3547f
+artifact_id=9438273552
+artifact_name=NPCBrain-v0.3.0-release
+versionName=0.3.0
