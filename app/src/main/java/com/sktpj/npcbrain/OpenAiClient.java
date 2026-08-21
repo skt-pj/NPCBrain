@@ -15,6 +15,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.ConnectException;
 import java.net.HttpURLConnection;
+import java.net.NoRouteToHostException;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.net.UnknownHostException;
@@ -27,6 +28,9 @@ final class OpenAiClient {
     static final String DEFAULT_REASONING_EFFORT = "max";
 
     private static final URL RESPONSES_URL;
+    private static final int CONNECTION_RETRY_PASSES = 2;
+    private static final long CONNECTION_RETRY_DELAY_MS = 450L;
+    private static volatile Network lastKnownGoodNetwork;
 
     static {
         try {
@@ -62,29 +66,62 @@ final class OpenAiClient {
         body.put("input", prompt);
 
         byte[] request = body.toString().getBytes(StandardCharsets.UTF_8);
-        Exception firstFailure = null;
+        IOException firstFailure = null;
 
-        // First use Android's normal selected route exactly as other HTTPS apps do.
-        // v0.3.1 incorrectly performed an extra Network.getByName() before this request;
-        // a transient DNS failure there could reject a route that HttpURLConnection itself
-        // would otherwise have handled correctly.
-        try {
-            return executeRequest(null, request);
-        } catch (UnknownHostException | ConnectException | SocketTimeoutException error) {
-            firstFailure = error;
-        } catch (IOException error) {
-            firstFailure = error;
-        }
+        for (int pass = 0; pass < CONNECTION_RETRY_PASSES; pass++) {
+            if (pass > 0) {
+                try {
+                    Thread.sleep(CONNECTION_RETRY_DELAY_MS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
 
-        // If the selected route failed, try each other Android network directly. Do not
-        // pre-resolve the hostname; Network.openConnection() owns DNS + routing together.
-        for (Network network : candidateNetworks()) {
+            Network preferred = validCachedNetwork();
+            if (preferred != null) {
+                try {
+                    JSONObject result = executeRequest(preferred, request);
+                    rememberNetwork(preferred);
+                    return result;
+                } catch (IOException error) {
+                    if (firstFailure == null) firstFailure = error;
+                    clearCachedNetwork(preferred);
+                    if (!isSafeConnectionRetry(error)) {
+                        throw networkFailure(error);
+                    }
+                }
+            }
+
+            // Use Android's ordinary selected route. A successful default request also
+            // records the current active Network so the following nine cognitive calls
+            // can reuse the same route instead of rediscovering it each time.
             try {
-                return executeRequest(network, request);
-            } catch (UnknownHostException | ConnectException | SocketTimeoutException error) {
-                if (firstFailure == null) firstFailure = error;
+                JSONObject result = executeRequest(null, request);
+                rememberActiveNetwork();
+                return result;
             } catch (IOException error) {
                 if (firstFailure == null) firstFailure = error;
+                if (!isSafeConnectionRetry(error)) {
+                    throw networkFailure(error);
+                }
+            }
+
+            // Only connection-establishment failures are retried on alternate routes.
+            // Read timeouts / generic I/O failures are not automatically replayed because
+            // the POST may already have reached OpenAI and blind replay could duplicate work.
+            for (Network network : candidateNetworks()) {
+                if (network == null || network.equals(preferred)) continue;
+                try {
+                    JSONObject result = executeRequest(network, request);
+                    rememberNetwork(network);
+                    return result;
+                } catch (IOException error) {
+                    if (firstFailure == null) firstFailure = error;
+                    if (!isSafeConnectionRetry(error)) {
+                        throw networkFailure(error);
+                    }
+                }
             }
         }
 
@@ -136,25 +173,63 @@ final class OpenAiClient {
         }
     }
 
+    private Network validCachedNetwork() {
+        Network cached = lastKnownGoodNetwork;
+        if (cached == null) return null;
+        ConnectivityManager manager = connectivityManager();
+        if (manager == null || !hasInternetCapability(manager, cached)) {
+            clearCachedNetwork(cached);
+            return null;
+        }
+        return cached;
+    }
+
+    private void rememberActiveNetwork() {
+        ConnectivityManager manager = connectivityManager();
+        if (manager == null) return;
+        Network active = manager.getActiveNetwork();
+        if (active != null && hasInternetCapability(manager, active)) {
+            rememberNetwork(active);
+        }
+    }
+
+    private static void rememberNetwork(Network network) {
+        if (network != null) lastKnownGoodNetwork = network;
+    }
+
+    private static void clearCachedNetwork(Network network) {
+        if (network != null && network.equals(lastKnownGoodNetwork)) {
+            lastKnownGoodNetwork = null;
+        }
+    }
+
     private List<Network> candidateNetworks() {
         List<Network> result = new ArrayList<>();
-        ConnectivityManager manager = (ConnectivityManager) appContext.getSystemService(Context.CONNECTIVITY_SERVICE);
+        ConnectivityManager manager = connectivityManager();
         if (manager == null) return result;
 
         Network active = manager.getActiveNetwork();
 
-        // Prefer validated fallback networks first. The default route was already tried,
-        // so active is intentionally not special-cased ahead of other validated routes.
+        // Prefer validated non-default alternatives first. Active/default has already been
+        // attempted through normal routing, but it is still appended later as an explicit
+        // Network because explicit binding can recover from some process/proxy route issues.
         for (Network network : manager.getAllNetworks()) {
-            if (network == null) continue;
+            if (network == null || network.equals(active)) continue;
             if (!hasInternetCapability(manager, network)) continue;
             if (isValidated(manager, network)) result.add(network);
+        }
+        if (active != null && hasInternetCapability(manager, active)) {
+            result.add(active);
         }
         for (Network network : manager.getAllNetworks()) {
             if (network == null || result.contains(network)) continue;
             if (hasInternetCapability(manager, network)) result.add(network);
         }
         return result;
+    }
+
+    private ConnectivityManager connectivityManager() {
+        return (ConnectivityManager) appContext.getSystemService(Context.CONNECTIVITY_SERVICE);
     }
 
     private static boolean hasInternetCapability(ConnectivityManager manager, Network network) {
@@ -169,39 +244,66 @@ final class OpenAiClient {
                 && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
     }
 
+    private static boolean isSafeConnectionRetry(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof UnknownHostException
+                    || current instanceof ConnectException
+                    || current instanceof NoRouteToHostException) {
+                return true;
+            }
+            if (current instanceof SocketTimeoutException) return false;
+            current = current.getCause();
+        }
+        return false;
+    }
+
     private IllegalStateException networkFailure(Exception cause) {
-        ConnectivityManager manager = (ConnectivityManager) appContext.getSystemService(Context.CONNECTIVITY_SERVICE);
+        ConnectivityManager manager = connectivityManager();
         boolean hasInternet = false;
         boolean hasValidated = false;
         int internetNetworks = 0;
-        int validatedNetworks = 0;
+        int validatedInternetNetworks = 0;
         if (manager != null) {
             for (Network network : manager.getAllNetworks()) {
                 NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
                 if (capabilities == null) continue;
-                if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                boolean internet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+                boolean validated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+                if (internet) {
                     hasInternet = true;
                     internetNetworks++;
-                }
-                if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
-                    hasValidated = true;
-                    validatedNetworks++;
+                    if (validated) {
+                        hasValidated = true;
+                        validatedInternetNetworks++;
+                    }
                 }
             }
         }
 
+        String causeName = rootCauseName(cause);
         String message;
         if (!hasInternet) {
             message = "インターネット接続を検出できません。Wi-Fiまたはモバイル通信を有効にして再試行してください。";
         } else if (!hasValidated) {
             message = "ネットワークには接続していますが、Androidが外部インターネット到達性を確認できません。Wi-Fiの認証画面、VPN、Private DNSを確認して再試行してください。";
         } else {
-            message = "api.openai.com へのHTTPS接続に失敗しました。通常経路の後、Androidが認識する利用可能な回線も直接試しました。"
-                    + "\n検出: internet=" + internetNetworks + " / validated=" + validatedNetworks
-                    + "\nPrivate DNS、VPN、広告ブロッカー、端末のRemote/プロキシ環境、Wi-Fi側DNSを確認してください。"
-                    + " Wi-Fiとモバイル通信の両方がある場合は片方だけにして再試行すると切り分けできます。";
+            message = "api.openai.com へのHTTPS接続に失敗しました。成功した回線の再利用、通常経路、利用可能な別回線を試しました。"
+                    + "\n検出: internet=" + internetNetworks
+                    + " / validatedInternet=" + validatedInternetNetworks
+                    + " / cause=" + causeName
+                    + "\nDNS/接続確立前の失敗は短時間リトライ済みです。Private DNS、VPN、広告ブロッカー、端末のRemote/プロキシ環境、Wi-Fi側DNSを確認してください。"
+                    + " Wi-Fiとモバイル通信の両方がある場合は片方だけにすると切り分けできます。";
         }
         return new IllegalStateException(message, cause);
+    }
+
+    private static String rootCauseName(Throwable error) {
+        if (error == null) return "unknown";
+        Throwable current = error;
+        while (current.getCause() != null) current = current.getCause();
+        String name = current.getClass().getSimpleName();
+        return name == null || name.isEmpty() ? "unknown" : name;
     }
 
     private static String apiErrorMessage(int status, String responseText) {
