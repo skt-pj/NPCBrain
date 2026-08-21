@@ -68,6 +68,21 @@ final class WorldStateStore {
         return null;
     }
 
+    synchronized WorldEvent eventByMessageId(String messageId) {
+        if (messageId == null || messageId.trim().isEmpty()) return null;
+        JSONArray events = loadEvents();
+        for (int i = events.length() - 1; i >= 0; i--) {
+            JSONObject item = events.optJSONObject(i);
+            if (item == null || !"message_received".equals(item.optString("event_type", ""))) continue;
+            JSONObject payload = item.optJSONObject("payload");
+            if (payload == null) continue;
+            if (messageId.equals(payload.optString("message_id", ""))) {
+                return WorldEvent.fromJson(item);
+            }
+        }
+        return null;
+    }
+
     synchronized JSONArray events() {
         try {
             return new JSONArray(loadEvents().toString());
