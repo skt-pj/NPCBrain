@@ -41,7 +41,7 @@ jobs:
       - name: Test and build release APK
         run: gradle :app:testDebugUnitTest :app:assembleRelease --stacktrace
 
-      - name: Prepare artifact
+      - name: Sign and prepare artifact
         id: artifact
         shell: bash
         run: |
@@ -49,9 +49,28 @@ jobs:
           VERSION_NAME="$(grep '^VERSION_NAME=' version.properties | cut -d= -f2)"
           VERSION_CODE="$(grep '^VERSION_CODE=' version.properties | cut -d= -f2)"
           APK_SOURCE="app/build/outputs/apk/release/app-release-unsigned.apk"
-          APK_TARGET="NPCBrain-v${VERSION_NAME}-unsigned.apk"
-          cp "$APK_SOURCE" "$APK_TARGET"
+          APK_TARGET="NPCBrain-v${VERSION_NAME}-release.apk"
+
           curl -fsSL "https://raw.githubusercontent.com/skt-pj/2048TD/main/ci/2048td-release.jks.b64" -o skt-common-signing.jks.b64
+          curl -fsSL "https://raw.githubusercontent.com/skt-pj/2048TD/main/app/build.gradle.kts" -o signing-source.gradle.kts
+          base64 --decode skt-common-signing.jks.b64 > skt-common-signing.jks
+
+          STORE_PASSWORD="$(sed -n 's/^[[:space:]]*storePassword = "\([^"]*\)"/\1/p' signing-source.gradle.kts | head -n1)"
+          KEY_ALIAS="$(sed -n 's/^[[:space:]]*keyAlias = "\([^"]*\)"/\1/p' signing-source.gradle.kts | head -n1)"
+          KEY_PASSWORD="$(sed -n 's/^[[:space:]]*keyPassword = "\([^"]*\)"/\1/p' signing-source.gradle.kts | head -n1)"
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" sign \
+            --ks skt-common-signing.jks \
+            --ks-pass "pass:${STORE_PASSWORD}" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --key-pass "pass:${KEY_PASSWORD}" \
+            --out "$APK_TARGET" \
+            "$APK_SOURCE"
+
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK_TARGET" | tee signing-certificate.txt
           sha256sum "$APK_TARGET" > "${APK_TARGET}.sha256"
           {
             echo "repository=${GITHUB_REPOSITORY}"
@@ -60,9 +79,10 @@ jobs:
             echo "versionName=${VERSION_NAME}"
             echo "versionCode=${VERSION_CODE}"
             echo "run=${GITHUB_RUN_ID}"
-            echo "build=testDebugUnitTest,assembleRelease"
+            echo "build=testDebugUnitTest,assembleRelease,apksigner"
           } > build-metadata.txt
-          echo "name=NPCBrain-v${VERSION_NAME}-unsigned" >> "$GITHUB_OUTPUT"
+          rm -f skt-common-signing.jks skt-common-signing.jks.b64 signing-source.gradle.kts
+          echo "name=NPCBrain-v${VERSION_NAME}-release" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK artifact
@@ -71,10 +91,10 @@ jobs:
         with:
           name: ${{ steps.artifact.outputs.name }}
           path: |
-            NPCBrain-v*-unsigned.apk
-            NPCBrain-v*-unsigned.apk.sha256
+            NPCBrain-v*-release.apk
+            NPCBrain-v*-release.apk.sha256
+            signing-certificate.txt
             build-metadata.txt
-            skt-common-signing.jks.b64
           if-no-files-found: error
 
       - name: Record CI result
