@@ -11,6 +11,7 @@ import java.util.UUID;
 final class ConversationStore {
     private static final String PREFS = "npcbrain_conversations_v1";
     private static final int MAX_MESSAGES_PER_ROOM = 120;
+    private static final String DECISION_PREFIX = "decision_";
 
     private final SharedPreferences preferences;
 
@@ -53,6 +54,28 @@ final class ConversationStore {
         );
     }
 
+    synchronized JSONObject appendNpcSilentDecision(
+            String roomId,
+            String npcId,
+            String senderName,
+            String action,
+            long timeMs,
+            String causeEventId,
+            JSONArray brainTrace
+    ) {
+        return append(
+                roomId,
+                DECISION_PREFIX + safeId(npcId),
+                (senderName == null || senderName.trim().isEmpty() ? "NPC" : senderName.trim())
+                        + "（返信なし）",
+                "返信しませんでした",
+                action,
+                timeMs,
+                causeEventId,
+                brainTrace
+        );
+    }
+
     synchronized JSONArray messages(String roomId) {
         JSONArray source = load(roomId);
         try {
@@ -84,7 +107,9 @@ final class ConversationStore {
         for (int i = start; i < items.length(); i++) {
             JSONObject item = items.optJSONObject(i);
             if (item == null) continue;
-            String sender = item.optString("sender_name", item.optString("sender_id", "?"));
+            String senderId = item.optString("sender_id", "");
+            if (senderId.startsWith(DECISION_PREFIX)) continue;
+            String sender = item.optString("sender_name", senderId.isEmpty() ? "?" : senderId);
             String text = item.optString("text", "").trim();
             if (text.isEmpty()) continue;
             if (result.length() > 0) result.append('\n');
@@ -151,5 +176,10 @@ final class ConversationStore {
         String value = roomId == null ? "unknown" : roomId.trim().toLowerCase();
         value = value.replaceAll("[^a-z0-9_-]", "_");
         return "room_" + value;
+    }
+
+    private static String safeId(String value) {
+        if (value == null || value.trim().isEmpty()) return "npc";
+        return value.trim().toLowerCase().replaceAll("[^a-z0-9_-]", "_");
     }
 }
