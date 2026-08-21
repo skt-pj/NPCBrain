@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'ci-output/**'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -58,8 +60,10 @@ jobs:
             echo "build=testDebugUnitTest,assembleRelease"
           } > build-metadata.txt
           echo "name=NPCBrain-v${VERSION_NAME}-unsigned" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK artifact
+        id: upload
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.artifact.outputs.name }}
@@ -68,3 +72,25 @@ jobs:
             NPCBrain-v*-unsigned.apk.sha256
             build-metadata.txt
           if-no-files-found: error
+
+      - name: Record successful build
+        shell: bash
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_NAME: ${{ steps.artifact.outputs.name }}
+          VERSION_NAME: ${{ steps.artifact.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-output
+          {
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "job_commit=${GITHUB_SHA}"
+            echo "artifact_id=${ARTIFACT_ID}"
+            echo "artifact_name=${ARTIFACT_NAME}"
+            echo "versionName=${VERSION_NAME}"
+          } > ci-output/latest-run.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ci-output/latest-run.txt
+          git commit -m "Record successful Android CI run [skip ci]"
+          git push
