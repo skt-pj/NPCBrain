@@ -29,6 +29,26 @@ final class ScheduleSlot {
         this.context = safe(context, "");
     }
 
+    static ScheduleSlot fromJson(JSONObject json) {
+        if (json == null) return null;
+        String entryId = json.optString("entry_id", "").trim();
+        int start = json.optInt("start_minute", -1);
+        int end = json.optInt("end_minute", -1);
+        String activity = json.optString("activity", "").trim();
+        String location = json.optString("location", "").trim();
+        if (entryId.isEmpty() || activity.isEmpty() || location.isEmpty()) return null;
+        if (start < 0 || start >= 1440 || end <= start || end > 1440) return null;
+        return new ScheduleSlot(
+                entryId,
+                start,
+                end,
+                activity,
+                location,
+                json.optString("goal", ""),
+                json.optString("context", "")
+        );
+    }
+
     String entryId() {
         return entryId;
     }
@@ -59,6 +79,17 @@ final class ScheduleSlot {
 
     boolean containsMinute(int minuteOfDay) {
         return minuteOfDay >= startMinute && minuteOfDay < endMinute;
+    }
+
+    boolean sameDefinition(ScheduleSlot other) {
+        return other != null
+                && entryId.equals(other.entryId)
+                && startMinute == other.startMinute
+                && endMinute == other.endMinute
+                && activity.equals(other.activity)
+                && location.equals(other.location)
+                && goal.equals(other.goal)
+                && context.equals(other.context);
     }
 
     JSONObject toJson() {
