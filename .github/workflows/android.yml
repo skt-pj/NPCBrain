@@ -6,8 +6,6 @@ on:
       - main
     paths-ignore:
       - 'ci-output/**'
-  issues:
-    types: [opened]
   workflow_dispatch:
 
 permissions:
