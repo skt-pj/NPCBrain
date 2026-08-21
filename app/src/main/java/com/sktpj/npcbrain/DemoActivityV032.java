@@ -15,6 +15,8 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.inputmethod.InputMethodManager;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import android.content.Context;
 import android.widget.Button;
 import android.widget.EditText;
@@ -74,6 +76,9 @@ public final class DemoActivityV032 extends Activity {
     private JSONObject retryUserMessage;
     private String retryRoomId;
 
+    private OnBackInvokedCallback chatBackCallback;
+    private boolean chatBackCallbackRegistered;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -82,17 +87,44 @@ public final class DemoActivityV032 extends Activity {
         modelSettingsStore = new ModelSettingsStore(this);
         conversationStore = new ConversationStore(this);
         demoRuntime = new DemoRuntimeV032(this, conversationStore);
+        if (Build.VERSION.SDK_INT >= 33) {
+            chatBackCallback = this::showRoomList;
+        }
         setContentView(buildShell());
         showRoomList();
     }
 
     @Override
+    protected void onDestroy() {
+        if (Build.VERSION.SDK_INT >= 33 && chatBackCallbackRegistered && chatBackCallback != null) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(chatBackCallback);
+            chatBackCallbackRegistered = false;
+        }
+        super.onDestroy();
+    }
+
+    @Override
     public void onBackPressed() {
-        if (currentRoomId != null) {
+        if (ConversationUiPolicy.consumesSystemBack(currentRoomId)) {
             showRoomList();
             return;
         }
         super.onBackPressed();
+    }
+
+    private void updateSystemBackCallback() {
+        if (Build.VERSION.SDK_INT < 33 || chatBackCallback == null) return;
+        boolean shouldRegister = ConversationUiPolicy.consumesSystemBack(currentRoomId);
+        if (shouldRegister == chatBackCallbackRegistered) return;
+        OnBackInvokedDispatcher dispatcher = getOnBackInvokedDispatcher();
+        if (shouldRegister) {
+            dispatcher.registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                    chatBackCallback);
+        } else {
+            dispatcher.unregisterOnBackInvokedCallback(chatBackCallback);
+        }
+        chatBackCallbackRegistered = shouldRegister;
     }
 
     private View buildShell() {
@@ -158,6 +190,7 @@ public final class DemoActivityV032 extends Activity {
 
     private void showRoomList() {
         currentRoomId = null;
+        updateSystemBackCallback();
         hideKeyboard();
         backButton.setVisibility(View.INVISIBLE);
         menuButton.setVisibility(View.VISIBLE);
@@ -232,6 +265,7 @@ public final class DemoActivityV032 extends Activity {
 
     private void openRoom(String roomId) {
         currentRoomId = roomId;
+        updateSystemBackCallback();
         backButton.setVisibility(View.VISIBLE);
         menuButton.setVisibility(View.GONE);
         titleView.setText(demoRuntime.roomTitle(roomId));
