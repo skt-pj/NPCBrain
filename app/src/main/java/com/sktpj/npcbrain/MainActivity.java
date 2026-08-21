@@ -2,6 +2,7 @@ package com.sktpj.npcbrain;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -12,9 +13,7 @@ import android.view.DisplayCutout;
 import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
-import android.view.WindowInsets;
 import android.view.inputmethod.InputMethodManager;
-import android.content.Context;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -79,8 +78,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        header.addView(titleBox, titleParams);
+        header.addView(titleBox, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView title = new TextView(this);
         title.setText("NPCBrain");
@@ -107,16 +105,17 @@ public final class MainActivity extends Activity {
         root.addView(header);
 
         TextView model = new TextView(this);
-        model.setText("GPT-5.6 · reasoning MAX");
-        model.setTextColor(Color.rgb(64, 64, 74));
+        model.setText("GPT-5.6 Luna · reasoning MAX");
+        model.setTextColor(Color.rgb(52, 67, 101));
         model.setTextSize(13);
+        model.setTypeface(Typeface.DEFAULT_BOLD);
         LinearLayout.LayoutParams modelParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         modelParams.topMargin = dp(2);
         root.addView(model, modelParams);
 
         TextView description = new TextView(this);
-        description.setText("9つの専門領域とGlobal Workspaceを順に動かし、下の脳内モニターへ各領域の公開用要約を表示します。");
+        description.setText("9つの専門領域とGlobal WorkspaceをGPT-5.6 Lunaで順に動かし、下の脳内モニターへ各領域の公開用要約を表示します。");
         description.setTextColor(Color.rgb(74, 74, 84));
         description.setTextSize(13);
         description.setLineSpacing(0f, 1.12f);
@@ -162,6 +161,7 @@ public final class MainActivity extends Activity {
 
         bodyScroll = new ScrollView(this);
         bodyScroll.setFillViewport(true);
+
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(0, dp(6), 0, dp(24));
@@ -174,7 +174,7 @@ public final class MainActivity extends Activity {
         body.addView(monitorTitle);
 
         TextView monitorNote = new TextView(this);
-        monitorNote.setText("各領域の判断要約・信頼度・注目事実を表示します。逐語的な内部思考やチェーン・オブ・ソートは表示・保存しません。");
+        monitorNote.setText("各領域の判断要約・信頼度・注目事実を表示します。すべてGPT-5.6 Luna / reasoning MAXで処理します。逐語的な内部思考やチェーン・オブ・ソートは表示・保存しません。");
         monitorNote.setTextColor(Color.rgb(96, 96, 106));
         monitorNote.setTextSize(12);
         monitorNote.setLineSpacing(0f, 1.12f);
@@ -224,13 +224,13 @@ public final class MainActivity extends Activity {
         moduleCards.clear();
         monitorContainer.removeAllViews();
         for (String stageId : BrainEngine.stageIds()) {
-            ModuleCard card = createModuleCard(stageId, BrainEngine.stageLabel(stageId));
+            ModuleCard card = createModuleCard(BrainEngine.stageLabel(stageId));
             moduleCards.put(stageId, card);
             monitorContainer.addView(card.root);
         }
     }
 
-    private ModuleCard createModuleCard(String stageId, String label) {
+    private ModuleCard createModuleCard(String label) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(12), dp(10), dp(12), dp(10));
@@ -313,10 +313,10 @@ public final class MainActivity extends Activity {
         if (card == null) return;
         card.status.setText("思考中");
         card.status.setTextColor(Color.rgb(35, 93, 170));
-        card.summary.setText("入力・記憶・前段の結果を処理しています…");
+        card.summary.setText("GPT-5.6 Lunaが入力・記憶・前段の結果を処理しています…");
         card.summary.setTextColor(Color.rgb(49, 73, 105));
         card.facts.setVisibility(View.GONE);
-        card.meta.setText(current + "/" + total);
+        card.meta.setText(current + "/" + total + " · Luna MAX");
         card.meta.setVisibility(View.VISIBLE);
         card.root.setBackground(cardBackground(Color.rgb(237, 245, 255), Color.rgb(148, 185, 232)));
         statusView.setText(current + "/" + total + "  " + stageLabel);
@@ -347,7 +347,7 @@ public final class MainActivity extends Activity {
         }
 
         int confidencePercent = (int) Math.round(Math.max(0.0, Math.min(1.0, confidence)) * 100.0);
-        card.meta.setText("信頼度 " + confidencePercent + "%  ·  " + current + "/" + total);
+        card.meta.setText("信頼度 " + confidencePercent + "% · " + current + "/" + total + " · Luna MAX");
         card.meta.setVisibility(View.VISIBLE);
         card.root.setBackground(cardBackground(Color.rgb(241, 249, 243), Color.rgb(160, 207, 173)));
     }
@@ -461,7 +461,7 @@ public final class MainActivity extends Activity {
 
         new AlertDialog.Builder(this)
                 .setTitle("OpenAI APIキー")
-                .setMessage("端末のAndroid Keystoreで暗号化して保存します。長期記憶にはAPIキーを保存しません。")
+                .setMessage("GPT-5.6 LunaをOpenAI Responses APIで使用します。APIキーは端末のAndroid Keystoreで暗号化して保存し、長期記憶には保存しません。")
                 .setView(box)
                 .setPositiveButton("保存", (dialog, which) -> {
                     String key = keyInput.getText().toString().trim();
@@ -507,8 +507,8 @@ public final class MainActivity extends Activity {
         resetBrainMonitor();
         thinkButton.setEnabled(false);
         inputView.setEnabled(false);
-        outputView.setText("統合処理の完了を待っています…");
-        statusView.setText("思考開始");
+        outputView.setText("GPT-5.6 Lunaによる統合処理の完了を待っています…");
+        statusView.setText("Luna MAXで思考開始");
 
         new Thread(() -> {
             try {
@@ -535,7 +535,7 @@ public final class MainActivity extends Activity {
                 });
                 runOnUiThread(() -> {
                     outputView.setText(result);
-                    statusView.setText("完了");
+                    statusView.setText("完了 · GPT-5.6 Luna / MAX");
                     refreshMemoryStatus();
                     thinkButton.setEnabled(true);
                     inputView.setEnabled(true);
