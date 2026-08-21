@@ -16,16 +16,28 @@ final class WorldClock {
 
     synchronized long now() {
         long stored = preferences.getLong(KEY_WORLD_TIME_MS, 0L);
-        if (stored > 0L) return stored;
-        long initialized = System.currentTimeMillis();
-        preferences.edit().putLong(KEY_WORLD_TIME_MS, initialized).apply();
-        return initialized;
+        long resolved = resolveNow(stored, System.currentTimeMillis());
+        if (resolved != stored) {
+            preferences.edit().putLong(KEY_WORLD_TIME_MS, resolved).apply();
+        }
+        return resolved;
     }
 
     synchronized long advanceTo(long candidateTimeMs) {
         long current = now();
-        if (candidateTimeMs <= current) return current;
-        preferences.edit().putLong(KEY_WORLD_TIME_MS, candidateTimeMs).apply();
-        return candidateTimeMs;
+        long resolved = resolveAdvance(current, candidateTimeMs);
+        if (resolved != current) {
+            preferences.edit().putLong(KEY_WORLD_TIME_MS, resolved).apply();
+        }
+        return resolved;
+    }
+
+    static long resolveNow(long storedTimeMs, long wallTimeMs) {
+        if (storedTimeMs <= 0L) return Math.max(0L, wallTimeMs);
+        return Math.max(storedTimeMs, wallTimeMs);
+    }
+
+    static long resolveAdvance(long currentTimeMs, long candidateTimeMs) {
+        return Math.max(currentTimeMs, candidateTimeMs);
     }
 }
