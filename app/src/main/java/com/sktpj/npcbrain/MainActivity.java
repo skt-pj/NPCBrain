@@ -19,6 +19,8 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -43,6 +45,7 @@ public final class MainActivity extends Activity {
     }
 
     private SecureApiKeyStore apiKeyStore;
+    private ModelSettingsStore modelSettingsStore;
     private ConversationStore conversationStore;
     private DemoRuntime demoRuntime;
 
@@ -65,6 +68,7 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         configureEdgeToEdgeWindow();
         apiKeyStore = new SecureApiKeyStore(this);
+        modelSettingsStore = new ModelSettingsStore(this);
         conversationStore = new ConversationStore(this);
         demoRuntime = new DemoRuntime(this, conversationStore);
         setContentView(buildShell());
@@ -120,8 +124,8 @@ public final class MainActivity extends Activity {
         menuButton.setMinWidth(0);
         menuButton.setMinimumWidth(0);
         menuButton.setPadding(0, 0, 0, 0);
-        menuButton.setContentDescription("NPCBrainデモ設定");
-        menuButton.setOnClickListener(v -> showMenu(menuButton));
+        menuButton.setContentDescription("NPCBrainホーム設定");
+        menuButton.setOnClickListener(v -> showHomeMenu(menuButton));
         header.addView(menuButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
         root.addView(header);
 
@@ -129,7 +133,6 @@ public final class MainActivity extends Activity {
         screenContainer.setOrientation(LinearLayout.VERTICAL);
         root.addView(screenContainer, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
-
         return root;
     }
 
@@ -137,12 +140,13 @@ public final class MainActivity extends Activity {
         currentRoomId = null;
         hideKeyboard();
         backButton.setVisibility(View.INVISIBLE);
+        menuButton.setVisibility(View.VISIBLE);
         titleView.setText("NPCBrain Demo");
-        subtitleView.setText("会話をタップして、その発話を作った脳内トレースを確認");
+        subtitleView.setText("トークはデモ。設定はホームに集約");
         screenContainer.removeAllViews();
 
         TextView model = new TextView(this);
-        model.setText("GPT-5.6 Luna · reasoning MAX");
+        model.setText(currentModelSummary());
         model.setTextColor(Color.rgb(52, 67, 101));
         model.setTextSize(12);
         model.setTypeface(Typeface.DEFAULT_BOLD);
@@ -153,7 +157,7 @@ public final class MainActivity extends Activity {
         screenContainer.addView(model, modelParams);
 
         TextView note = new TextView(this);
-        note.setText("この画面はライブラリの挙動確認用デモです。NPC1/NPC2は人格と長期記憶を別々に持ちます。自律生活・時間経過は次段階で追加します。");
+        note.setText("APIキー・Luna推論モード・NPC設定は右上のホームメニューだけに置いています。個別トークにはグローバル設定を出しません。");
         note.setTextColor(Color.rgb(92, 92, 102));
         note.setTextSize(12);
         note.setLineSpacing(0f, 1.12f);
@@ -228,6 +232,7 @@ public final class MainActivity extends Activity {
     private void openRoom(String roomId) {
         currentRoomId = roomId;
         backButton.setVisibility(View.VISIBLE);
+        menuButton.setVisibility(View.GONE);
         titleView.setText(demoRuntime.roomTitle(roomId));
         subtitleView.setText(demoRuntime.roomSubtitle(roomId));
         renderChatScreen();
@@ -249,7 +254,9 @@ public final class MainActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         processingStatus = new TextView(this);
-        processingStatus.setText(processing ? "Luna MAXで処理中…" : "");
+        processingStatus.setText(processing
+                ? "Luna " + ModelSettingsStore.displayLabel(modelSettingsStore.reasoningEffort()) + " で処理中…"
+                : "");
         processingStatus.setTextColor(Color.rgb(92, 92, 102));
         processingStatus.setTextSize(11);
         processingStatus.setGravity(Gravity.CENTER_VERTICAL);
@@ -369,7 +376,6 @@ public final class MainActivity extends Activity {
         metaParams.leftMargin = dp(8);
         metaParams.rightMargin = dp(8);
         wrapper.addView(meta, metaParams);
-
         return wrapper;
     }
 
@@ -434,7 +440,6 @@ public final class MainActivity extends Activity {
         scroll.addView(content, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT));
-
         new AlertDialog.Builder(this)
                 .setTitle(message.optString("sender_name", "NPC") + " の脳内トレース")
                 .setView(scroll)
@@ -490,27 +495,34 @@ public final class MainActivity extends Activity {
         if (facts != null && facts.length() > 0) {
             StringBuilder text = new StringBuilder("注目: ");
             int count = Math.min(3, facts.length());
+            boolean wrote = false;
             for (int i = 0; i < count; i++) {
                 String fact = facts.optString(i, "").trim();
                 if (fact.isEmpty()) continue;
-                if (text.length() > 4) text.append(" / ");
+                if (wrote) text.append(" / ");
                 text.append(fact);
+                wrote = true;
             }
-            TextView factsView = new TextView(this);
-            factsView.setText(text.toString());
-            factsView.setTextColor(Color.rgb(88, 88, 98));
-            factsView.setTextSize(11);
-            LinearLayout.LayoutParams factsParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT);
-            factsParams.topMargin = dp(5);
-            card.addView(factsView, factsParams);
+            if (wrote) {
+                TextView factsView = new TextView(this);
+                factsView.setText(text.toString());
+                factsView.setTextColor(Color.rgb(88, 88, 98));
+                factsView.setTextSize(11);
+                LinearLayout.LayoutParams factsParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                factsParams.topMargin = dp(5);
+                card.addView(factsView, factsParams);
+            }
         }
 
         int confidence = (int) Math.round(
                 Math.max(0.0, Math.min(1.0, stage.optDouble("confidence", 0.0))) * 100.0);
+        String model = stage.optString("model", OpenAiClient.MODEL);
+        String effort = stage.optString("reasoning_effort", OpenAiClient.DEFAULT_REASONING_EFFORT);
         TextView meta = new TextView(this);
-        meta.setText("信頼度 " + confidence + "% · Luna MAX");
+        meta.setText("信頼度 " + confidence + "% · " + model + " / "
+                + ModelSettingsStore.displayLabel(effort));
         meta.setTextColor(Color.rgb(120, 120, 130));
         meta.setTextSize(10);
         LinearLayout.LayoutParams metaParams = new LinearLayout.LayoutParams(
@@ -534,10 +546,11 @@ public final class MainActivity extends Activity {
             return;
         }
         if (apiKey.isEmpty()) {
-            showApiKeyDialog();
+            showMissingApiKeyDialog();
             return;
         }
 
+        final String reasoningEffort = modelSettingsStore.reasoningEffort();
         hideKeyboard();
         JSONObject userMessage = conversationStore.appendUserMessage(
                 currentRoomId, text, System.currentTimeMillis());
@@ -554,6 +567,7 @@ public final class MainActivity extends Activity {
                         roomAtStart,
                         userMessage,
                         apiKey,
+                        reasoningEffort,
                         new DemoRuntime.Listener() {
                             @Override
                             public void onNpcStarted(
@@ -565,7 +579,9 @@ public final class MainActivity extends Activity {
                                 runOnUiThread(() -> {
                                     if (processingStatus != null && roomAtStart.equals(currentRoomId)) {
                                         processingStatus.setText(
-                                                current + "/" + total + "  " + displayName + " が考えています · Luna MAX");
+                                                current + "/" + total + "  " + displayName
+                                                        + " が考えています · Luna "
+                                                        + ModelSettingsStore.displayLabel(reasoningEffort));
                                     }
                                 });
                             }
@@ -594,25 +610,26 @@ public final class MainActivity extends Activity {
         processing = false;
         if (roomId.equals(currentRoomId)) {
             if (sendButton != null) sendButton.setEnabled(true);
-            if (processingStatus != null) {
-                processingStatus.setText(error == null ? "" : "処理エラー");
-            }
+            if (processingStatus != null) processingStatus.setText(error == null ? "" : "処理エラー");
             refreshMessages();
         }
         if (error != null) showErrorDialog(error);
     }
 
-    private void showMenu(View anchor) {
+    private void showHomeMenu(View anchor) {
+        if (currentRoomId != null) return;
         PopupMenu popup = new PopupMenu(this, anchor);
+        popup.getMenu().add("AI設定");
         popup.getMenu().add("NPC1 人格設定");
         popup.getMenu().add("NPC2 人格設定");
         popup.getMenu().add("NPC1 記憶を見る");
         popup.getMenu().add("NPC2 記憶を見る");
-        popup.getMenu().add("OpenAI APIキー");
         popup.getMenu().add("会話履歴を消去");
         popup.setOnMenuItemClickListener(item -> {
             String title = item.getTitle().toString();
-            if ("NPC1 人格設定".equals(title)) {
+            if ("AI設定".equals(title)) {
+                showAiSettingsDialog();
+            } else if ("NPC1 人格設定".equals(title)) {
                 showPersonalityDialog("npc1");
             } else if ("NPC2 人格設定".equals(title)) {
                 showPersonalityDialog("npc2");
@@ -620,14 +637,148 @@ public final class MainActivity extends Activity {
                 showMemoryDialog("npc1");
             } else if ("NPC2 記憶を見る".equals(title)) {
                 showMemoryDialog("npc2");
-            } else if ("OpenAI APIキー".equals(title)) {
-                showApiKeyDialog();
             } else if ("会話履歴を消去".equals(title)) {
                 confirmClearConversations();
             }
             return true;
         });
         popup.show();
+    }
+
+    private void showAiSettingsDialog() {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(20), dp(4), dp(20), dp(16));
+
+        TextView model = new TextView(this);
+        model.setText("モデル: gpt-5.6-luna");
+        model.setTextColor(Color.rgb(40, 53, 85));
+        model.setTextSize(15);
+        model.setTypeface(Typeface.DEFAULT_BOLD);
+        form.addView(model);
+
+        TextView keyStatus = new TextView(this);
+        keyStatus.setText("APIキー: " + (hasApiKey() ? "登録済み" : "未登録"));
+        keyStatus.setTextColor(Color.rgb(82, 82, 92));
+        keyStatus.setTextSize(13);
+        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        statusParams.topMargin = dp(8);
+        form.addView(keyStatus, statusParams);
+
+        EditText keyInput = new EditText(this);
+        keyInput.setHint(hasApiKey() ? "APIキーを変更するときだけ入力" : "sk-...");
+        keyInput.setSingleLine(true);
+        keyInput.setTextSize(14);
+        keyInput.setInputType(
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        form.addView(keyInput, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        TextView effortTitle = new TextView(this);
+        effortTitle.setText("Luna 推論モード");
+        effortTitle.setTextColor(Color.rgb(48, 48, 56));
+        effortTitle.setTextSize(14);
+        effortTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams effortTitleParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        effortTitleParams.topMargin = dp(14);
+        form.addView(effortTitle, effortTitleParams);
+
+        RadioGroup efforts = new RadioGroup(this);
+        efforts.setOrientation(RadioGroup.VERTICAL);
+        String current = modelSettingsStore.reasoningEffort();
+        for (String effort : ModelSettingsStore.supportedEfforts()) {
+            RadioButton option = new RadioButton(this);
+            option.setId(View.generateViewId());
+            option.setTag(effort);
+            option.setText(ModelSettingsStore.displayLabel(effort)
+                    + " — " + ModelSettingsStore.description(effort));
+            option.setTextSize(13);
+            option.setChecked(effort.equals(current));
+            efforts.addView(option, new RadioGroup.LayoutParams(
+                    RadioGroup.LayoutParams.MATCH_PARENT,
+                    RadioGroup.LayoutParams.WRAP_CONTENT));
+        }
+        form.addView(efforts);
+
+        TextView help = new TextView(this);
+        help.setText("全NPC共通です。モデルIDはLuna固定で、推論量だけを切り替えます。既存動作を維持するため初期値はMAXです。APIキー入力欄はこの画面だけです。");
+        help.setTextColor(Color.rgb(100, 100, 110));
+        help.setTextSize(11);
+        help.setLineSpacing(0f, 1.12f);
+        LinearLayout.LayoutParams helpParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        helpParams.topMargin = dp(8);
+        form.addView(help, helpParams);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(form, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT));
+
+        new AlertDialog.Builder(this)
+                .setTitle("AI設定")
+                .setView(scroll)
+                .setPositiveButton("保存", (dialog, which) -> {
+                    String newKey = keyInput.getText().toString().trim();
+                    if (!newKey.isEmpty()) {
+                        try {
+                            apiKeyStore.save(newKey);
+                        } catch (Exception error) {
+                            Toast.makeText(this,
+                                    "APIキー保存失敗: " + error.getMessage(),
+                                    Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                    }
+                    modelSettingsStore.setReasoningEffort(selectedEffort(efforts));
+                    showRoomList();
+                    Toast.makeText(this, "AI設定を保存しました", Toast.LENGTH_SHORT).show();
+                })
+                .setNeutralButton("APIキー削除", (dialog, which) -> {
+                    apiKeyStore.clear();
+                    showRoomList();
+                    Toast.makeText(this, "APIキーを削除しました", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("キャンセル", null)
+                .show();
+    }
+
+    private String selectedEffort(RadioGroup group) {
+        int checkedId = group.getCheckedRadioButtonId();
+        View selected = group.findViewById(checkedId);
+        if (selected != null && selected.getTag() != null) {
+            return ModelSettingsStore.normalizeReasoningEffort(selected.getTag().toString());
+        }
+        return modelSettingsStore.reasoningEffort();
+    }
+
+    private boolean hasApiKey() {
+        try {
+            return !apiKeyStore.load().trim().isEmpty();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private String currentModelSummary() {
+        return "GPT-5.6 Luna · reasoning "
+                + ModelSettingsStore.displayLabel(modelSettingsStore.reasoningEffort())
+                + " · APIキー " + (hasApiKey() ? "設定済み" : "未設定");
+    }
+
+    private void showMissingApiKeyDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("APIキーが未設定です")
+                .setMessage("APIキーの入力場所はホームの「AI設定」1か所だけです。トーク画面では設定を変更できません。")
+                .setPositiveButton("ホームへ", (dialog, which) -> showRoomList())
+                .setNegativeButton("閉じる", null)
+                .show();
     }
 
     private void showPersonalityDialog(String npcId) {
@@ -638,8 +789,7 @@ public final class MainActivity extends Activity {
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(20), dp(4), dp(20), dp(16));
 
-        EditText name = addTextField(
-                form, "名前", demoRuntime.displayName(npcId), true, 1);
+        EditText name = addTextField(form, "名前", demoRuntime.displayName(npcId), true, 1);
         EditText role = addTextField(
                 form, "役割・自己像", memoryStore.profileText("role_identity"), false, 2);
 
@@ -654,20 +804,15 @@ public final class MainActivity extends Activity {
         form.addView(traitHelp, traitHelpParams);
 
         TraitControl extraversion = createTraitControl(
-                "外向性",
-                characterStore.traitPercent(CharacterStateStore.extraversionKey()));
+                "外向性", characterStore.traitPercent(CharacterStateStore.extraversionKey()));
         TraitControl neuroticism = createTraitControl(
-                "神経症傾向",
-                characterStore.traitPercent(CharacterStateStore.neuroticismKey()));
+                "神経症傾向", characterStore.traitPercent(CharacterStateStore.neuroticismKey()));
         TraitControl agreeableness = createTraitControl(
-                "協調性",
-                characterStore.traitPercent(CharacterStateStore.agreeablenessKey()));
+                "協調性", characterStore.traitPercent(CharacterStateStore.agreeablenessKey()));
         TraitControl conscientiousness = createTraitControl(
-                "誠実性",
-                characterStore.traitPercent(CharacterStateStore.conscientiousnessKey()));
+                "誠実性", characterStore.traitPercent(CharacterStateStore.conscientiousnessKey()));
         TraitControl openness = createTraitControl(
-                "開放性",
-                characterStore.traitPercent(CharacterStateStore.opennessKey()));
+                "開放性", characterStore.traitPercent(CharacterStateStore.opennessKey()));
 
         form.addView(extraversion.root);
         form.addView(neuroticism.root);
@@ -675,12 +820,9 @@ public final class MainActivity extends Activity {
         form.addView(conscientiousness.root);
         form.addView(openness.root);
 
-        EditText values = addTextField(
-                form, "価値観", memoryStore.profileText("value"), false, 2);
-        EditText goals = addTextField(
-                form, "目標", memoryStore.profileText("goal"), false, 2);
-        EditText fears = addTextField(
-                form, "恐れ・避けたいこと", memoryStore.profileText("fear"), false, 2);
+        EditText values = addTextField(form, "価値観", memoryStore.profileText("value"), false, 2);
+        EditText goals = addTextField(form, "目標", memoryStore.profileText("goal"), false, 2);
+        EditText fears = addTextField(form, "恐れ・避けたいこと", memoryStore.profileText("fear"), false, 2);
         EditText relationships = addTextField(
                 form, "人間関係・相手への態度", memoryStore.profileText("relationship"), false, 3);
         EditText speechStyle = addTextField(
@@ -722,27 +864,17 @@ public final class MainActivity extends Activity {
                             fears.getText().toString(),
                             relationships.getText().toString()
                     );
-                    refreshCurrentScreenTitles();
+                    showRoomList();
                     Toast.makeText(this, "人格設定を保存しました", Toast.LENGTH_SHORT).show();
                 })
                 .setNeutralButton("標準に戻す", (dialog, which) -> {
                     characterStore.reset();
                     memoryStore.clearProfileAdaptations();
-                    refreshCurrentScreenTitles();
+                    showRoomList();
                     Toast.makeText(this, "人格設定を標準に戻しました", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("キャンセル", null)
                 .show();
-    }
-
-    private void refreshCurrentScreenTitles() {
-        if (currentRoomId == null) {
-            showRoomList();
-        } else {
-            titleView.setText(demoRuntime.roomTitle(currentRoomId));
-            subtitleView.setText(demoRuntime.roomSubtitle(currentRoomId));
-            refreshMessages();
-        }
     }
 
     private EditText addTextField(
@@ -852,53 +984,13 @@ public final class MainActivity extends Activity {
                 .show();
     }
 
-    private void showApiKeyDialog() {
-        EditText keyInput = new EditText(this);
-        keyInput.setHint("sk-...");
-        keyInput.setSingleLine(true);
-        keyInput.setInputType(
-                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        int pad = dp(20);
-        LinearLayout box = new LinearLayout(this);
-        box.setPadding(pad, 0, pad, 0);
-        box.addView(keyInput, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        new AlertDialog.Builder(this)
-                .setTitle("OpenAI APIキー")
-                .setMessage("全NPCの認知処理はGPT-5.6 Luna / reasoning MAXを使用します。APIキーはAndroid Keystoreで暗号化して保存します。")
-                .setView(box)
-                .setPositiveButton("保存", (dialog, which) -> {
-                    String key = keyInput.getText().toString().trim();
-                    if (key.isEmpty()) {
-                        Toast.makeText(this, "APIキーが空です", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    try {
-                        apiKeyStore.save(key);
-                        Toast.makeText(this, "保存しました", Toast.LENGTH_SHORT).show();
-                    } catch (Exception error) {
-                        Toast.makeText(this,
-                                "保存失敗: " + error.getMessage(),
-                                Toast.LENGTH_LONG).show();
-                    }
-                })
-                .setNeutralButton("削除", (dialog, which) -> {
-                    apiKeyStore.clear();
-                    Toast.makeText(this, "APIキーを削除しました", Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("キャンセル", null)
-                .show();
-    }
-
     private void confirmClearConversations() {
         new AlertDialog.Builder(this)
                 .setTitle("会話履歴を消去")
-                .setMessage("3つのデモトークと、各NPC発話に紐づく脳内トレースを削除します。NPCの人格・長期記憶・APIキーは削除しません。")
+                .setMessage("3つのデモトークと、各NPC発話に紐づく脳内トレースを削除します。NPCの人格・長期記憶・AI設定は削除しません。")
                 .setPositiveButton("消去", (dialog, which) -> {
                     conversationStore.clearAll();
-                    if (currentRoomId == null) showRoomList(); else refreshMessages();
+                    showRoomList();
                     Toast.makeText(this, "会話履歴を消去しました", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("キャンセル", null)
