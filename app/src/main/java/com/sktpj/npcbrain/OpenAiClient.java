@@ -23,7 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 final class OpenAiClient {
-    static final String MODEL = "gpt-5.6";
+    static final String MODEL = "gpt-5.6-luna";
     static final String REASONING_EFFORT = "max";
 
     private static final String API_HOST = "api.openai.com";
@@ -190,7 +190,7 @@ final class OpenAiClient {
             return "OpenAI APIキーが無効、期限切れ、または利用できません。APIキー設定を確認してください。\n" + detail;
         }
         if (status == 404 && detail.contains("model")) {
-            return "指定モデルを利用できません。アカウントのモデル権限またはモデル名を確認してください。\n" + detail;
+            return "GPT-5.6 Luna を利用できません。APIアカウントのモデル権限または提供状況を確認してください。\n" + detail;
         }
         if (status == 429) {
             return "OpenAI APIの利用上限またはレート制限に達しました。時間を置くか、APIアカウントの利用状況を確認してください。\n" + detail;
