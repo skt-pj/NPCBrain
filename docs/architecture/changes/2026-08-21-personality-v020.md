@@ -155,3 +155,26 @@ Architecture topology change: **none**.
 Global Workspace output-contract change and shared-character-state integration were explicitly authorized by the user's instruction to implement the audited design as an APK.
 
 Implementation may proceed on `main`; no feature branch is used.
+
+## 9. Implementation and verification result
+
+Implemented app commit: `0e870133498ff73da43aef1b36570469a573785c`.
+
+Verified CI run: `32455477066`.
+
+Result: success for `testDebugUnitTest`, `assembleRelease`, APK signing, signature verification, and artifact upload.
+
+Artifact:
+- ID: `9437111610`
+- name: `NPCBrain-v0.2.0-release`
+- APK SHA-256: `3ff3d2dfa0873c7f6ca6f92e8beddd906859cf958746aee083d26faa7bf06f4b`
+- signing: v1/v2/v3 verified
+- signer certificate SHA-256: `e648320071b8ab0de038f76790064b99461b67d7dbe7ce7506d12a5f4fa884d8`
+
+The final source tree contains the fixed 9 specialist modules + Global Workspace, the new shared `CharacterStateStore`, typed semantic adaptations, personality-aware brain-monitor summaries, and the NPC utterance/action output contract.
+
+## 10. Execution note
+
+During repository manipulation, one unintended transient commit `c2daee640fb93017aa368c9dde8efc7ef878c92d` with message `noop` created an empty file named `noop`. The immediately following implementation commit removed that file while applying the intended v0.2.0 tree. The final tree contains no `noop` file.
+
+Because the transient commit was already published to `main`, history was not force-rewritten. It caused one unnecessary CI run (`32455429000`) for v0.1.3. This is retained as an explicit evidence trail rather than hidden by rewriting shared history.
