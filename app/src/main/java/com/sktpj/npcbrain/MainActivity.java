@@ -9,6 +9,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.view.DisplayCutout;
 import android.view.Gravity;
 import android.view.View;
@@ -24,27 +25,13 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 public final class MainActivity extends Activity {
-    private static final class ModuleCard {
-        final LinearLayout root;
-        final TextView status;
-        final TextView summary;
-        final TextView facts;
-        final TextView meta;
-
-        ModuleCard(LinearLayout root, TextView status, TextView summary, TextView facts, TextView meta) {
-            this.root = root;
-            this.status = status;
-            this.summary = summary;
-            this.facts = facts;
-            this.meta = meta;
-        }
-    }
-
     private static final class TraitControl {
         final LinearLayout root;
         final SeekBar seekBar;
@@ -56,32 +43,38 @@ public final class MainActivity extends Activity {
     }
 
     private SecureApiKeyStore apiKeyStore;
-    private MemoryStore memoryStore;
-    private CharacterStateStore characterStateStore;
-    private EditText inputView;
-    private TextView statusView;
-    private TextView outputView;
-    private TextView memoryStatusView;
-    private Button thinkButton;
-    private ScrollView bodyScroll;
-    private LinearLayout monitorContainer;
-    private final Map<String, ModuleCard> moduleCards = new LinkedHashMap<>();
-    private String activeStageId = "";
+    private ConversationStore conversationStore;
+    private DemoRuntime demoRuntime;
+
+    private LinearLayout screenContainer;
+    private TextView titleView;
+    private TextView subtitleView;
+    private Button backButton;
+    private Button menuButton;
+
+    private String currentRoomId;
+    private ScrollView chatScroll;
+    private LinearLayout messageContainer;
+    private EditText messageInput;
+    private Button sendButton;
+    private TextView processingStatus;
+    private volatile boolean processing;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         configureEdgeToEdgeWindow();
         apiKeyStore = new SecureApiKeyStore(this);
-        memoryStore = new MemoryStore(this);
-        characterStateStore = new CharacterStateStore(this);
-        setContentView(buildUi());
+        conversationStore = new ConversationStore(this);
+        demoRuntime = new DemoRuntime(this, conversationStore);
+        setContentView(buildShell());
+        showRoomList();
     }
 
-    private View buildUi() {
+    private View buildShell() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.rgb(250, 250, 252));
+        root.setBackgroundColor(Color.rgb(248, 249, 251));
         applySafeInsets(root);
 
         LinearLayout header = new LinearLayout(this);
@@ -89,388 +82,564 @@ public final class MainActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setMinimumHeight(dp(60));
 
+        backButton = new Button(this);
+        backButton.setText("‹");
+        backButton.setTextSize(30);
+        backButton.setMinWidth(0);
+        backButton.setMinimumWidth(0);
+        backButton.setPadding(0, 0, 0, 0);
+        backButton.setContentDescription("トーク一覧に戻る");
+        backButton.setOnClickListener(v -> showRoomList());
+        header.addView(backButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
-        header.addView(titleBox, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams titleBoxParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        titleBoxParams.leftMargin = dp(4);
+        header.addView(titleBox, titleBoxParams);
 
-        TextView title = new TextView(this);
-        title.setText("NPCBrain");
-        title.setTextColor(Color.rgb(24, 24, 28));
-        title.setTextSize(23);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        titleBox.addView(title);
+        titleView = new TextView(this);
+        titleView.setTextColor(Color.rgb(24, 24, 28));
+        titleView.setTextSize(21);
+        titleView.setTypeface(Typeface.DEFAULT_BOLD);
+        titleView.setMaxLines(1);
+        titleView.setEllipsize(TextUtils.TruncateAt.END);
+        titleBox.addView(titleView);
 
-        memoryStatusView = new TextView(this);
-        memoryStatusView.setTextColor(Color.rgb(92, 92, 102));
-        memoryStatusView.setTextSize(12);
-        titleBox.addView(memoryStatusView);
-        refreshHeaderStatus();
+        subtitleView = new TextView(this);
+        subtitleView.setTextColor(Color.rgb(102, 102, 112));
+        subtitleView.setTextSize(11);
+        subtitleView.setMaxLines(1);
+        subtitleView.setEllipsize(TextUtils.TruncateAt.END);
+        titleBox.addView(subtitleView);
 
-        Button menuButton = new Button(this);
+        menuButton = new Button(this);
         menuButton.setText("⋮");
         menuButton.setTextSize(24);
         menuButton.setMinWidth(0);
         menuButton.setMinimumWidth(0);
         menuButton.setPadding(0, 0, 0, 0);
-        menuButton.setContentDescription("人格・設定・記憶メニュー");
+        menuButton.setContentDescription("NPCBrainデモ設定");
         menuButton.setOnClickListener(v -> showMenu(menuButton));
         header.addView(menuButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
         root.addView(header);
 
-        TextView model = new TextView(this);
-        model.setText("GPT-5.6 Luna · reasoning MAX");
-        model.setTextColor(Color.rgb(52, 67, 101));
-        model.setTextSize(13);
-        model.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams modelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        modelParams.topMargin = dp(2);
-        root.addView(model, modelParams);
-
-        TextView description = new TextView(this);
-        description.setText(
-                "9つの専門領域＋Global Workspaceは固定したまま、設定した性格・価値観・目標・関係性を各領域の判断へ反映します。最終出力はAIの解説ではなくNPCの発話と行動です。");
-        description.setTextColor(Color.rgb(74, 74, 84));
-        description.setTextSize(13);
-        description.setLineSpacing(0f, 1.12f);
-        LinearLayout.LayoutParams descriptionParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        descriptionParams.topMargin = dp(6);
-        root.addView(description, descriptionParams);
-
-        inputView = new EditText(this);
-        inputView.setHint("NPCが置かれた状況・起きた出来事・相手の発言など");
-        inputView.setTextSize(16);
-        inputView.setGravity(Gravity.TOP | Gravity.START);
-        inputView.setMinLines(3);
-        inputView.setMaxLines(5);
-        inputView.setPadding(dp(12), dp(12), dp(12), dp(12));
-        inputView.setInputType(InputType.TYPE_CLASS_TEXT
-                | InputType.TYPE_TEXT_FLAG_MULTI_LINE
-                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        inputParams.topMargin = dp(10);
-        root.addView(inputView, inputParams);
-
-        thinkButton = new Button(this);
-        thinkButton.setText("反応させる");
-        thinkButton.setTextSize(16);
-        thinkButton.setTypeface(Typeface.DEFAULT_BOLD);
-        thinkButton.setContentDescription("入力した状況にNPCを反応させる");
-        thinkButton.setOnClickListener(v -> startThinking());
-        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
-        buttonParams.topMargin = dp(8);
-        root.addView(thinkButton, buttonParams);
-
-        statusView = new TextView(this);
-        statusView.setText("待機中");
-        statusView.setTextColor(Color.rgb(92, 92, 102));
-        statusView.setTextSize(12);
-        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        statusParams.topMargin = dp(6);
-        root.addView(statusView, statusParams);
-
-        bodyScroll = new ScrollView(this);
-        bodyScroll.setFillViewport(true);
-
-        LinearLayout body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(0, dp(6), 0, dp(24));
-
-        TextView monitorTitle = new TextView(this);
-        monitorTitle.setText("脳内モニター");
-        monitorTitle.setTextColor(Color.rgb(28, 28, 34));
-        monitorTitle.setTextSize(18);
-        monitorTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        body.addView(monitorTitle);
-
-        TextView monitorNote = new TextView(this);
-        monitorNote.setText(
-                "各領域の公開用判断要約・人格影響・信頼度・注目事実を表示します。逐語的な内部思考やチェーン・オブ・ソートは表示・保存しません。");
-        monitorNote.setTextColor(Color.rgb(96, 96, 106));
-        monitorNote.setTextSize(12);
-        monitorNote.setLineSpacing(0f, 1.12f);
-        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        noteParams.topMargin = dp(3);
-        body.addView(monitorNote, noteParams);
-
-        monitorContainer = new LinearLayout(this);
-        monitorContainer.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams monitorParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        monitorParams.topMargin = dp(8);
-        body.addView(monitorContainer, monitorParams);
-        createModuleCards();
-
-        TextView resultTitle = new TextView(this);
-        resultTitle.setText("NPCの反応");
-        resultTitle.setTextColor(Color.rgb(28, 28, 34));
-        resultTitle.setTextSize(18);
-        resultTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams resultTitleParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        resultTitleParams.topMargin = dp(18);
-        body.addView(resultTitle, resultTitleParams);
-
-        outputView = new TextView(this);
-        outputView.setText("ここにNPCの発話と行動が表示されます。");
-        outputView.setTextColor(Color.rgb(32, 32, 38));
-        outputView.setTextSize(17);
-        outputView.setLineSpacing(0f, 1.22f);
-        outputView.setTextIsSelectable(true);
-        outputView.setPadding(dp(2), dp(8), dp(2), dp(24));
-        body.addView(outputView);
-
-        bodyScroll.addView(body, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        scrollParams.topMargin = dp(2);
-        root.addView(bodyScroll, scrollParams);
+        screenContainer = new LinearLayout(this);
+        screenContainer.setOrientation(LinearLayout.VERTICAL);
+        root.addView(screenContainer, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         return root;
     }
 
-    private void createModuleCards() {
-        moduleCards.clear();
-        monitorContainer.removeAllViews();
-        for (String stageId : BrainEngine.stageIds()) {
-            ModuleCard card = createModuleCard(BrainEngine.stageLabel(stageId));
-            moduleCards.put(stageId, card);
-            monitorContainer.addView(card.root);
+    private void showRoomList() {
+        currentRoomId = null;
+        hideKeyboard();
+        backButton.setVisibility(View.INVISIBLE);
+        titleView.setText("NPCBrain Demo");
+        subtitleView.setText("会話をタップして、その発話を作った脳内トレースを確認");
+        screenContainer.removeAllViews();
+
+        TextView model = new TextView(this);
+        model.setText("GPT-5.6 Luna · reasoning MAX");
+        model.setTextColor(Color.rgb(52, 67, 101));
+        model.setTextSize(12);
+        model.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams modelParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        modelParams.topMargin = dp(4);
+        screenContainer.addView(model, modelParams);
+
+        TextView note = new TextView(this);
+        note.setText("この画面はライブラリの挙動確認用デモです。NPC1/NPC2は人格と長期記憶を別々に持ちます。自律生活・時間経過は次段階で追加します。");
+        note.setTextColor(Color.rgb(92, 92, 102));
+        note.setTextSize(12);
+        note.setLineSpacing(0f, 1.12f);
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        noteParams.topMargin = dp(6);
+        noteParams.bottomMargin = dp(12);
+        screenContainer.addView(note, noteParams);
+
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout rooms = new LinearLayout(this);
+        rooms.setOrientation(LinearLayout.VERTICAL);
+        rooms.setPadding(0, 0, 0, dp(24));
+        for (String roomId : demoRuntime.roomIds()) {
+            rooms.addView(createRoomRow(roomId));
+        }
+        scroll.addView(rooms, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT));
+        screenContainer.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+    }
+
+    private View createRoomRow(String roomId) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(16), dp(13), dp(16), dp(13));
+        row.setMinimumHeight(dp(76));
+        row.setBackground(cardBackground(
+                Color.rgb(255, 255, 255), Color.rgb(225, 227, 232), 14));
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setOnClickListener(v -> openRoom(roomId));
+
+        TextView title = new TextView(this);
+        title.setText(demoRuntime.roomTitle(roomId));
+        title.setTextColor(Color.rgb(32, 32, 38));
+        title.setTextSize(16);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setMaxLines(1);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(title);
+
+        JSONObject last = conversationStore.lastMessage(roomId);
+        String preview = "まだ会話はありません";
+        if (last != null) {
+            String sender = last.optString("sender_name", "");
+            String text = last.optString("text", "");
+            preview = sender + (sender.isEmpty() ? "" : ": ") + text;
+        }
+        TextView lastText = new TextView(this);
+        lastText.setText(preview);
+        lastText.setTextColor(Color.rgb(102, 102, 112));
+        lastText.setTextSize(13);
+        lastText.setMaxLines(1);
+        lastText.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        previewParams.topMargin = dp(5);
+        row.addView(lastText, previewParams);
+
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        rowParams.bottomMargin = dp(8);
+        row.setLayoutParams(rowParams);
+        return row;
+    }
+
+    private void openRoom(String roomId) {
+        currentRoomId = roomId;
+        backButton.setVisibility(View.VISIBLE);
+        titleView.setText(demoRuntime.roomTitle(roomId));
+        subtitleView.setText(demoRuntime.roomSubtitle(roomId));
+        renderChatScreen();
+    }
+
+    private void renderChatScreen() {
+        if (currentRoomId == null) return;
+        screenContainer.removeAllViews();
+
+        chatScroll = new ScrollView(this);
+        chatScroll.setFillViewport(true);
+        messageContainer = new LinearLayout(this);
+        messageContainer.setOrientation(LinearLayout.VERTICAL);
+        messageContainer.setPadding(0, dp(8), 0, dp(12));
+        chatScroll.addView(messageContainer, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT));
+        screenContainer.addView(chatScroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        processingStatus = new TextView(this);
+        processingStatus.setText(processing ? "Luna MAXで処理中…" : "");
+        processingStatus.setTextColor(Color.rgb(92, 92, 102));
+        processingStatus.setTextSize(11);
+        processingStatus.setGravity(Gravity.CENTER_VERTICAL);
+        processingStatus.setMinHeight(dp(22));
+        screenContainer.addView(processingStatus, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout composer = new LinearLayout(this);
+        composer.setOrientation(LinearLayout.HORIZONTAL);
+        composer.setGravity(Gravity.BOTTOM);
+        composer.setPadding(0, dp(4), 0, dp(4));
+
+        messageInput = new EditText(this);
+        messageInput.setHint("メッセージ");
+        messageInput.setTextSize(16);
+        messageInput.setMinLines(1);
+        messageInput.setMaxLines(4);
+        messageInput.setPadding(dp(12), dp(10), dp(12), dp(10));
+        messageInput.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        composer.addView(messageInput, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        sendButton = new Button(this);
+        sendButton.setText("送信");
+        sendButton.setTextSize(13);
+        sendButton.setTypeface(Typeface.DEFAULT_BOLD);
+        sendButton.setContentDescription("メッセージを送信");
+        sendButton.setEnabled(!processing);
+        sendButton.setOnClickListener(v -> sendCurrentMessage());
+        LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(dp(72), dp(52));
+        sendParams.leftMargin = dp(6);
+        composer.addView(sendButton, sendParams);
+        screenContainer.addView(composer);
+
+        refreshMessages();
+    }
+
+    private void refreshMessages() {
+        if (currentRoomId == null || messageContainer == null) return;
+        messageContainer.removeAllViews();
+        JSONArray messages = conversationStore.messages(currentRoomId);
+        if (messages.length() == 0) {
+            TextView empty = new TextView(this);
+            empty.setText("まだメッセージはありません。\n送信すると、そのイベントをNPCの脳が処理します。");
+            empty.setTextColor(Color.rgb(126, 126, 136));
+            empty.setTextSize(13);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(dp(20), dp(42), dp(20), dp(42));
+            messageContainer.addView(empty);
+        } else {
+            for (int i = 0; i < messages.length(); i++) {
+                JSONObject message = messages.optJSONObject(i);
+                if (message != null) messageContainer.addView(createMessageView(message));
+            }
+        }
+        if (chatScroll != null) {
+            chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
         }
     }
 
-    private ModuleCard createModuleCard(String label) {
+    private View createMessageView(JSONObject message) {
+        boolean isUser = "user".equals(message.optString("sender_id"));
+        JSONArray trace = message.optJSONArray("brain_trace");
+        boolean hasTrace = trace != null && trace.length() > 0;
+
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        wrapper.setGravity(isUser ? Gravity.END : Gravity.START);
+        wrapper.setPadding(0, dp(4), 0, dp(4));
+
+        if (!isUser) {
+            TextView sender = new TextView(this);
+            sender.setText(message.optString("sender_name", "NPC"));
+            sender.setTextColor(Color.rgb(92, 92, 102));
+            sender.setTextSize(11);
+            LinearLayout.LayoutParams senderParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            senderParams.leftMargin = dp(8);
+            wrapper.addView(sender, senderParams);
+        }
+
+        TextView bubble = new TextView(this);
+        bubble.setText(message.optString("text", ""));
+        bubble.setTextSize(16);
+        bubble.setTextColor(Color.rgb(28, 28, 32));
+        bubble.setLineSpacing(0f, 1.15f);
+        bubble.setPadding(dp(13), dp(10), dp(13), dp(10));
+        bubble.setMaxWidth(dp(310));
+        bubble.setBackground(cardBackground(
+                isUser ? Color.rgb(211, 241, 204) : Color.rgb(255, 255, 255),
+                isUser ? Color.rgb(181, 221, 172) : Color.rgb(224, 226, 231),
+                16));
+        bubble.setClickable(true);
+        bubble.setFocusable(true);
+        bubble.setContentDescription(hasTrace
+                ? "メッセージ。タップして脳内トレースを表示"
+                : "メッセージ詳細");
+        bubble.setOnClickListener(v -> showMessageDetails(message));
+        wrapper.addView(bubble, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        TextView meta = new TextView(this);
+        String metaText = formatTime(message.optLong("time_ms", 0L));
+        if (hasTrace) metaText += " · 脳内を見る";
+        meta.setText(metaText);
+        meta.setTextColor(Color.rgb(130, 130, 140));
+        meta.setTextSize(10);
+        LinearLayout.LayoutParams metaParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        metaParams.topMargin = dp(2);
+        metaParams.leftMargin = dp(8);
+        metaParams.rightMargin = dp(8);
+        wrapper.addView(meta, metaParams);
+
+        return wrapper;
+    }
+
+    private void showMessageDetails(JSONObject message) {
+        JSONArray trace = message.optJSONArray("brain_trace");
+        boolean hasTrace = trace != null && trace.length() > 0;
+        if (!hasTrace) {
+            String details = "送信者: " + message.optString("sender_name", "あなた")
+                    + "\n時刻: " + formatTime(message.optLong("time_ms", 0L))
+                    + "\n\n" + message.optString("text", "")
+                    + "\n\nこれはユーザー入力イベントなのでNPCの脳内トレースはありません。";
+            new AlertDialog.Builder(this)
+                    .setTitle("メッセージ詳細")
+                    .setMessage(details)
+                    .setPositiveButton("閉じる", null)
+                    .show();
+            return;
+        }
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(18), dp(4), dp(18), dp(18));
+
+        TextView messageText = new TextView(this);
+        messageText.setText("「" + message.optString("text", "") + "」");
+        messageText.setTextColor(Color.rgb(28, 28, 34));
+        messageText.setTextSize(17);
+        messageText.setTypeface(Typeface.DEFAULT_BOLD);
+        messageText.setTextIsSelectable(true);
+        content.addView(messageText);
+
+        String action = message.optString("action", "").trim();
+        if (!action.isEmpty()) {
+            TextView actionView = new TextView(this);
+            actionView.setText("行動: " + action);
+            actionView.setTextColor(Color.rgb(78, 78, 88));
+            actionView.setTextSize(13);
+            LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            actionParams.topMargin = dp(6);
+            content.addView(actionView, actionParams);
+        }
+
+        TextView note = new TextView(this);
+        note.setText("この発話を生成した10段階の公開用判断記録です。逐語的な内部推論ではありません。");
+        note.setTextColor(Color.rgb(108, 108, 118));
+        note.setTextSize(11);
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        noteParams.topMargin = dp(8);
+        noteParams.bottomMargin = dp(8);
+        content.addView(note, noteParams);
+
+        for (int i = 0; i < trace.length(); i++) {
+            JSONObject stage = trace.optJSONObject(i);
+            if (stage != null) content.addView(createTraceCard(stage, i + 1, trace.length()));
+        }
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(content, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT));
+
+        new AlertDialog.Builder(this)
+                .setTitle(message.optString("sender_name", "NPC") + " の脳内トレース")
+                .setView(scroll)
+                .setPositiveButton("閉じる", null)
+                .show();
+    }
+
+    private View createTraceCard(JSONObject stage, int current, int total) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(12), dp(10), dp(12), dp(10));
         card.setBackground(cardBackground(
-                Color.rgb(246, 246, 249), Color.rgb(222, 222, 228)));
+                Color.rgb(247, 248, 250), Color.rgb(222, 224, 229), 12));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
         cardParams.bottomMargin = dp(7);
         card.setLayoutParams(cardParams);
 
-        LinearLayout titleRow = new LinearLayout(this);
-        titleRow.setOrientation(LinearLayout.HORIZONTAL);
-        titleRow.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView name = new TextView(this);
-        name.setText(label);
-        name.setTextColor(Color.rgb(38, 38, 44));
-        name.setTextSize(15);
-        name.setTypeface(Typeface.DEFAULT_BOLD);
-        titleRow.addView(name, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        TextView state = new TextView(this);
-        state.setText("待機");
-        state.setTextColor(Color.rgb(105, 105, 116));
-        state.setTextSize(12);
-        titleRow.addView(state);
-        card.addView(titleRow);
+        TextView title = new TextView(this);
+        title.setText(current + "/" + total + "  "
+                + stage.optString("stage_label", stage.optString("stage_id", "脳機能")));
+        title.setTextColor(Color.rgb(38, 38, 44));
+        title.setTextSize(14);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        card.addView(title);
 
         TextView summary = new TextView(this);
-        summary.setText("まだ処理していません。");
-        summary.setTextColor(Color.rgb(78, 78, 88));
-        summary.setTextSize(14);
-        summary.setLineSpacing(0f, 1.14f);
+        summary.setText(stage.optString("summary", "要約なし"));
+        summary.setTextColor(Color.rgb(58, 58, 68));
+        summary.setTextSize(13);
+        summary.setLineSpacing(0f, 1.13f);
         LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
         summaryParams.topMargin = dp(5);
         card.addView(summary, summaryParams);
 
-        TextView facts = new TextView(this);
-        facts.setText("");
-        facts.setTextColor(Color.rgb(76, 76, 88));
-        facts.setTextSize(12);
-        facts.setLineSpacing(0f, 1.12f);
-        facts.setVisibility(View.GONE);
-        LinearLayout.LayoutParams factsParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        factsParams.topMargin = dp(4);
-        card.addView(facts, factsParams);
-
-        TextView meta = new TextView(this);
-        meta.setText("");
-        meta.setTextColor(Color.rgb(110, 110, 120));
-        meta.setTextSize(11);
-        meta.setVisibility(View.GONE);
-        LinearLayout.LayoutParams metaParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        metaParams.topMargin = dp(4);
-        card.addView(meta, metaParams);
-
-        return new ModuleCard(card, state, summary, facts, meta);
-    }
-
-    private void resetBrainMonitor() {
-        activeStageId = "";
-        for (ModuleCard card : moduleCards.values()) {
-            card.status.setText("待機");
-            card.status.setTextColor(Color.rgb(105, 105, 116));
-            card.summary.setText("まだ処理していません。");
-            card.summary.setTextColor(Color.rgb(78, 78, 88));
-            card.facts.setText("");
-            card.facts.setVisibility(View.GONE);
-            card.meta.setText("");
-            card.meta.setVisibility(View.GONE);
-            card.root.setBackground(cardBackground(
-                    Color.rgb(246, 246, 249), Color.rgb(222, 222, 228)));
-        }
-    }
-
-    private void markStageStarted(
-            String stageId,
-            String stageLabel,
-            int current,
-            int total
-    ) {
-        activeStageId = stageId;
-        ModuleCard card = moduleCards.get(stageId);
-        if (card == null) return;
-        card.status.setText("思考中");
-        card.status.setTextColor(Color.rgb(35, 93, 170));
-        card.summary.setText("GPT-5.6 Lunaが状況・人格・記憶・前段の結果を処理しています…");
-        card.summary.setTextColor(Color.rgb(49, 73, 105));
-        card.facts.setVisibility(View.GONE);
-        card.meta.setText(current + "/" + total + " · Luna MAX");
-        card.meta.setVisibility(View.VISIBLE);
-        card.root.setBackground(cardBackground(
-                Color.rgb(237, 245, 255), Color.rgb(148, 185, 232)));
-        statusView.setText(current + "/" + total + "  " + stageLabel);
-        scrollToCard(card);
-    }
-
-    private void markStageCompleted(
-            String stageId,
-            int current,
-            int total,
-            String summary,
-            double confidence,
-            JSONArray salientFacts,
-            String personalityEffect
-    ) {
-        ModuleCard card = moduleCards.get(stageId);
-        if (card == null) return;
-        card.status.setText("完了");
-        card.status.setTextColor(Color.rgb(40, 116, 67));
-        card.summary.setText(
-                summary == null || summary.trim().isEmpty() ? "要約なし" : summary.trim());
-        card.summary.setTextColor(Color.rgb(45, 45, 52));
-
-        String factsText = formatFacts(salientFacts, personalityEffect);
-        if (factsText.isEmpty()) {
-            card.facts.setVisibility(View.GONE);
-        } else {
-            card.facts.setText(factsText);
-            card.facts.setVisibility(View.VISIBLE);
+        String effect = stage.optString("personality_effect", "").trim();
+        if (!effect.isEmpty()) {
+            TextView effectView = new TextView(this);
+            effectView.setText("人格影響: " + effect);
+            effectView.setTextColor(Color.rgb(69, 79, 112));
+            effectView.setTextSize(12);
+            LinearLayout.LayoutParams effectParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            effectParams.topMargin = dp(5);
+            card.addView(effectView, effectParams);
         }
 
-        int confidencePercent = (int) Math.round(
-                Math.max(0.0, Math.min(1.0, confidence)) * 100.0);
-        card.meta.setText(
-                "信頼度 " + confidencePercent + "% · " + current + "/" + total + " · Luna MAX");
-        card.meta.setVisibility(View.VISIBLE);
-        card.root.setBackground(cardBackground(
-                Color.rgb(241, 249, 243), Color.rgb(160, 207, 173)));
-    }
-
-    private void markActiveStageError(String message) {
-        ModuleCard card = moduleCards.get(activeStageId);
-        if (card == null) return;
-        card.status.setText("停止");
-        card.status.setTextColor(Color.rgb(176, 54, 54));
-        card.summary.setText("この段階で処理を継続できませんでした。");
-        card.summary.setTextColor(Color.rgb(110, 45, 45));
-        card.facts.setText(limit(message, 320));
-        card.facts.setVisibility(View.VISIBLE);
-        card.root.setBackground(cardBackground(
-                Color.rgb(255, 241, 241), Color.rgb(226, 165, 165)));
-        scrollToCard(card);
-    }
-
-    private String formatFacts(JSONArray facts, String personalityEffect) {
-        StringBuilder result = new StringBuilder();
-        if (personalityEffect != null && !personalityEffect.trim().isEmpty()) {
-            result.append("人格影響\n• ").append(personalityEffect.trim());
-        }
-
+        JSONArray facts = stage.optJSONArray("salient_facts");
         if (facts != null && facts.length() > 0) {
-            if (result.length() > 0) result.append("\n\n");
-            result.append("注目\n");
+            StringBuilder text = new StringBuilder("注目: ");
             int count = Math.min(3, facts.length());
-            boolean wrote = false;
             for (int i = 0; i < count; i++) {
                 String fact = facts.optString(i, "").trim();
                 if (fact.isEmpty()) continue;
-                if (wrote) result.append('\n');
-                result.append("• ").append(fact);
-                wrote = true;
+                if (text.length() > 4) text.append(" / ");
+                text.append(fact);
             }
+            TextView factsView = new TextView(this);
+            factsView.setText(text.toString());
+            factsView.setTextColor(Color.rgb(88, 88, 98));
+            factsView.setTextSize(11);
+            LinearLayout.LayoutParams factsParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            factsParams.topMargin = dp(5);
+            card.addView(factsView, factsParams);
         }
-        return result.toString().trim();
+
+        int confidence = (int) Math.round(
+                Math.max(0.0, Math.min(1.0, stage.optDouble("confidence", 0.0))) * 100.0);
+        TextView meta = new TextView(this);
+        meta.setText("信頼度 " + confidence + "% · Luna MAX");
+        meta.setTextColor(Color.rgb(120, 120, 130));
+        meta.setTextSize(10);
+        LinearLayout.LayoutParams metaParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        metaParams.topMargin = dp(5);
+        card.addView(meta, metaParams);
+        return card;
     }
 
-    private void scrollToCard(ModuleCard card) {
-        bodyScroll.post(() -> bodyScroll.smoothScrollTo(
-                0, Math.max(0, card.root.getTop() - dp(48))));
+    private void sendCurrentMessage() {
+        if (processing || currentRoomId == null || messageInput == null) return;
+        String text = messageInput.getText().toString().trim();
+        if (text.isEmpty()) return;
+
+        final String apiKey;
+        try {
+            apiKey = apiKeyStore.load();
+        } catch (Exception error) {
+            showErrorDialog("APIキーを読み出せません: " + error.getMessage());
+            return;
+        }
+        if (apiKey.isEmpty()) {
+            showApiKeyDialog();
+            return;
+        }
+
+        hideKeyboard();
+        JSONObject userMessage = conversationStore.appendUserMessage(
+                currentRoomId, text, System.currentTimeMillis());
+        messageInput.setText("");
+        processing = true;
+        sendButton.setEnabled(false);
+        processingStatus.setText("NPCがメッセージを確認しています…");
+        refreshMessages();
+
+        String roomAtStart = currentRoomId;
+        new Thread(() -> {
+            try {
+                demoRuntime.processUserMessage(
+                        roomAtStart,
+                        userMessage,
+                        apiKey,
+                        new DemoRuntime.Listener() {
+                            @Override
+                            public void onNpcStarted(
+                                    String npcId,
+                                    String displayName,
+                                    int current,
+                                    int total
+                            ) {
+                                runOnUiThread(() -> {
+                                    if (processingStatus != null && roomAtStart.equals(currentRoomId)) {
+                                        processingStatus.setText(
+                                                current + "/" + total + "  " + displayName + " が考えています · Luna MAX");
+                                    }
+                                });
+                            }
+
+                            @Override
+                            public void onNpcFinished(
+                                    String npcId,
+                                    String displayName,
+                                    boolean sentMessage
+                            ) {
+                                runOnUiThread(() -> {
+                                    if (roomAtStart.equals(currentRoomId)) refreshMessages();
+                                });
+                            }
+                        }
+                );
+                runOnUiThread(() -> finishProcessing(roomAtStart, null));
+            } catch (Exception error) {
+                String message = error.getMessage() == null ? error.toString() : error.getMessage();
+                runOnUiThread(() -> finishProcessing(roomAtStart, message));
+            }
+        }, "npcbrain-demo-message").start();
     }
 
-    private GradientDrawable cardBackground(int fillColor, int strokeColor) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(fillColor);
-        drawable.setCornerRadius(dp(14));
-        drawable.setStroke(dp(1), strokeColor);
-        return drawable;
+    private void finishProcessing(String roomId, String error) {
+        processing = false;
+        if (roomId.equals(currentRoomId)) {
+            if (sendButton != null) sendButton.setEnabled(true);
+            if (processingStatus != null) {
+                processingStatus.setText(error == null ? "" : "処理エラー");
+            }
+            refreshMessages();
+        }
+        if (error != null) showErrorDialog(error);
     }
 
     private void showMenu(View anchor) {
         PopupMenu popup = new PopupMenu(this, anchor);
-        popup.getMenu().add("人格設定");
+        popup.getMenu().add("NPC1 人格設定");
+        popup.getMenu().add("NPC2 人格設定");
+        popup.getMenu().add("NPC1 記憶を見る");
+        popup.getMenu().add("NPC2 記憶を見る");
         popup.getMenu().add("OpenAI APIキー");
-        popup.getMenu().add("記憶を見る");
-        popup.getMenu().add("記憶を消去");
+        popup.getMenu().add("会話履歴を消去");
         popup.setOnMenuItemClickListener(item -> {
-            if ("人格設定".contentEquals(item.getTitle())) {
-                showPersonalityDialog();
-            } else if ("OpenAI APIキー".contentEquals(item.getTitle())) {
+            String title = item.getTitle().toString();
+            if ("NPC1 人格設定".equals(title)) {
+                showPersonalityDialog("npc1");
+            } else if ("NPC2 人格設定".equals(title)) {
+                showPersonalityDialog("npc2");
+            } else if ("NPC1 記憶を見る".equals(title)) {
+                showMemoryDialog("npc1");
+            } else if ("NPC2 記憶を見る".equals(title)) {
+                showMemoryDialog("npc2");
+            } else if ("OpenAI APIキー".equals(title)) {
                 showApiKeyDialog();
-            } else if ("記憶を見る".contentEquals(item.getTitle())) {
-                showMemoryDialog();
-            } else if ("記憶を消去".contentEquals(item.getTitle())) {
-                confirmClearMemory();
+            } else if ("会話履歴を消去".equals(title)) {
+                confirmClearConversations();
             }
             return true;
         });
         popup.show();
     }
 
-    private void showPersonalityDialog() {
+    private void showPersonalityDialog(String npcId) {
+        CharacterStateStore characterStore = demoRuntime.characterStore(npcId);
+        MemoryStore memoryStore = demoRuntime.memoryStore(npcId);
+
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(20), dp(4), dp(20), dp(16));
 
         EditText name = addTextField(
-                form, "名前", characterStateStore.displayName(), true, 1);
+                form, "名前", demoRuntime.displayName(npcId), true, 1);
         EditText role = addTextField(
                 form, "役割・自己像", memoryStore.profileText("role_identity"), false, 2);
 
@@ -486,19 +655,19 @@ public final class MainActivity extends Activity {
 
         TraitControl extraversion = createTraitControl(
                 "外向性",
-                characterStateStore.traitPercent(CharacterStateStore.extraversionKey()));
+                characterStore.traitPercent(CharacterStateStore.extraversionKey()));
         TraitControl neuroticism = createTraitControl(
                 "神経症傾向",
-                characterStateStore.traitPercent(CharacterStateStore.neuroticismKey()));
+                characterStore.traitPercent(CharacterStateStore.neuroticismKey()));
         TraitControl agreeableness = createTraitControl(
                 "協調性",
-                characterStateStore.traitPercent(CharacterStateStore.agreeablenessKey()));
+                characterStore.traitPercent(CharacterStateStore.agreeablenessKey()));
         TraitControl conscientiousness = createTraitControl(
                 "誠実性",
-                characterStateStore.traitPercent(CharacterStateStore.conscientiousnessKey()));
+                characterStore.traitPercent(CharacterStateStore.conscientiousnessKey()));
         TraitControl openness = createTraitControl(
                 "開放性",
-                characterStateStore.traitPercent(CharacterStateStore.opennessKey()));
+                characterStore.traitPercent(CharacterStateStore.opennessKey()));
 
         form.addView(extraversion.root);
         form.addView(neuroticism.root);
@@ -515,10 +684,10 @@ public final class MainActivity extends Activity {
         EditText relationships = addTextField(
                 form, "人間関係・相手への態度", memoryStore.profileText("relationship"), false, 3);
         EditText speechStyle = addTextField(
-                form, "話し方", characterStateStore.speechStyle(), false, 2);
+                form, "話し方", characterStore.speechStyle(), false, 2);
 
         TextView currentState = new TextView(this);
-        currentState.setText("現在状態: " + characterStateStore.dynamicStateSummary());
+        currentState.setText("現在状態: " + characterStore.dynamicStateSummary());
         currentState.setTextSize(12);
         currentState.setTextColor(Color.rgb(96, 96, 106));
         LinearLayout.LayoutParams stateParams = new LinearLayout.LayoutParams(
@@ -533,11 +702,11 @@ public final class MainActivity extends Activity {
                 ScrollView.LayoutParams.WRAP_CONTENT));
 
         new AlertDialog.Builder(this)
-                .setTitle("人格設定")
-                .setMessage("性格は別の脳を追加せず、既存9領域の注意・記憶検索・価値判断・行動選択などへ横断的に反映します。")
+                .setTitle(demoRuntime.displayName(npcId) + " の人格")
+                .setMessage("NPCごとに人格・長期記憶を分離します。脳の9専門領域＋Global Workspaceは増減しません。")
                 .setView(scroll)
                 .setPositiveButton("保存", (dialog, which) -> {
-                    characterStateStore.saveProfile(
+                    characterStore.saveProfile(
                             name.getText().toString(),
                             extraversion.seekBar.getProgress(),
                             neuroticism.seekBar.getProgress(),
@@ -553,17 +722,27 @@ public final class MainActivity extends Activity {
                             fears.getText().toString(),
                             relationships.getText().toString()
                     );
-                    refreshHeaderStatus();
+                    refreshCurrentScreenTitles();
                     Toast.makeText(this, "人格設定を保存しました", Toast.LENGTH_SHORT).show();
                 })
                 .setNeutralButton("標準に戻す", (dialog, which) -> {
-                    characterStateStore.reset();
+                    characterStore.reset();
                     memoryStore.clearProfileAdaptations();
-                    refreshHeaderStatus();
+                    refreshCurrentScreenTitles();
                     Toast.makeText(this, "人格設定を標準に戻しました", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("キャンセル", null)
                 .show();
+    }
+
+    private void refreshCurrentScreenTitles() {
+        if (currentRoomId == null) {
+            showRoomList();
+        } else {
+            titleView.setText(demoRuntime.roomTitle(currentRoomId));
+            subtitleView.setText(demoRuntime.roomSubtitle(currentRoomId));
+            refreshMessages();
+        }
     }
 
     private EditText addTextField(
@@ -647,14 +826,14 @@ public final class MainActivity extends Activity {
         return new TraitControl(root, seek);
     }
 
-    private void showMemoryDialog() {
+    private void showMemoryDialog(String npcId) {
+        MemoryStore memoryStore = demoRuntime.memoryStore(npcId);
         TextView memoryText = new TextView(this);
         memoryText.setText(memoryStore.preview());
-        memoryText.setTextSize(15);
+        memoryText.setTextSize(14);
         memoryText.setTextColor(Color.rgb(32, 32, 38));
         memoryText.setTextIsSelectable(true);
-        int pad = dp(20);
-        memoryText.setPadding(pad, dp(8), pad, dp(16));
+        memoryText.setPadding(dp(18), dp(8), dp(18), dp(16));
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(memoryText, new ScrollView.LayoutParams(
@@ -662,33 +841,15 @@ public final class MainActivity extends Activity {
                 ScrollView.LayoutParams.WRAP_CONTENT));
 
         new AlertDialog.Builder(this)
-                .setTitle("長期記憶")
-                .setMessage("エピソード記憶は経験、意味記憶は世界知識と人物固有の目標・価値観・関係性などを型付きで保持します。")
+                .setTitle(demoRuntime.displayName(npcId) + " の長期記憶")
+                .setMessage("このNPCだけのエピソード記憶・意味記憶です。")
                 .setView(scroll)
-                .setPositiveButton("閉じる", null)
-                .show();
-    }
-
-    private void confirmClearMemory() {
-        new AlertDialog.Builder(this)
-                .setTitle("記憶を消去")
-                .setMessage("経験と学習した意味記憶を削除します。人格設定で指定した性格・価値観・目標・関係性とAPIキーは残します。")
-                .setPositiveButton("消去", (dialog, which) -> {
+                .setNeutralButton("学習記憶を消去", (dialog, which) -> {
                     memoryStore.clear();
-                    refreshHeaderStatus();
                     Toast.makeText(this, "学習した長期記憶を消去しました", Toast.LENGTH_SHORT).show();
                 })
-                .setNegativeButton("キャンセル", null)
+                .setPositiveButton("閉じる", null)
                 .show();
-    }
-
-    private void refreshHeaderStatus() {
-        if (memoryStatusView == null || memoryStore == null || characterStateStore == null) return;
-        MemoryStore.Stats stats = memoryStore.stats();
-        memoryStatusView.setText(
-                "人物 " + characterStateStore.displayName()
-                        + " · 記憶 E " + stats.episodes
-                        + " · S " + stats.semantics);
     }
 
     private void showApiKeyDialog() {
@@ -706,7 +867,7 @@ public final class MainActivity extends Activity {
 
         new AlertDialog.Builder(this)
                 .setTitle("OpenAI APIキー")
-                .setMessage("GPT-5.6 LunaをOpenAI Responses APIで使用します。APIキーは端末のAndroid Keystoreで暗号化して保存し、長期記憶には保存しません。")
+                .setMessage("全NPCの認知処理はGPT-5.6 Luna / reasoning MAXを使用します。APIキーはAndroid Keystoreで暗号化して保存します。")
                 .setView(box)
                 .setPositiveButton("保存", (dialog, which) -> {
                     String key = keyInput.getText().toString().trim();
@@ -718,8 +879,7 @@ public final class MainActivity extends Activity {
                         apiKeyStore.save(key);
                         Toast.makeText(this, "保存しました", Toast.LENGTH_SHORT).show();
                     } catch (Exception error) {
-                        Toast.makeText(
-                                this,
+                        Toast.makeText(this,
                                 "保存失敗: " + error.getMessage(),
                                 Toast.LENGTH_LONG).show();
                     }
@@ -732,104 +892,25 @@ public final class MainActivity extends Activity {
                 .show();
     }
 
-    private void startThinking() {
-        String input = inputView.getText().toString().trim();
-        if (input.isEmpty()) {
-            Toast.makeText(this, "状況を入力してください", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        final String apiKey;
-        try {
-            apiKey = apiKeyStore.load();
-        } catch (Exception error) {
-            showError("APIキーを読み出せません: " + error.getMessage());
-            return;
-        }
-        if (apiKey.isEmpty()) {
-            showApiKeyDialog();
-            return;
-        }
-
-        hideKeyboard();
-        resetBrainMonitor();
-        thinkButton.setEnabled(false);
-        inputView.setEnabled(false);
-        outputView.setText(
-                characterStateStore.displayName() + " の反応をGPT-5.6 Lunaで統合しています…");
-        statusView.setText("Luna MAXで認知サイクル開始");
-
-        new Thread(() -> {
-            try {
-                BrainEngine engine = new BrainEngine(
-                        new OpenAiClient(getApplicationContext(), apiKey),
-                        memoryStore,
-                        characterStateStore
-                );
-                String result = engine.think(input, new BrainEngine.ProgressListener() {
-                    @Override
-                    public void onStageStarted(
-                            String stageId,
-                            String stageLabel,
-                            int current,
-                            int total
-                    ) {
-                        runOnUiThread(() ->
-                                markStageStarted(stageId, stageLabel, current, total));
-                    }
-
-                    @Override
-                    public void onStageCompleted(
-                            String stageId,
-                            String stageLabel,
-                            int current,
-                            int total,
-                            String summary,
-                            double confidence,
-                            JSONArray salientFacts,
-                            String personalityEffect
-                    ) {
-                        runOnUiThread(() -> markStageCompleted(
-                                stageId,
-                                current,
-                                total,
-                                summary,
-                                confidence,
-                                salientFacts,
-                                personalityEffect
-                        ));
-                    }
-                });
-                runOnUiThread(() -> {
-                    outputView.setText(result);
-                    statusView.setText(
-                            "完了 · " + characterStateStore.displayName() + " · Luna MAX");
-                    refreshHeaderStatus();
-                    thinkButton.setEnabled(true);
-                    inputView.setEnabled(true);
-                    bodyScroll.post(() -> bodyScroll.fullScroll(View.FOCUS_DOWN));
-                });
-            } catch (Exception error) {
-                String message = error.getMessage() == null
-                        ? error.toString()
-                        : error.getMessage();
-                runOnUiThread(() -> {
-                    markActiveStageError(message);
-                    showError(message);
-                    thinkButton.setEnabled(true);
-                    inputView.setEnabled(true);
-                });
-            }
-        }, "npcbrain-think").start();
+    private void confirmClearConversations() {
+        new AlertDialog.Builder(this)
+                .setTitle("会話履歴を消去")
+                .setMessage("3つのデモトークと、各NPC発話に紐づく脳内トレースを削除します。NPCの人格・長期記憶・APIキーは削除しません。")
+                .setPositiveButton("消去", (dialog, which) -> {
+                    conversationStore.clearAll();
+                    if (currentRoomId == null) showRoomList(); else refreshMessages();
+                    Toast.makeText(this, "会話履歴を消去しました", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("キャンセル", null)
+                .show();
     }
 
-    private void hideKeyboard() {
-        inputView.clearFocus();
-        InputMethodManager manager =
-                (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (manager != null) {
-            manager.hideSoftInputFromWindow(inputView.getWindowToken(), 0);
-        }
+    private GradientDrawable cardBackground(int fillColor, int strokeColor, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fillColor);
+        drawable.setCornerRadius(dp(radiusDp));
+        drawable.setStroke(dp(1), strokeColor);
+        return drawable;
     }
 
     private void configureEdgeToEdgeWindow() {
@@ -850,9 +931,9 @@ public final class MainActivity extends Activity {
     }
 
     private void applySafeInsets(View root) {
-        final int horizontal = dp(16);
-        final int topBase = dp(6);
-        final int bottomBase = dp(10);
+        final int horizontal = dp(12);
+        final int topBase = dp(4);
+        final int bottomBase = dp(8);
 
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             int left = insets.getSystemWindowInsetLeft();
@@ -880,14 +961,37 @@ public final class MainActivity extends Activity {
         root.requestApplyInsets();
     }
 
-    private void showError(String message) {
-        statusView.setText("エラー");
-        outputView.setText(message);
+    private void hideKeyboard() {
+        View current = getCurrentFocus();
+        if (current == null) return;
+        InputMethodManager manager =
+                (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (manager != null) {
+            manager.hideSoftInputFromWindow(current.getWindowToken(), 0);
+        }
+        current.clearFocus();
     }
 
-    private static String limit(String value, int max) {
-        if (value == null) return "";
-        return value.length() <= max ? value : value.substring(0, max);
+    private void showErrorDialog(String message) {
+        new AlertDialog.Builder(this)
+                .setTitle("処理エラー")
+                .setMessage(message == null ? "不明なエラー" : message)
+                .setPositiveButton("閉じる", null)
+                .show();
+    }
+
+    private static String formatTime(long timeMs) {
+        if (timeMs <= 0L) return "";
+        return new SimpleDateFormat("HH:mm", Locale.JAPAN).format(new Date(timeMs));
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (currentRoomId != null) {
+            showRoomList();
+        } else {
+            super.onBackPressed();
+        }
     }
 
     private int dp(int value) {
