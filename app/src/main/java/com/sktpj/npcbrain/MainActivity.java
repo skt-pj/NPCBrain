@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
@@ -12,6 +13,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
+import android.view.inputmethod.InputMethodManager;
+import android.content.Context;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -20,7 +23,28 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONArray;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 public final class MainActivity extends Activity {
+    private static final class ModuleCard {
+        final LinearLayout root;
+        final TextView status;
+        final TextView summary;
+        final TextView facts;
+        final TextView meta;
+
+        ModuleCard(LinearLayout root, TextView status, TextView summary, TextView facts, TextView meta) {
+            this.root = root;
+            this.status = status;
+            this.summary = summary;
+            this.facts = facts;
+            this.meta = meta;
+        }
+    }
+
     private SecureApiKeyStore apiKeyStore;
     private MemoryStore memoryStore;
     private EditText inputView;
@@ -28,6 +52,10 @@ public final class MainActivity extends Activity {
     private TextView outputView;
     private TextView memoryStatusView;
     private Button thinkButton;
+    private ScrollView bodyScroll;
+    private LinearLayout monitorContainer;
+    private final Map<String, ModuleCard> moduleCards = new LinkedHashMap<>();
+    private String activeStageId = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,7 +75,7 @@ public final class MainActivity extends Activity {
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setMinimumHeight(dp(64));
+        header.setMinimumHeight(dp(60));
 
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
@@ -79,7 +107,7 @@ public final class MainActivity extends Activity {
         root.addView(header);
 
         TextView model = new TextView(this);
-        model.setText("GPT-5.6 Luna · reasoning MAX");
+        model.setText("GPT-5.6 · reasoning MAX");
         model.setTextColor(Color.rgb(64, 64, 74));
         model.setTextSize(13);
         LinearLayout.LayoutParams modelParams = new LinearLayout.LayoutParams(
@@ -88,28 +116,28 @@ public final class MainActivity extends Activity {
         root.addView(model, modelParams);
 
         TextView description = new TextView(this);
-        description.setText("知覚・注意・作業記憶・エピソード記憶・意味記憶・予測・実行制御・価値判断・誤り監視・行動選択を分担し、Global Workspaceで統合します。");
+        description.setText("9つの専門領域とGlobal Workspaceを順に動かし、下の脳内モニターへ各領域の公開用要約を表示します。");
         description.setTextColor(Color.rgb(74, 74, 84));
-        description.setTextSize(14);
-        description.setLineSpacing(0f, 1.15f);
+        description.setTextSize(13);
+        description.setLineSpacing(0f, 1.12f);
         LinearLayout.LayoutParams descriptionParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        descriptionParams.topMargin = dp(8);
+        descriptionParams.topMargin = dp(6);
         root.addView(description, descriptionParams);
 
         inputView = new EditText(this);
         inputView.setHint("NPCが置かれた状況、考えさせたい課題、観察情報など");
         inputView.setTextSize(16);
         inputView.setGravity(Gravity.TOP | Gravity.START);
-        inputView.setMinLines(5);
-        inputView.setMaxLines(9);
+        inputView.setMinLines(3);
+        inputView.setMaxLines(5);
         inputView.setPadding(dp(12), dp(12), dp(12), dp(12));
         inputView.setInputType(InputType.TYPE_CLASS_TEXT
                 | InputType.TYPE_TEXT_FLAG_MULTI_LINE
                 | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        inputParams.topMargin = dp(12);
+        inputParams.topMargin = dp(10);
         root.addView(inputView, inputParams);
 
         thinkButton = new Button(this);
@@ -120,7 +148,7 @@ public final class MainActivity extends Activity {
         thinkButton.setOnClickListener(v -> startThinking());
         LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
-        buttonParams.topMargin = dp(10);
+        buttonParams.topMargin = dp(8);
         root.addView(thinkButton, buttonParams);
 
         statusView = new TextView(this);
@@ -129,8 +157,49 @@ public final class MainActivity extends Activity {
         statusView.setTextSize(12);
         LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        statusParams.topMargin = dp(8);
+        statusParams.topMargin = dp(6);
         root.addView(statusView, statusParams);
+
+        bodyScroll = new ScrollView(this);
+        bodyScroll.setFillViewport(true);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(0, dp(6), 0, dp(24));
+
+        TextView monitorTitle = new TextView(this);
+        monitorTitle.setText("脳内モニター");
+        monitorTitle.setTextColor(Color.rgb(28, 28, 34));
+        monitorTitle.setTextSize(18);
+        monitorTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        body.addView(monitorTitle);
+
+        TextView monitorNote = new TextView(this);
+        monitorNote.setText("各領域の判断要約・信頼度・注目事実を表示します。逐語的な内部思考やチェーン・オブ・ソートは表示・保存しません。");
+        monitorNote.setTextColor(Color.rgb(96, 96, 106));
+        monitorNote.setTextSize(12);
+        monitorNote.setLineSpacing(0f, 1.12f);
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        noteParams.topMargin = dp(3);
+        body.addView(monitorNote, noteParams);
+
+        monitorContainer = new LinearLayout(this);
+        monitorContainer.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams monitorParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        monitorParams.topMargin = dp(8);
+        body.addView(monitorContainer, monitorParams);
+        createModuleCards();
+
+        TextView resultTitle = new TextView(this);
+        resultTitle.setText("統合結果");
+        resultTitle.setTextColor(Color.rgb(28, 28, 34));
+        resultTitle.setTextSize(18);
+        resultTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams resultTitleParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        resultTitleParams.topMargin = dp(18);
+        body.addView(resultTitle, resultTitleParams);
 
         outputView = new TextView(this);
         outputView.setText("結果はここに表示されます。");
@@ -138,18 +207,187 @@ public final class MainActivity extends Activity {
         outputView.setTextSize(16);
         outputView.setLineSpacing(0f, 1.18f);
         outputView.setTextIsSelectable(true);
-        outputView.setPadding(dp(2), dp(10), dp(2), dp(24));
+        outputView.setPadding(dp(2), dp(8), dp(2), dp(24));
+        body.addView(outputView);
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.addView(outputView, new ScrollView.LayoutParams(
+        bodyScroll.addView(body, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        scrollParams.topMargin = dp(4);
-        root.addView(scroll, scrollParams);
+        scrollParams.topMargin = dp(2);
+        root.addView(bodyScroll, scrollParams);
 
         return root;
+    }
+
+    private void createModuleCards() {
+        moduleCards.clear();
+        monitorContainer.removeAllViews();
+        for (String stageId : BrainEngine.stageIds()) {
+            ModuleCard card = createModuleCard(stageId, BrainEngine.stageLabel(stageId));
+            moduleCards.put(stageId, card);
+            monitorContainer.addView(card.root);
+        }
+    }
+
+    private ModuleCard createModuleCard(String stageId, String label) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(12), dp(10), dp(12), dp(10));
+        card.setBackground(cardBackground(Color.rgb(246, 246, 249), Color.rgb(222, 222, 228)));
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        cardParams.bottomMargin = dp(7);
+        card.setLayoutParams(cardParams);
+
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView name = new TextView(this);
+        name.setText(label);
+        name.setTextColor(Color.rgb(38, 38, 44));
+        name.setTextSize(15);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        titleRow.addView(name, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView state = new TextView(this);
+        state.setText("待機");
+        state.setTextColor(Color.rgb(105, 105, 116));
+        state.setTextSize(12);
+        titleRow.addView(state);
+        card.addView(titleRow);
+
+        TextView summary = new TextView(this);
+        summary.setText("まだ処理していません。");
+        summary.setTextColor(Color.rgb(78, 78, 88));
+        summary.setTextSize(14);
+        summary.setLineSpacing(0f, 1.14f);
+        LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        summaryParams.topMargin = dp(5);
+        card.addView(summary, summaryParams);
+
+        TextView facts = new TextView(this);
+        facts.setText("");
+        facts.setTextColor(Color.rgb(76, 76, 88));
+        facts.setTextSize(12);
+        facts.setLineSpacing(0f, 1.12f);
+        facts.setVisibility(View.GONE);
+        LinearLayout.LayoutParams factsParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        factsParams.topMargin = dp(4);
+        card.addView(facts, factsParams);
+
+        TextView meta = new TextView(this);
+        meta.setText("");
+        meta.setTextColor(Color.rgb(110, 110, 120));
+        meta.setTextSize(11);
+        meta.setVisibility(View.GONE);
+        LinearLayout.LayoutParams metaParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        metaParams.topMargin = dp(4);
+        card.addView(meta, metaParams);
+
+        return new ModuleCard(card, state, summary, facts, meta);
+    }
+
+    private void resetBrainMonitor() {
+        activeStageId = "";
+        for (ModuleCard card : moduleCards.values()) {
+            card.status.setText("待機");
+            card.status.setTextColor(Color.rgb(105, 105, 116));
+            card.summary.setText("まだ処理していません。");
+            card.summary.setTextColor(Color.rgb(78, 78, 88));
+            card.facts.setText("");
+            card.facts.setVisibility(View.GONE);
+            card.meta.setText("");
+            card.meta.setVisibility(View.GONE);
+            card.root.setBackground(cardBackground(Color.rgb(246, 246, 249), Color.rgb(222, 222, 228)));
+        }
+    }
+
+    private void markStageStarted(String stageId, String stageLabel, int current, int total) {
+        activeStageId = stageId;
+        ModuleCard card = moduleCards.get(stageId);
+        if (card == null) return;
+        card.status.setText("思考中");
+        card.status.setTextColor(Color.rgb(35, 93, 170));
+        card.summary.setText("入力・記憶・前段の結果を処理しています…");
+        card.summary.setTextColor(Color.rgb(49, 73, 105));
+        card.facts.setVisibility(View.GONE);
+        card.meta.setText(current + "/" + total);
+        card.meta.setVisibility(View.VISIBLE);
+        card.root.setBackground(cardBackground(Color.rgb(237, 245, 255), Color.rgb(148, 185, 232)));
+        statusView.setText(current + "/" + total + "  " + stageLabel);
+        scrollToCard(card);
+    }
+
+    private void markStageCompleted(
+            String stageId,
+            int current,
+            int total,
+            String summary,
+            double confidence,
+            JSONArray salientFacts
+    ) {
+        ModuleCard card = moduleCards.get(stageId);
+        if (card == null) return;
+        card.status.setText("完了");
+        card.status.setTextColor(Color.rgb(40, 116, 67));
+        card.summary.setText(summary == null || summary.trim().isEmpty() ? "要約なし" : summary.trim());
+        card.summary.setTextColor(Color.rgb(45, 45, 52));
+
+        String factsText = formatFacts(salientFacts);
+        if (factsText.isEmpty()) {
+            card.facts.setVisibility(View.GONE);
+        } else {
+            card.facts.setText(factsText);
+            card.facts.setVisibility(View.VISIBLE);
+        }
+
+        int confidencePercent = (int) Math.round(Math.max(0.0, Math.min(1.0, confidence)) * 100.0);
+        card.meta.setText("信頼度 " + confidencePercent + "%  ·  " + current + "/" + total);
+        card.meta.setVisibility(View.VISIBLE);
+        card.root.setBackground(cardBackground(Color.rgb(241, 249, 243), Color.rgb(160, 207, 173)));
+    }
+
+    private void markActiveStageError(String message) {
+        ModuleCard card = moduleCards.get(activeStageId);
+        if (card == null) return;
+        card.status.setText("停止");
+        card.status.setTextColor(Color.rgb(176, 54, 54));
+        card.summary.setText("この段階で処理を継続できませんでした。");
+        card.summary.setTextColor(Color.rgb(110, 45, 45));
+        card.facts.setText(limit(message, 320));
+        card.facts.setVisibility(View.VISIBLE);
+        card.root.setBackground(cardBackground(Color.rgb(255, 241, 241), Color.rgb(226, 165, 165)));
+        scrollToCard(card);
+    }
+
+    private String formatFacts(JSONArray facts) {
+        if (facts == null || facts.length() == 0) return "";
+        StringBuilder result = new StringBuilder("注目\n");
+        int count = Math.min(3, facts.length());
+        for (int i = 0; i < count; i++) {
+            String fact = facts.optString(i, "").trim();
+            if (fact.isEmpty()) continue;
+            result.append("• ").append(fact);
+            if (i + 1 < count) result.append('\n');
+        }
+        return result.toString().trim();
+    }
+
+    private void scrollToCard(ModuleCard card) {
+        bodyScroll.post(() -> bodyScroll.smoothScrollTo(0, Math.max(0, card.root.getTop() - dp(48))));
+    }
+
+    private GradientDrawable cardBackground(int fillColor, int strokeColor) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fillColor);
+        drawable.setCornerRadius(dp(14));
+        drawable.setStroke(dp(1), strokeColor);
+        return drawable;
     }
 
     private void showMenu(View anchor) {
@@ -265,31 +503,62 @@ public final class MainActivity extends Activity {
             return;
         }
 
+        hideKeyboard();
+        resetBrainMonitor();
         thinkButton.setEnabled(false);
         inputView.setEnabled(false);
-        outputView.setText("");
+        outputView.setText("統合処理の完了を待っています…");
         statusView.setText("思考開始");
 
         new Thread(() -> {
             try {
-                BrainEngine engine = new BrainEngine(new OpenAiClient(apiKey), memoryStore);
-                String result = engine.think(input, (stage, current, total) -> runOnUiThread(
-                        () -> statusView.setText(current + "/" + total + "  " + stage)));
+                BrainEngine engine = new BrainEngine(new OpenAiClient(getApplicationContext(), apiKey), memoryStore);
+                String result = engine.think(input, new BrainEngine.ProgressListener() {
+                    @Override
+                    public void onStageStarted(String stageId, String stageLabel, int current, int total) {
+                        runOnUiThread(() -> markStageStarted(stageId, stageLabel, current, total));
+                    }
+
+                    @Override
+                    public void onStageCompleted(
+                            String stageId,
+                            String stageLabel,
+                            int current,
+                            int total,
+                            String summary,
+                            double confidence,
+                            JSONArray salientFacts
+                    ) {
+                        runOnUiThread(() -> markStageCompleted(
+                                stageId, current, total, summary, confidence, salientFacts));
+                    }
+                });
                 runOnUiThread(() -> {
                     outputView.setText(result);
                     statusView.setText("完了");
                     refreshMemoryStatus();
                     thinkButton.setEnabled(true);
                     inputView.setEnabled(true);
+                    bodyScroll.post(() -> bodyScroll.fullScroll(View.FOCUS_DOWN));
                 });
             } catch (Exception error) {
+                String message = error.getMessage() == null ? error.toString() : error.getMessage();
                 runOnUiThread(() -> {
-                    showError(error.getMessage() == null ? error.toString() : error.getMessage());
+                    markActiveStageError(message);
+                    showError(message);
                     thinkButton.setEnabled(true);
                     inputView.setEnabled(true);
                 });
             }
         }, "npcbrain-think").start();
+    }
+
+    private void hideKeyboard() {
+        inputView.clearFocus();
+        InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (manager != null) {
+            manager.hideSoftInputFromWindow(inputView.getWindowToken(), 0);
+        }
     }
 
     private void configureEdgeToEdgeWindow() {
@@ -339,6 +608,11 @@ public final class MainActivity extends Activity {
     private void showError(String message) {
         statusView.setText("エラー");
         outputView.setText(message);
+    }
+
+    private static String limit(String value, int max) {
+        if (value == null) return "";
+        return value.length() <= max ? value : value.substring(0, max);
     }
 
     private int dp(int value) {
