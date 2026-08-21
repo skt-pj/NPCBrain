@@ -8,4 +8,8 @@ final class ConversationUiPolicy {
                 && currentRoomId != null
                 && currentRoomId.equals(processingRoomId);
     }
+
+    static boolean consumesSystemBack(String currentRoomId) {
+        return currentRoomId != null;
+    }
 }
