@@ -77,11 +77,10 @@ final class WorldRuntimeV040 {
     LifeState updateScheduleEntry(
             String npcId,
             ScheduleSlot replacement,
-            long effectiveTimeMs,
             String reason
     ) {
         NpcId id = NpcId.of(npcId);
-        long worldTime = clock.advanceTo(effectiveTimeMs);
+        long worldTime = clock.now();
         LifeState current = stateStore.lifeState(id, worldTime);
         DailySchedule schedule = scheduleFor(id, current);
         DailySchedule updatedSchedule = schedule.replaceSlot(replacement);
