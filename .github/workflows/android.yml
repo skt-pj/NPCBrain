@@ -1,0 +1,70 @@
+name: Android CI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.13
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.13'
+          cache-provider: basic
+
+      - name: Test and build release APK
+        run: gradle :app:testDebugUnitTest :app:assembleRelease --stacktrace
+
+      - name: Prepare artifact
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_NAME="$(grep '^VERSION_NAME=' version.properties | cut -d= -f2)"
+          VERSION_CODE="$(grep '^VERSION_CODE=' version.properties | cut -d= -f2)"
+          APK_SOURCE="app/build/outputs/apk/release/app-release-unsigned.apk"
+          APK_TARGET="NPCBrain-v${VERSION_NAME}-unsigned.apk"
+          cp "$APK_SOURCE" "$APK_TARGET"
+          sha256sum "$APK_TARGET" > "${APK_TARGET}.sha256"
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "branch=${GITHUB_REF_NAME}"
+            echo "commit=${GITHUB_SHA}"
+            echo "versionName=${VERSION_NAME}"
+            echo "versionCode=${VERSION_CODE}"
+            echo "run=${GITHUB_RUN_ID}"
+            echo "build=testDebugUnitTest,assembleRelease"
+          } > build-metadata.txt
+          echo "name=NPCBrain-v${VERSION_NAME}-unsigned" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: |
+            NPCBrain-v*-unsigned.apk
+            NPCBrain-v*-unsigned.apk.sha256
+            build-metadata.txt
+          if-no-files-found: error
