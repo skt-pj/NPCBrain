@@ -62,6 +62,7 @@ public final class DemoActivityV032 extends Activity {
     private Button sendButton;
     private TextView typingStatus;
     private volatile boolean processing;
+    private volatile String processingRoomId;
 
     private String liveNpcName = "NPC";
     private String liveNpcId = "";
@@ -85,6 +86,15 @@ public final class DemoActivityV032 extends Activity {
         showRoomList();
     }
 
+    @Override
+    public void onBackPressed() {
+        if (currentRoomId != null) {
+            showRoomList();
+            return;
+        }
+        super.onBackPressed();
+    }
+
     private View buildShell() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -103,9 +113,7 @@ public final class DemoActivityV032 extends Activity {
         backButton.setMinimumWidth(0);
         backButton.setPadding(0, 0, 0, 0);
         backButton.setContentDescription("トーク一覧に戻る");
-        backButton.setOnClickListener(v -> {
-            if (!processing) showRoomList();
-        });
+        backButton.setOnClickListener(v -> showRoomList());
         header.addView(backButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
 
         LinearLayout titleBox = new LinearLayout(this);
@@ -252,7 +260,7 @@ public final class DemoActivityV032 extends Activity {
         typingStatus.setGravity(Gravity.CENTER_VERTICAL);
         typingStatus.setPadding(dp(10), dp(8), dp(10), dp(8));
         typingStatus.setMinHeight(dp(40));
-        typingStatus.setVisibility(processing ? View.VISIBLE : View.GONE);
+        typingStatus.setVisibility(isProcessingCurrentRoom() ? View.VISIBLE : View.GONE);
         typingStatus.setBackground(cardBackground(
                 Color.rgb(240, 243, 250), Color.rgb(215, 220, 232), 12));
         typingStatus.setClickable(true);
@@ -287,7 +295,7 @@ public final class DemoActivityV032 extends Activity {
         screenContainer.addView(composer);
 
         refreshMessages();
-        if (processing) updateTypingStatus();
+        updateTypingStatus();
     }
 
     private void refreshMessages() {
@@ -397,6 +405,7 @@ public final class DemoActivityV032 extends Activity {
     private void startProcessingEvent(String roomId, JSONObject userMessage, String apiKey) {
         final String effort = modelSettingsStore.reasoningEffort();
         processing = true;
+        processingRoomId = roomId;
         liveDone = false;
         initializeLiveStages();
         liveNpcId = firstNpcId(roomId);
@@ -485,10 +494,13 @@ public final class DemoActivityV032 extends Activity {
     private void finishProcessing(String roomId, String error, JSONObject failedUserMessage) {
         processing = false;
         liveDone = true;
-        if (roomId.equals(currentRoomId)) {
+        processingRoomId = null;
+        if (currentRoomId == null) {
+            showRoomList();
+        } else {
             if (sendButton != null) sendButton.setEnabled(true);
-            if (typingStatus != null) typingStatus.setVisibility(View.GONE);
-            refreshMessages();
+            updateTypingStatus();
+            if (roomId.equals(currentRoomId)) refreshMessages();
         }
         renderLiveBrainDialogIfOpen();
         if (error != null) {
@@ -584,9 +596,13 @@ public final class DemoActivityV032 extends Activity {
         return null;
     }
 
+    private boolean isProcessingCurrentRoom() {
+        return ConversationUiPolicy.showsProcessingInRoom(processing, currentRoomId, processingRoomId);
+    }
+
     private void updateTypingStatus() {
-        if (typingStatus == null || currentRoomId == null) return;
-        if (!processing) {
+        if (typingStatus == null) return;
+        if (!isProcessingCurrentRoom()) {
             typingStatus.setVisibility(View.GONE);
             return;
         }
