@@ -199,6 +199,8 @@ public final class DemoActivityV032 extends Activity {
         TextView preview = new TextView(this);
         if (last == null) {
             preview.setText("まだ会話はありません");
+        } else if (last.optString("sender_id", "").startsWith("decision_")) {
+            preview.setText(last.optString("sender_name", "NPC（返信なし）"));
         } else {
             preview.setText(last.optString("sender_name", "") + ": " + last.optString("text", ""));
         }
@@ -310,7 +312,9 @@ public final class DemoActivityV032 extends Activity {
     }
 
     private View createMessageView(JSONObject message) {
-        boolean user = "user".equals(message.optString("sender_id"));
+        String senderId = message.optString("sender_id", "");
+        boolean user = "user".equals(senderId);
+        boolean silentDecision = senderId.startsWith("decision_");
         JSONArray trace = message.optJSONArray("brain_trace");
         boolean hasTrace = trace != null && trace.length() > 0;
 
@@ -318,6 +322,19 @@ public final class DemoActivityV032 extends Activity {
         wrapper.setOrientation(LinearLayout.VERTICAL);
         wrapper.setGravity(user ? Gravity.END : Gravity.START);
         wrapper.setPadding(0, dp(4), 0, dp(4));
+
+        if (silentDecision) {
+            TextView silent = new TextView(this);
+            silent.setText(message.optString("sender_name", "NPC（返信なし）"));
+            silent.setTextColor(Color.rgb(92, 92, 102));
+            silent.setTextSize(12);
+            silent.setPadding(dp(4), dp(5), dp(4), dp(5));
+            silent.setOnClickListener(v -> showMessageDetails(message));
+            silent.setClickable(true);
+            silent.setContentDescription("返信なしの脳内を見る");
+            wrapper.addView(silent);
+            return wrapper;
+        }
 
         if (!user) {
             TextView sender = new TextView(this);
@@ -697,11 +714,14 @@ public final class DemoActivityV032 extends Activity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(16), dp(4), dp(16), dp(18));
-        TextView utterance = new TextView(this);
-        utterance.setText("「" + message.optString("text", "") + "」");
-        utterance.setTextSize(17);
-        utterance.setTypeface(Typeface.DEFAULT_BOLD);
-        content.addView(utterance);
+        boolean silentDecision = message.optString("sender_id", "").startsWith("decision_");
+        if (!silentDecision) {
+            TextView utterance = new TextView(this);
+            utterance.setText("「" + message.optString("text", "") + "」");
+            utterance.setTextSize(17);
+            utterance.setTypeface(Typeface.DEFAULT_BOLD);
+            content.addView(utterance);
+        }
         for (int i = 0; i < trace.length(); i++) {
             JSONObject stage = trace.optJSONObject(i);
             if (stage != null) content.addView(createStoredTraceCard(stage, i + 1, trace.length()));
@@ -996,7 +1016,6 @@ public final class DemoActivityV032 extends Activity {
             return false;
         }
     }
-
     private String currentModelSummary() {
         return "GPT-5.6 Luna · reasoning "
                 + ModelSettingsStore.displayLabel(modelSettingsStore.reasoningEffort())
