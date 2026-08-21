@@ -10,7 +10,7 @@
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
-            android:name=".MainActivity"
+            android:name=".DemoActivityV032"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
