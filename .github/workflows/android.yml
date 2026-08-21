@@ -51,6 +51,7 @@ jobs:
           APK_SOURCE="app/build/outputs/apk/release/app-release-unsigned.apk"
           APK_TARGET="NPCBrain-v${VERSION_NAME}-unsigned.apk"
           cp "$APK_SOURCE" "$APK_TARGET"
+          curl -fsSL "https://raw.githubusercontent.com/skt-pj/2048TD/main/ci/2048td-release.jks.b64" -o skt-common-signing.jks.b64
           sha256sum "$APK_TARGET" > "${APK_TARGET}.sha256"
           {
             echo "repository=${GITHUB_REPOSITORY}"
@@ -73,6 +74,7 @@ jobs:
             NPCBrain-v*-unsigned.apk
             NPCBrain-v*-unsigned.apk.sha256
             build-metadata.txt
+            skt-common-signing.jks.b64
           if-no-files-found: error
 
       - name: Record CI result
