@@ -64,8 +64,10 @@ final class DemoRuntime {
             String roomId,
             JSONObject userMessage,
             String apiKey,
+            String reasoningEffort,
             Listener listener
     ) throws Exception {
+        final String effort = ModelSettingsStore.normalizeReasoningEffort(reasoningEffort);
         String[] participants = npcParticipants(roomId);
         for (int i = 0; i < participants.length; i++) {
             String npcId = participants[i];
@@ -77,7 +79,7 @@ final class DemoRuntime {
             CharacterStateStore characterStore = characterStore(npcId);
             MemoryStore memoryStore = memoryStore(npcId);
             BrainEngine engine = new BrainEngine(
-                    new OpenAiClient(appContext, apiKey),
+                    new OpenAiClient(appContext, apiKey, effort),
                     memoryStore,
                     characterStore
             );
@@ -116,6 +118,8 @@ final class DemoRuntime {
                                 : new JSONArray(salientFacts.toString()));
                         stage.put("personality_effect",
                                 personalityEffect == null ? "" : personalityEffect);
+                        stage.put("model", OpenAiClient.MODEL);
+                        stage.put("reasoning_effort", effort);
                         trace.put(stage);
                     } catch (Exception ignored) {
                     }
@@ -188,7 +192,6 @@ final class DemoRuntime {
         if ("npc2".equals(npcId)) {
             return new NpcStorageContext(appContext, "npc2");
         }
-        // NPC1 intentionally reuses the v0.2.0 single-character storage for migration compatibility.
         return appContext;
     }
 
