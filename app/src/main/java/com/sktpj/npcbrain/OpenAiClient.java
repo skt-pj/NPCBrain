@@ -26,7 +26,6 @@ final class OpenAiClient {
     static final String MODEL = "gpt-5.6-luna";
     static final String DEFAULT_REASONING_EFFORT = "max";
 
-    private static final String API_HOST = "api.openai.com";
     private static final URL RESPONSES_URL;
 
     static {
@@ -63,30 +62,35 @@ final class OpenAiClient {
         body.put("input", prompt);
 
         byte[] request = body.toString().getBytes(StandardCharsets.UTF_8);
-        List<Network> networks = candidateNetworks();
-        Exception lastNetworkError = null;
+        Exception firstFailure = null;
 
-        for (Network network : networks) {
-            try {
-                network.getByName(API_HOST);
-                return executeRequest(network, request);
-            } catch (UnknownHostException | ConnectException | SocketTimeoutException error) {
-                lastNetworkError = error;
-            } catch (IOException error) {
-                lastNetworkError = error;
-            }
-        }
-
+        // First use Android's normal selected route exactly as other HTTPS apps do.
+        // v0.3.1 incorrectly performed an extra Network.getByName() before this request;
+        // a transient DNS failure there could reject a route that HttpURLConnection itself
+        // would otherwise have handled correctly.
         try {
             return executeRequest(null, request);
         } catch (UnknownHostException | ConnectException | SocketTimeoutException error) {
-            throw networkFailure(error);
+            firstFailure = error;
         } catch (IOException error) {
-            if (lastNetworkError != null) {
-                error.addSuppressed(lastNetworkError);
-            }
-            throw networkFailure(error);
+            firstFailure = error;
         }
+
+        // If the selected route failed, try each other Android network directly. Do not
+        // pre-resolve the hostname; Network.openConnection() owns DNS + routing together.
+        for (Network network : candidateNetworks()) {
+            try {
+                return executeRequest(network, request);
+            } catch (UnknownHostException | ConnectException | SocketTimeoutException error) {
+                if (firstFailure == null) firstFailure = error;
+            } catch (IOException error) {
+                if (firstFailure == null) firstFailure = error;
+            }
+        }
+
+        throw networkFailure(firstFailure == null
+                ? new IOException("No route could reach api.openai.com")
+                : firstFailure);
     }
 
     private JSONObject executeRequest(Network network, byte[] request) throws Exception {
@@ -99,8 +103,10 @@ final class OpenAiClient {
             connection.setConnectTimeout(30000);
             connection.setReadTimeout(180000);
             connection.setDoOutput(true);
+            connection.setUseCaches(false);
             connection.setRequestProperty("Authorization", "Bearer " + apiKey);
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.setRequestProperty("Accept", "application/json");
 
             try (OutputStream output = connection.getOutputStream()) {
                 output.write(request);
@@ -136,23 +142,17 @@ final class OpenAiClient {
         if (manager == null) return result;
 
         Network active = manager.getActiveNetwork();
-        if (active != null && hasInternetCapability(manager, active)) {
-            result.add(active);
-        }
 
+        // Prefer validated fallback networks first. The default route was already tried,
+        // so active is intentionally not special-cased ahead of other validated routes.
         for (Network network : manager.getAllNetworks()) {
-            if (network == null || network.equals(active)) continue;
+            if (network == null) continue;
             if (!hasInternetCapability(manager, network)) continue;
-            if (isValidated(manager, network)) {
-                result.add(network);
-            }
+            if (isValidated(manager, network)) result.add(network);
         }
-
         for (Network network : manager.getAllNetworks()) {
-            if (network == null || network.equals(active) || result.contains(network)) continue;
-            if (hasInternetCapability(manager, network)) {
-                result.add(network);
-            }
+            if (network == null || result.contains(network)) continue;
+            if (hasInternetCapability(manager, network)) result.add(network);
         }
         return result;
     }
@@ -173,22 +173,33 @@ final class OpenAiClient {
         ConnectivityManager manager = (ConnectivityManager) appContext.getSystemService(Context.CONNECTIVITY_SERVICE);
         boolean hasInternet = false;
         boolean hasValidated = false;
+        int internetNetworks = 0;
+        int validatedNetworks = 0;
         if (manager != null) {
             for (Network network : manager.getAllNetworks()) {
                 NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
                 if (capabilities == null) continue;
-                hasInternet |= capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
-                hasValidated |= capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+                if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    hasInternet = true;
+                    internetNetworks++;
+                }
+                if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                    hasValidated = true;
+                    validatedNetworks++;
+                }
             }
         }
 
         String message;
         if (!hasInternet) {
-            message = "インターネット接続を検出できません。Wi-Fiまたはモバイル通信を有効にしてから再試行してください。";
+            message = "インターネット接続を検出できません。Wi-Fiまたはモバイル通信を有効にして再試行してください。";
         } else if (!hasValidated) {
-            message = "ネットワークには接続していますが、Androidがインターネット到達性を確認できません。Wi-Fiの認証画面、VPN、Private DNSを確認して再試行してください。";
+            message = "ネットワークには接続していますが、Androidが外部インターネット到達性を確認できません。Wi-Fiの認証画面、VPN、Private DNSを確認して再試行してください。";
         } else {
-            message = "api.openai.com のDNS解決または接続に失敗しました。利用可能な回線は順に試しました。Private DNS、VPN、広告ブロッカー、Wi-Fi側のDNS設定を確認するか、Wi-Fiを一度切ってモバイル回線で再試行してください。";
+            message = "api.openai.com へのHTTPS接続に失敗しました。通常経路の後、Androidが認識する利用可能な回線も直接試しました。"
+                    + "\n検出: internet=" + internetNetworks + " / validated=" + validatedNetworks
+                    + "\nPrivate DNS、VPN、広告ブロッカー、端末のRemote/プロキシ環境、Wi-Fi側DNSを確認してください。"
+                    + " Wi-Fiとモバイル通信の両方がある場合は片方だけにして再試行すると切り分けできます。";
         }
         return new IllegalStateException(message, cause);
     }
@@ -233,9 +244,7 @@ final class OpenAiClient {
         StringBuilder result = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
             String line;
-            while ((line = reader.readLine()) != null) {
-                result.append(line).append('\n');
-            }
+            while ((line = reader.readLine()) != null) result.append(line).append('\n');
         }
         return result.toString();
     }
