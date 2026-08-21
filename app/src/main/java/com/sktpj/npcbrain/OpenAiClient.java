@@ -24,7 +24,7 @@ import java.util.List;
 
 final class OpenAiClient {
     static final String MODEL = "gpt-5.6-luna";
-    static final String REASONING_EFFORT = "max";
+    static final String DEFAULT_REASONING_EFFORT = "max";
 
     private static final String API_HOST = "api.openai.com";
     private static final URL RESPONSES_URL;
@@ -39,16 +39,26 @@ final class OpenAiClient {
 
     private final Context appContext;
     private final String apiKey;
+    private final String reasoningEffort;
 
     OpenAiClient(Context context, String apiKey) {
+        this(context, apiKey, DEFAULT_REASONING_EFFORT);
+    }
+
+    OpenAiClient(Context context, String apiKey, String reasoningEffort) {
         this.appContext = context.getApplicationContext();
         this.apiKey = apiKey;
+        this.reasoningEffort = ModelSettingsStore.normalizeReasoningEffort(reasoningEffort);
+    }
+
+    String reasoningEffort() {
+        return reasoningEffort;
     }
 
     JSONObject requestJson(String prompt) throws Exception {
         JSONObject body = new JSONObject();
         body.put("model", MODEL);
-        body.put("reasoning", new JSONObject().put("effort", REASONING_EFFORT));
+        body.put("reasoning", new JSONObject().put("effort", reasoningEffort));
         body.put("max_output_tokens", 8192);
         body.put("input", prompt);
 
@@ -187,7 +197,7 @@ final class OpenAiClient {
         String detail = responseText == null ? "" : responseText.trim();
         if (detail.length() > 1200) detail = detail.substring(0, 1200);
         if (status == 401) {
-            return "OpenAI APIキーが無効、期限切れ、または利用できません。APIキー設定を確認してください。\n" + detail;
+            return "OpenAI APIキーが無効、期限切れ、または利用できません。ホームのAI設定を確認してください。\n" + detail;
         }
         if (status == 404 && detail.contains("model")) {
             return "GPT-5.6 Luna を利用できません。APIアカウントのモデル権限または提供状況を確認してください。\n" + detail;
@@ -200,9 +210,7 @@ final class OpenAiClient {
 
     private static String extractOutputText(JSONObject response) {
         JSONArray output = response.optJSONArray("output");
-        if (output == null) {
-            return "";
-        }
+        if (output == null) return "";
         StringBuilder text = new StringBuilder();
         for (int i = 0; i < output.length(); i++) {
             JSONObject item = output.optJSONObject(i);
