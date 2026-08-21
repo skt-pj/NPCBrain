@@ -22,6 +22,15 @@ final class WorldRuntimeV040 {
         if (!existingCauseId.isEmpty() && stateStore.eventById(existingCauseId) != null) {
             return message;
         }
+        String messageId = message.optString("id", "").trim();
+        WorldEvent existingMessageEvent = stateStore.eventByMessageId(messageId);
+        if (existingMessageEvent != null) {
+            try {
+                message.put("cause_event_id", existingMessageEvent.eventId());
+            } catch (Exception ignored) {
+            }
+            return message;
+        }
 
         long messageTime = message.optLong("time_ms", clock.now());
         long worldTime = clock.advanceTo(messageTime);
