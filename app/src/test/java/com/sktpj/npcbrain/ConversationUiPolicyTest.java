@@ -17,4 +17,10 @@ public final class ConversationUiPolicyTest {
     public void noIndicatorWhenProcessingIsFinished() {
         assertFalse(ConversationUiPolicy.showsProcessingInRoom(false, "room_a", "room_a"));
     }
+
+    @Test
+    public void chatConsumesSystemBackButRoomListDoesNot() {
+        assertTrue(ConversationUiPolicy.consumesSystemBack("room_a"));
+        assertFalse(ConversationUiPolicy.consumesSystemBack(null));
+    }
 }
