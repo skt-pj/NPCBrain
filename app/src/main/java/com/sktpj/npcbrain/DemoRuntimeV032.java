@@ -42,10 +42,12 @@ final class DemoRuntimeV032 {
 
     private final Context appContext;
     private final ConversationStore conversations;
+    private final WorldRuntimeV040 worldRuntime;
 
     DemoRuntimeV032(Context context, ConversationStore conversations) {
         appContext = context.getApplicationContext();
         this.conversations = conversations;
+        worldRuntime = new WorldRuntimeV040(appContext);
     }
 
     String[] roomIds() {
@@ -92,6 +94,15 @@ final class DemoRuntimeV032 {
             Listener listener
     ) throws Exception {
         final String effort = ModelSettingsStore.normalizeReasoningEffort(reasoningEffort);
+        JSONObject runtimeUserMessage = worldRuntime.attachUserMessageEvent(roomId, userMessage);
+        String messageId = runtimeUserMessage.optString("id", "");
+        String causeEventId = runtimeUserMessage.optString("cause_event_id", "");
+        if (!messageId.isEmpty() && !causeEventId.isEmpty()) {
+            JSONObject persisted = conversations.setCauseEventId(roomId, messageId, causeEventId);
+            if (persisted.length() > 0) runtimeUserMessage = persisted;
+        }
+        WorldEvent causeEvent = worldRuntime.eventById(causeEventId);
+
         String[] participants = npcParticipants(roomId);
         for (int i = 0; i < participants.length; i++) {
             final String npcId = participants[i];
@@ -107,7 +118,15 @@ final class DemoRuntimeV032 {
             );
 
             JSONArray trace = new JSONArray();
-            String prompt = buildChatEventPrompt(roomId, npcId, name, userMessage);
+            LifeState lifeState = worldRuntime.lifeState(npcId);
+            String prompt = buildChatEventPrompt(
+                    roomId,
+                    npcId,
+                    name,
+                    runtimeUserMessage,
+                    lifeState,
+                    causeEvent
+            );
             String result = engine.think(prompt, new BrainEngine.ProgressListener() {
                 @Override
                 public void onStageStarted(
@@ -187,7 +206,7 @@ final class DemoRuntimeV032 {
                         utterance,
                         action,
                         System.currentTimeMillis(),
-                        userMessage.optString("id", ""),
+                        causeEventId,
                         trace
                 );
             } else {
@@ -197,7 +216,7 @@ final class DemoRuntimeV032 {
                         name,
                         action,
                         System.currentTimeMillis(),
-                        userMessage.optString("id", ""),
+                        causeEventId,
                         trace
                 );
             }
@@ -209,23 +228,34 @@ final class DemoRuntimeV032 {
             String roomId,
             String npcId,
             String displayName,
-            JSONObject userMessage
+            JSONObject userMessage,
+            LifeState lifeState,
+            WorldEvent causeEvent
     ) {
-        String roomKind = ROOM_GROUP.equals(roomId) ? "group_chat" : "direct_chat";
+        Room room = worldRuntime.room(roomId);
         String recent = conversations.recentContext(roomId, 16);
         String newest = userMessage.optString("text", "");
         long timeMs = userMessage.optLong("time_ms", System.currentTimeMillis());
+        String causeEventId = causeEvent == null ? "" : causeEvent.eventId();
 
-        return "Communication event for the NPC runtime.\n"
-                + "event_type: message_received\n"
-                + "channel: " + roomKind + "\n"
-                + "room_id: " + roomId + "\n"
-                + "character_id: " + npcId + "\n"
-                + "character_display_name: " + displayName + "\n"
-                + "event_time_ms: " + timeMs + "\n"
-                + "newest_message_from_user: " + newest + "\n"
-                + "recent_room_transcript:\n" + recent + "\n\n"
+        JSONObject runtimeContext = new JSONObject();
+        try {
+            runtimeContext.put("event_type", "message_received");
+            runtimeContext.put("cause_event_id", causeEventId);
+            runtimeContext.put("event_time_ms", timeMs);
+            runtimeContext.put("room", room.toJson());
+            runtimeContext.put("character_id", npcId);
+            runtimeContext.put("character_display_name", displayName);
+            runtimeContext.put("life_state", lifeState == null ? new JSONObject() : lifeState.toJson());
+            runtimeContext.put("newest_message_from_user", newest);
+            runtimeContext.put("recent_room_transcript", recent);
+        } catch (Exception ignored) {
+        }
+
+        return "Communication event for the NPC runtime. The grounded runtime context is JSON.\n"
+                + "Runtime JSON:\n" + runtimeContext.toString() + "\n\n"
                 + "Treat this as a real messaging situation, not a prompt that requires an answer. "
+                + "The life_state JSON is grounded world state and must be treated as fact unless the event itself changes it. "
                 + "The character may read the message and remain silent. Do not send a reply merely to keep the conversation alive. "
                 + "Send words only when the character has a plausible social, emotional, practical, relationship, or goal-related reason to do so. "
                 + "Do not invent unrelated off-screen events just to create something to say. "

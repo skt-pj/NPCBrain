@@ -6,8 +6,6 @@ import android.content.SharedPreferences;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.util.UUID;
-
 final class ConversationStore {
     private static final String PREFS = "npcbrain_conversations_v1";
     private static final int MAX_MESSAGES_PER_ROOM = 120;
@@ -76,6 +74,27 @@ final class ConversationStore {
         );
     }
 
+    synchronized JSONObject setCauseEventId(String roomId, String messageId, String causeEventId) {
+        if (messageId == null || messageId.trim().isEmpty()) return new JSONObject();
+        JSONArray source = load(roomId);
+        JSONObject matched = null;
+        try {
+            for (int i = 0; i < source.length(); i++) {
+                JSONObject item = source.optJSONObject(i);
+                if (item == null || !messageId.equals(item.optString("id", ""))) continue;
+                item.put("cause_event_id", causeEventId == null ? "" : causeEventId.trim());
+                matched = new JSONObject(item.toString());
+                break;
+            }
+            if (matched != null) {
+                preferences.edit().putString(key(roomId), source.toString()).apply();
+                return matched;
+            }
+        } catch (Exception ignored) {
+        }
+        return new JSONObject();
+    }
+
     synchronized JSONArray messages(String roomId) {
         JSONArray source = load(roomId);
         try {
@@ -137,18 +156,16 @@ final class ConversationStore {
             JSONArray brainTrace
     ) {
         try {
-            JSONObject message = new JSONObject();
-            message.put("id", UUID.randomUUID().toString());
-            message.put("room_id", roomId == null ? "" : roomId);
-            message.put("sender_id", senderId == null ? "" : senderId);
-            message.put("sender_name", senderName == null ? "" : senderName);
-            message.put("text", text == null ? "" : text.trim());
-            message.put("action", action == null ? "" : action.trim());
-            message.put("time_ms", timeMs);
-            message.put("cause_event_id", causeEventId == null ? "" : causeEventId);
-            message.put("brain_trace", brainTrace == null
-                    ? new JSONArray()
-                    : new JSONArray(brainTrace.toString()));
+            JSONObject message = Message.create(
+                    roomId,
+                    senderId,
+                    senderName,
+                    text,
+                    action,
+                    timeMs,
+                    causeEventId,
+                    brainTrace
+            ).toJson();
 
             JSONArray source = load(roomId);
             JSONArray updated = new JSONArray();
