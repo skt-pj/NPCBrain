@@ -190,6 +190,16 @@ final class DemoRuntimeV032 {
                         userMessage.optString("id", ""),
                         trace
                 );
+            } else {
+                conversations.appendNpcSilentDecision(
+                        roomId,
+                        npcId,
+                        name,
+                        action,
+                        System.currentTimeMillis(),
+                        userMessage.optString("id", ""),
+                        trace
+                );
             }
             if (listener != null) listener.onNpcFinished(npcId, name, sent);
         }
