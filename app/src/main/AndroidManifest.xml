@@ -13,7 +13,7 @@
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
             android:name=".DemoActivityV032"
-            android:enableOnBackInvokedCallback="false"
+            android:enableOnBackInvokedCallback="true"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
