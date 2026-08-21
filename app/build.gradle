@@ -1,0 +1,46 @@
+plugins {
+    id 'com.android.application'
+}
+
+import java.util.Properties
+
+def versionProps = new Properties()
+rootProject.file('version.properties').withInputStream { versionProps.load(it) }
+
+android {
+    namespace 'com.sktpj.npcbrain'
+    compileSdk 37
+
+    defaultConfig {
+        applicationId 'com.sktpj.npcbrain'
+        minSdk 23
+        targetSdk 37
+        versionCode versionProps.getProperty('VERSION_CODE').toInteger()
+        versionName versionProps.getProperty('VERSION_NAME')
+    }
+
+    signingConfigs {
+        commonStable {
+            storeFile rootProject.file('ci/skt-common-signing.jks')
+            storePassword '2048td-release'
+            keyAlias '2048td-release'
+            keyPassword '2048td-release'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.commonStable
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}
