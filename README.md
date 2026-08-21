@@ -15,7 +15,7 @@ Androidで、脳の認知機能を複数の生成AI役割へ分解して協調�
 9. action_selection / 行動選択
 10. global_workspace / 統合
 
-各モジュールは OpenAI Responses API の `gpt-5.6` を `reasoning.effort=max` で呼び出し、構造化JSONを返します。Global Workspaceが各結果を統合します。
+各モジュールは OpenAI Responses API の `gpt-5.6-luna` を `reasoning.effort=max` で呼び出し、構造化JSONを返します。Global Workspaceが各結果を統合します。
 
 ## Brain monitor
 
@@ -41,4 +41,4 @@ Androidで、脳の認知機能を複数の生成AI役割へ分解して協調�
 
 OpenAI APIキーはアプリ右上メニューから入力し、端末の Android Keystore で暗号化して保存します。APIキーはリポジトリやAPKへ埋め込みません。
 
-Version: 0.1.2 / versionCode 3
+Version: 0.1.3 / versionCode 4
