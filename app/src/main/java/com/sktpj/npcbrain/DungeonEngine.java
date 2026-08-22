@@ -13,7 +13,7 @@ final class DungeonEngine {
 
     static DungeonState step(DungeonState state, DungeonPersonalityPolicy.Traits traits) {
         DungeonIntent intent = DungeonIntent.localFallback(state, traits, "Brain未更新");
-        return step(state, traits, intent);
+        return stepDetailed(state, traits, intent).state;
     }
 
     static DungeonState step(
@@ -21,9 +21,7 @@ final class DungeonEngine {
             DungeonPersonalityPolicy.Traits traits,
             DungeonIntent intent
     ) {
-        DungeonPersonalityPolicy.Direction direction = DungeonPersonalityPolicy.choose(
-                state, traits, intent);
-        return step(state, traits, direction);
+        return stepDetailed(state, traits, intent).state;
     }
 
     static DungeonState step(
@@ -31,10 +29,29 @@ final class DungeonEngine {
             DungeonPersonalityPolicy.Traits traits,
             DungeonPersonalityPolicy.Direction direction
     ) {
+        return stepDetailed(state, traits, direction).state;
+    }
+
+    static DungeonStepResult stepDetailed(
+            DungeonState state,
+            DungeonPersonalityPolicy.Traits traits,
+            DungeonIntent intent
+    ) {
+        DungeonPersonalityPolicy.Direction direction = DungeonPersonalityPolicy.choose(
+                state, traits, intent);
+        return stepDetailed(state, traits, direction);
+    }
+
+    static DungeonStepResult stepDetailed(
+            DungeonState state,
+            DungeonPersonalityPolicy.Traits traits,
+            DungeonPersonalityPolicy.Direction direction
+    ) {
+        List<DungeonCombatEvent> events = new ArrayList<>();
         if (state == null) {
             DungeonState generated = DungeonGenerator.generate(System.nanoTime(), 1);
             DungeonPerception.refreshExploration(generated);
-            return generated;
+            return new DungeonStepResult(generated, events);
         }
         if (state.hp <= 0) {
             DungeonState restarted = DungeonGenerator.generate(
@@ -45,10 +62,13 @@ final class DungeonEngine {
                     state.turn + 1);
             DungeonPerception.refreshExploration(restarted);
             restarted.lastAction = "倒れたため1Fから再開";
-            return restarted;
+            return new DungeonStepResult(restarted, events);
         }
 
-        String playerAction = resolvePlayerAction(state, direction);
+        int floorBefore = state.floor;
+        int playerBeforeX = state.playerX;
+        int playerBeforeY = state.playerY;
+        String playerAction = resolvePlayerAction(state, direction, events);
         DungeonPerception.refreshExploration(state);
 
         if (state.tileAt(state.playerX, state.playerY) == DungeonState.STAIRS) {
@@ -61,33 +81,66 @@ final class DungeonEngine {
                     state.turn + 1);
             DungeonPerception.refreshExploration(next);
             next.lastAction = state.floor + "Fクリア → " + nextFloor + "Fへ";
-            return next;
+            events.add(new DungeonCombatEvent(
+                    DungeonCombatEvent.FLOOR_CHANGED,
+                    playerBeforeX,
+                    playerBeforeY,
+                    state.playerX,
+                    state.playerY,
+                    0,
+                    Integer.toString(floorBefore)));
+            return new DungeonStepResult(next, events);
         }
 
-        int damageTaken = resolveEnemyPhase(state);
+        int damageTaken = resolveEnemyPhase(state, events);
         state.turn++;
         DungeonPerception.refreshExploration(state);
         StringBuilder action = new StringBuilder(playerAction);
         if (damageTaken > 0) action.append(" / ").append(damageTaken).append("ダメージ");
         if (state.hp <= 0) action.append(" / 倒れた");
         state.lastAction = action.toString();
-        return state;
+        return new DungeonStepResult(state, events);
     }
 
     private static String resolvePlayerAction(
             DungeonState state,
-            DungeonPersonalityPolicy.Direction direction
+            DungeonPersonalityPolicy.Direction direction,
+            List<DungeonCombatEvent> events
     ) {
         if (direction == null || direction == DungeonPersonalityPolicy.Direction.WAIT) {
             return "周囲を警戒";
         }
+        int sourceX = state.playerX;
+        int sourceY = state.playerY;
         int targetX = state.playerX + direction.dx;
         int targetY = state.playerY + direction.dy;
         if (!state.walkable(targetX, targetY)) return "壁を警戒";
 
         DungeonState.Enemy enemy = state.enemyAt(targetX, targetY);
         if (enemy != null) {
+            int hpBefore = enemy.hp;
             if (playerAttack(state, enemy)) {
+                int appliedDamage = Math.max(0, hpBefore - enemy.hp);
+                if (appliedDamage > 0) {
+                    events.add(new DungeonCombatEvent(
+                            DungeonCombatEvent.PLAYER_HIT,
+                            sourceX,
+                            sourceY,
+                            enemy.x,
+                            enemy.y,
+                            appliedDamage,
+                            enemy.id));
+                    if (!enemy.alive()) {
+                        events.add(new DungeonCombatEvent(
+                                DungeonCombatEvent.ENEMY_DEFEATED,
+                                sourceX,
+                                sourceY,
+                                enemy.x,
+                                enemy.y,
+                                appliedDamage,
+                                enemy.id));
+                    }
+                }
                 return enemy.alive() ? "敵を攻撃" : "敵を倒した";
             }
             return "攻撃できない距離";
@@ -108,13 +161,28 @@ final class DungeonEngine {
         return true;
     }
 
-    private static int resolveEnemyPhase(DungeonState state) {
+    private static int resolveEnemyPhase(
+            DungeonState state,
+            List<DungeonCombatEvent> events
+    ) {
         int damageTaken = 0;
         for (DungeonState.Enemy enemy : state.enemies) {
             if (!enemy.alive() || state.hp <= 0) continue;
             if (canAttack(enemy.x, enemy.y, state.playerX, state.playerY)) {
+                int hpBefore = state.hp;
                 state.hp = Math.max(0, state.hp - ENEMY_DAMAGE);
-                damageTaken += ENEMY_DAMAGE;
+                int appliedDamage = Math.max(0, hpBefore - state.hp);
+                damageTaken += appliedDamage;
+                if (appliedDamage > 0) {
+                    events.add(new DungeonCombatEvent(
+                            DungeonCombatEvent.PLAYER_DAMAGED,
+                            enemy.x,
+                            enemy.y,
+                            state.playerX,
+                            state.playerY,
+                            appliedDamage,
+                            "player"));
+                }
                 continue;
             }
             moveEnemyOneStep(state, enemy);
