@@ -10,11 +10,13 @@ import java.lang.reflect.Field;
 final class DemoCognitionObserver {
     static final class Snapshot {
         final JSONArray stages;
+        final JSONObject cognitiveGraph;
         final boolean live;
         final long timeMs;
 
-        Snapshot(JSONArray stages, boolean live, long timeMs) {
+        Snapshot(JSONArray stages, JSONObject cognitiveGraph, boolean live, long timeMs) {
             this.stages = copy(stages);
+            this.cognitiveGraph = copy(cognitiveGraph);
             this.live = live;
             this.timeMs = timeMs;
         }
@@ -49,8 +51,12 @@ final class DemoCognitionObserver {
             String liveNpcId = String.valueOf(npcField.get(activity));
             if (!processing || !npcId.equals(liveNpcId)) return null;
             Object stages = stagesField.get(activity);
-            if (!(stages instanceof JSONArray)) return null;
-            return new Snapshot((JSONArray) stages, true, System.currentTimeMillis());
+            JSONArray copiedStages = stages instanceof JSONArray
+                    ? copy((JSONArray) stages)
+                    : new JSONArray();
+            JSONObject actualGraph = CognitiveGraphLiveBus.latestSnapshot();
+            if (!CognitiveGraphLiveBus.isValid(actualGraph)) actualGraph = new JSONObject();
+            return new Snapshot(copiedStages, actualGraph, true, System.currentTimeMillis());
         } catch (Exception ignored) {
             return null;
         }
@@ -59,6 +65,7 @@ final class DemoCognitionObserver {
     private static Snapshot storedSnapshot(Context context, String npcId) {
         ConversationStore store = new ConversationStore(context.getApplicationContext());
         JSONArray best = new JSONArray();
+        JSONObject bestGraph = new JSONObject();
         long bestTime = 0L;
         for (String roomId : ROOMS) {
             JSONArray messages = store.messages(roomId);
@@ -71,10 +78,23 @@ final class DemoCognitionObserver {
                 if (time >= bestTime) {
                     bestTime = time;
                     best = copy(trace);
+                    bestGraph = graphFromTrace(trace);
                 }
             }
         }
-        return new Snapshot(best, false, bestTime);
+        return new Snapshot(best, bestGraph, false, bestTime);
+    }
+
+    static JSONObject graphFromTrace(JSONArray trace) {
+        if (trace == null) return new JSONObject();
+        for (int i = trace.length() - 1; i >= 0; i--) {
+            JSONObject stage = trace.optJSONObject(i);
+            if (stage == null || !"global_workspace".equals(stage.optString("stage_id", ""))) continue;
+            JSONObject graph = stage.optJSONObject("cognitive_graph");
+            if (CognitiveGraphLiveBus.isValid(graph)) return copy(graph);
+            return new JSONObject();
+        }
+        return new JSONObject();
     }
 
     private static boolean belongsToNpc(String senderId, String npcId) {
@@ -90,6 +110,14 @@ final class DemoCognitionObserver {
             return source == null ? new JSONArray() : new JSONArray(source.toString());
         } catch (Exception ignored) {
             return new JSONArray();
+        }
+    }
+
+    private static JSONObject copy(JSONObject source) {
+        try {
+            return source == null ? new JSONObject() : new JSONObject(source.toString());
+        } catch (Exception ignored) {
+            return new JSONObject();
         }
     }
 }
