@@ -51,6 +51,10 @@ final class DungeonPersonalityPolicy {
     }
 
     static Direction choose(DungeonState state, Traits traits) {
+        return choose(state, traits, DungeonIntent.localFallback(state, traits, "人格ベース"));
+    }
+
+    static Direction choose(DungeonState state, Traits traits, DungeonIntent intent) {
         if (state == null) return Direction.WAIT;
         List<Direction> candidates = legalDirections(state);
         if (candidates.isEmpty()) return Direction.WAIT;
@@ -59,7 +63,8 @@ final class DungeonPersonalityPolicy {
         double bestScore = -Double.MAX_VALUE;
         Random tieBreak = new Random(state.seed ^ ((long) state.turn << 32) ^ state.floor);
         for (Direction direction : candidates) {
-            double score = scoreDirection(state, traits, direction) + tieBreak.nextDouble() * 0.025;
+            double score = scoreDirection(state, traits, direction, intent)
+                    + tieBreak.nextDouble() * 0.025;
             if (score > bestScore) {
                 bestScore = score;
                 best = direction;
@@ -69,6 +74,16 @@ final class DungeonPersonalityPolicy {
     }
 
     static double scoreDirection(DungeonState state, Traits traits, Direction direction) {
+        return scoreDirection(state, traits, direction,
+                DungeonIntent.localFallback(state, traits, "人格ベース"));
+    }
+
+    static double scoreDirection(
+            DungeonState state,
+            Traits traits,
+            Direction direction,
+            DungeonIntent intent
+    ) {
         if (state == null || traits == null || direction == null) return -Double.MAX_VALUE;
         int nx = state.playerX + direction.dx;
         int ny = state.playerY + direction.dy;
@@ -80,21 +95,24 @@ final class DungeonPersonalityPolicy {
         double c = traits.conscientiousness / 100.0;
         double o = traits.openness / 100.0;
 
-        int stairsX = state.stairsX();
-        int stairsY = state.stairsY();
-        int currentStairDistance = manhattan(state.playerX, state.playerY, stairsX, stairsY);
-        int nextStairDistance = manhattan(nx, ny, stairsX, stairsY);
-        int stairGain = currentStairDistance - nextStairDistance;
+        boolean stairsKnown = DungeonPerception.stairsKnown(state);
+        int currentStairDistance = stairsKnown
+                ? DungeonPerception.knownStairDistance(state, state.playerX, state.playerY) : 999;
+        int nextStairDistance = stairsKnown
+                ? DungeonPerception.knownStairDistance(state, nx, ny) : 999;
+        int stairGain = stairsKnown ? currentStairDistance - nextStairDistance : 0;
 
-        int currentEnemyDistance = nearestEnemyDistance(state, state.playerX, state.playerY);
-        int nextEnemyDistance = nearestEnemyDistance(state, nx, ny);
+        int currentEnemyDistance = DungeonPerception.nearestVisibleEnemyDistance(
+                state, state.playerX, state.playerY);
+        int nextEnemyDistance = DungeonPerception.nearestVisibleEnemyDistance(state, nx, ny);
         DungeonState.Enemy targetEnemy = state.enemyAt(nx, ny);
-        boolean attacksEnemy = targetEnemy != null;
+        boolean attacksEnemy = targetEnemy != null
+                && DungeonPerception.isVisible(state, targetEnemy.x, targetEnemy.y);
         boolean unvisited = state.inside(nx, ny) && !state.visited[ny][nx];
 
         double score = 0.0;
-        score += stairGain * (0.8 + 3.2 * c);
-        if (unvisited) score += 0.3 + 2.4 * o;
+        if (stairsKnown) score += stairGain * (0.7 + 2.7 * c);
+        if (unvisited) score += 0.35 + 2.5 * o;
 
         if (currentEnemyDistance < 999 && nextEnemyDistance < 999) {
             int enemyApproach = currentEnemyDistance - nextEnemyDistance;
@@ -112,8 +130,59 @@ final class DungeonPersonalityPolicy {
         }
 
         if (direction == Direction.WAIT) score -= 1.2 + 1.0 * c + 0.4 * o;
-        if (state.tileAt(nx, ny) == DungeonState.STAIRS) score += 6.0 + 2.0 * c;
+        if (stairsKnown && state.tileAt(nx, ny) == DungeonState.STAIRS) {
+            score += 6.0 + 2.0 * c;
+        }
+
+        DungeonIntent resolved = intent == null
+                ? DungeonIntent.localFallback(state, traits, "intentなし") : intent;
+        if (resolved.preferredDirection == direction && direction != Direction.WAIT) {
+            score += 3.2 * Math.max(0.35, resolved.confidence);
+        }
+        switch (resolved.mode) {
+            case DungeonIntent.SEEK_STAIRS:
+                if (stairsKnown) {
+                    score += stairGain * 5.0;
+                    if (state.tileAt(nx, ny) == DungeonState.STAIRS) score += 8.0;
+                } else if (unvisited) {
+                    score += 1.6 + 1.5 * o;
+                }
+                break;
+            case DungeonIntent.ENGAGE:
+                if (attacksEnemy) score += 6.0;
+                if (currentEnemyDistance < 999 && nextEnemyDistance < 999) {
+                    score += (currentEnemyDistance - nextEnemyDistance) * 3.2;
+                }
+                break;
+            case DungeonIntent.EVADE:
+                if (attacksEnemy) score -= 8.0;
+                if (currentEnemyDistance < 999 && nextEnemyDistance < 999) {
+                    score += (nextEnemyDistance - currentEnemyDistance) * 5.0;
+                }
+                break;
+            case DungeonIntent.HOLD:
+                if (direction == Direction.WAIT) score += 4.0;
+                break;
+            default:
+                if (unvisited) score += 3.0 + 1.0 * o;
+                if (frontierGain(state, nx, ny) > frontierGain(state, state.playerX, state.playerY)) {
+                    score += 1.2;
+                }
+                break;
+        }
         return score;
+    }
+
+    private static int frontierGain(DungeonState state, int x, int y) {
+        if (!state.inside(x, y)) return 0;
+        int count = 0;
+        int[][] dirs = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (int[] dir : dirs) {
+            int nx = x + dir[0];
+            int ny = y + dir[1];
+            if (state.inside(nx, ny) && state.walkable(nx, ny) && !state.visited[ny][nx]) count++;
+        }
+        return count;
     }
 
     private static List<Direction> legalDirections(DungeonState state) {
@@ -126,19 +195,5 @@ final class DungeonPersonalityPolicy {
         }
         result.add(Direction.WAIT);
         return result;
-    }
-
-    private static int nearestEnemyDistance(DungeonState state, int x, int y) {
-        int best = 999;
-        for (DungeonState.Enemy enemy : state.enemies) {
-            if (!enemy.alive()) continue;
-            best = Math.min(best, manhattan(x, y, enemy.x, enemy.y));
-        }
-        return best;
-    }
-
-    private static int manhattan(int x1, int y1, int x2, int y2) {
-        if (x2 < 0 || y2 < 0) return 999;
-        return Math.abs(x1 - x2) + Math.abs(y1 - y2);
     }
 }

@@ -12,7 +12,17 @@ final class DungeonEngine {
     }
 
     static DungeonState step(DungeonState state, DungeonPersonalityPolicy.Traits traits) {
-        DungeonPersonalityPolicy.Direction direction = DungeonPersonalityPolicy.choose(state, traits);
+        DungeonIntent intent = DungeonIntent.localFallback(state, traits, "Brain未更新");
+        return step(state, traits, intent);
+    }
+
+    static DungeonState step(
+            DungeonState state,
+            DungeonPersonalityPolicy.Traits traits,
+            DungeonIntent intent
+    ) {
+        DungeonPersonalityPolicy.Direction direction = DungeonPersonalityPolicy.choose(
+                state, traits, intent);
         return step(state, traits, direction);
     }
 
@@ -21,7 +31,11 @@ final class DungeonEngine {
             DungeonPersonalityPolicy.Traits traits,
             DungeonPersonalityPolicy.Direction direction
     ) {
-        if (state == null) return DungeonGenerator.generate(System.nanoTime(), 1);
+        if (state == null) {
+            DungeonState generated = DungeonGenerator.generate(System.nanoTime(), 1);
+            DungeonPerception.refreshExploration(generated);
+            return generated;
+        }
         if (state.hp <= 0) {
             DungeonState restarted = DungeonGenerator.generate(
                     DungeonGenerator.nextFloorSeed(state.seed, 1),
@@ -29,12 +43,13 @@ final class DungeonEngine {
                     state.maxHp,
                     state.maxHp,
                     state.turn + 1);
+            DungeonPerception.refreshExploration(restarted);
             restarted.lastAction = "倒れたため1Fから再開";
             return restarted;
         }
 
         String playerAction = resolvePlayerAction(state, direction);
-        state.markVisited(state.playerX, state.playerY);
+        DungeonPerception.refreshExploration(state);
 
         if (state.tileAt(state.playerX, state.playerY) == DungeonState.STAIRS) {
             int nextFloor = state.floor + 1;
@@ -44,12 +59,14 @@ final class DungeonEngine {
                     state.maxHp,
                     state.maxHp,
                     state.turn + 1);
+            DungeonPerception.refreshExploration(next);
             next.lastAction = state.floor + "Fクリア → " + nextFloor + "Fへ";
             return next;
         }
 
         int damageTaken = resolveEnemyPhase(state);
         state.turn++;
+        DungeonPerception.refreshExploration(state);
         StringBuilder action = new StringBuilder(playerAction);
         if (damageTaken > 0) action.append(" / ").append(damageTaken).append("ダメージ");
         if (state.hp <= 0) action.append(" / 倒れた");
