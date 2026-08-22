@@ -28,6 +28,7 @@ final class BrainEngine {
         private final String action;
         private final String internalState;
         private final BrainCommunicationDecision communication;
+        private final JSONObject environmentAction;
         private final JSONObject cognitiveGraph;
 
         Decision(
@@ -38,6 +39,19 @@ final class BrainEngine {
                 BrainCommunicationDecision communication,
                 JSONObject cognitiveGraph
         ) {
+            this(displayOutput, utterance, action, internalState,
+                    communication, new JSONObject(), cognitiveGraph);
+        }
+
+        Decision(
+                String displayOutput,
+                String utterance,
+                String action,
+                String internalState,
+                BrainCommunicationDecision communication,
+                JSONObject environmentAction,
+                JSONObject cognitiveGraph
+        ) {
             this.displayOutput = displayOutput == null ? "" : displayOutput;
             this.utterance = utterance == null ? "" : utterance;
             this.action = action == null ? "" : action;
@@ -45,6 +59,7 @@ final class BrainEngine {
             this.communication = communication == null
                     ? BrainCommunicationDecision.none()
                     : communication;
+            this.environmentAction = copyJson(environmentAction);
             this.cognitiveGraph = copyJson(cognitiveGraph);
         }
 
@@ -66,6 +81,10 @@ final class BrainEngine {
 
         BrainCommunicationDecision communication() {
             return communication;
+        }
+
+        JSONObject environmentAction() {
+            return copyJson(environmentAction);
         }
 
         JSONObject cognitiveGraph() {
@@ -162,6 +181,14 @@ final class BrainEngine {
     }
 
     Decision thinkDecision(String userInput, ProgressListener listener) throws Exception {
+        return thinkDecision(userInput, listener, true);
+    }
+
+    Decision thinkDecision(
+            String userInput,
+            ProgressListener listener,
+            boolean persistMemory
+    ) throws Exception {
         JSONObject characterState = characterStore.snapshotJson();
         characterState.put("characteristic_adaptations", memoryStore.characterAdaptations());
         String longTermMemory = memoryStore.contextFor(userInput, characterState);
@@ -238,6 +265,8 @@ final class BrainEngine {
         JSONArray semanticFacts = finalResult.optJSONArray("semantic_facts");
         if (semanticFacts == null) semanticFacts = new JSONArray();
         BrainCommunicationDecision communication = BrainCommunicationDecision.fromJson(finalResult);
+        JSONObject environmentAction = finalResult.optJSONObject("environment_action");
+        if (environmentAction == null) environmentAction = new JSONObject();
         double finalConfidence = clamp01(finalResult.optDouble("confidence", 0.0));
 
         try {
@@ -267,6 +296,12 @@ final class BrainEngine {
                     workspaceFacts.put("延期時刻: " + communication.deferUntilMs());
                 }
             }
+            String environmentType = environmentAction.optString("type", "none");
+            if (!"none".equals(environmentType)) {
+                workspaceFacts.put("環境行動: " + environmentType
+                        + " / " + environmentAction.optString("intent", "")
+                        + " / " + environmentAction.optString("direction", "none"));
+            }
             listener.onStageCompleted(
                     GLOBAL_ID,
                     GLOBAL_LABEL,
@@ -280,19 +315,22 @@ final class BrainEngine {
         }
 
         String display = renderNpcOutput(utterance, action, internalState);
-        memoryStore.remember(
-                userInput,
-                display,
-                memorySummary,
-                memoryImportance,
-                semanticFacts
-        );
+        if (persistMemory) {
+            memoryStore.remember(
+                    userInput,
+                    display,
+                    memorySummary,
+                    memoryImportance,
+                    semanticFacts
+            );
+        }
         return new Decision(
                 display,
                 utterance,
                 action,
                 internalState,
                 communication,
+                environmentAction,
                 safeGraphSnapshot(cognitiveGraph)
         );
     }
@@ -386,7 +424,8 @@ final class BrainEngine {
                 + "cognitive_graph_focus is a bounded semantic point-link working-memory view of currently active evidence and earlier public cognitive outputs. "
                 + "Use its activation as attention priority, never as truth probability. Low-activation grounded facts and hard constraints still apply. "
                 + "Graph x/y/z display coordinates do not exist in this input and must not be inferred. "
-                + "Treat memory and personality as biases/context, not permission to invent facts.\n"
+                + "Treat memory and personality as biases/context, not permission to invent facts. "
+                + "If the Runtime JSON mode is dungeon_turn, hidden map cells, hidden enemies and undiscovered stairs do not exist as usable evidence; use only the grounded visible/explored data and candidate_actions.\n"
                 + "The content field is a concise public diagnostic summary for the brain monitor. "
                 + "personality_effect is one short sentence describing which trait/state/adaptation materially influenced this module; use an empty string when none mattered. "
                 + "graph_used_node_ids must contain only IDs present in cognitive_graph_focus.nodes that materially contributed to this module's public result. Use [] when none did; maximum 8. "
@@ -419,6 +458,9 @@ final class BrainEngine {
                 + "communication is a structured runtime decision. Unless the user_input Runtime JSON has mode=spontaneous_life_event, communication.decision MUST be none with empty target_id and defer_until_ms=0. "
                 + "For mode=spontaneous_life_event, communication.decision MUST be send, defer, or skip. Send only when there is a concrete social, emotional, practical, relationship, or goal-related reason to message now; elapsed time alone is not a reason. "
                 + "For send, choose target_id only from allowed_targets and provide a non-empty npc_utterance. For defer or skip, npc_utterance MUST be empty. For defer, defer_until_ms must be a future time justified by the grounded situation. Never invent an off-screen event merely to create a message.\n"
+                + "environment_action is a structured in-world control decision. Unless user_input Runtime JSON has mode=dungeon_turn, environment_action.type MUST be none, direction none, intent none, empty target_id, confidence 0. "
+                + "For mode=dungeon_turn, communication MUST remain none. Choose exactly one feasible candidate from user_input.candidate_actions using only grounded visible/explored facts. environment_action.type MUST be move, attack, or wait; direction MUST be up, down, left, right, or none; intent MUST be explore, seek_stairs, engage, evade, or hold. "
+                + "Use target_id only for a visible target. Never use an undiscovered stair coordinate or hidden enemy. Hard movement/attack constraints override personality.\n"
                 + "Return ONLY JSON. The word JSON and the exact JSON format are mandatory.\n"
                 + "JSON format:\n"
                 + "{\"module\":\"global_workspace\",\"npc_utterance\":\"spoken words or empty\",\"npc_action\":\"in-world action or empty\","
@@ -427,7 +469,8 @@ final class BrainEngine {
                 + "\"dynamic_state\":{\"valence\":0.0,\"arousal\":0.0,\"stress\":0.0},"
                 + "\"memory_summary\":\"brief episodic summary worth recalling later\",\"memory_importance\":0.0,"
                 + "\"semantic_facts\":[{\"type\":\"world_fact\",\"text\":\"durable fact\"}],"
-                + "\"communication\":{\"decision\":\"none\",\"target_id\":\"\",\"defer_until_ms\":0}}\n"
+                + "\"communication\":{\"decision\":\"none\",\"target_id\":\"\",\"defer_until_ms\":0},"
+                + "\"environment_action\":{\"type\":\"none\",\"direction\":\"none\",\"intent\":\"none\",\"target_id\":\"\",\"confidence\":0.0}}\n"
                 + "confidence and memory_importance must be between 0.0 and 1.0. semantic_facts may be [] when none qualify. "
                 + "Do not add keys outside this JSON format.\n"
                 + "Input JSON:\n" + context.toString();
