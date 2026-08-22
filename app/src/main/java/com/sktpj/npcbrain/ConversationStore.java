@@ -222,6 +222,21 @@ final class ConversationStore {
         return value.startsWith(DECISION_PREFIX) || value.startsWith(RUNTIME_DECISION_PREFIX);
     }
 
+    static JSONArray withCognitiveGraph(JSONArray brainTrace, JSONObject cognitiveGraph) {
+        JSONArray trace = copyTrace(brainTrace);
+        if (trace.length() == 0 || !CognitiveGraphLiveBus.isValid(cognitiveGraph)) return trace;
+        for (int i = trace.length() - 1; i >= 0; i--) {
+            JSONObject stage = trace.optJSONObject(i);
+            if (stage == null || !"global_workspace".equals(stage.optString("stage_id", ""))) continue;
+            try {
+                stage.put("cognitive_graph", new JSONObject(cognitiveGraph.toString()));
+            } catch (Exception ignored) {
+            }
+            break;
+        }
+        return trace;
+    }
+
     private JSONObject append(
             String fixedId,
             String roomId,
@@ -242,6 +257,9 @@ final class ConversationStore {
                 if (existing != null) return new JSONObject(existing.toString());
             }
 
+            JSONArray persistedTrace = withCognitiveGraph(
+                    brainTrace,
+                    CognitiveGraphLiveBus.currentThreadSnapshot());
             JSONObject message = (normalizedId.isEmpty()
                     ? Message.create(
                             roomId,
@@ -251,7 +269,7 @@ final class ConversationStore {
                             action,
                             timeMs,
                             causeEventId,
-                            brainTrace)
+                            persistedTrace)
                     : Message.createWithId(
                             normalizedId,
                             roomId,
@@ -261,7 +279,7 @@ final class ConversationStore {
                             action,
                             timeMs,
                             causeEventId,
-                            brainTrace)).toJson();
+                            persistedTrace)).toJson();
 
             JSONArray updated = new JSONArray();
             int start = Math.max(0, source.length() - (MAX_MESSAGES_PER_ROOM - 1));
@@ -288,6 +306,14 @@ final class ConversationStore {
     private JSONArray load(String roomId) {
         try {
             return new JSONArray(preferences.getString(key(roomId), "[]"));
+        } catch (Exception ignored) {
+            return new JSONArray();
+        }
+    }
+
+    private static JSONArray copyTrace(JSONArray source) {
+        try {
+            return source == null ? new JSONArray() : new JSONArray(source.toString());
         } catch (Exception ignored) {
             return new JSONArray();
         }
