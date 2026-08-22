@@ -142,7 +142,7 @@ final class CognitiveSphereView extends View {
     }
 
     private void drawNode(Canvas canvas, ProjectedNode p) {
-        boolean center = "center".equals(p.node.type);
+        boolean center = p.node.radius() < 0.0001;
         boolean stage = "stage".equals(p.node.type);
         boolean grounded = "grounded".equals(p.node.type);
         boolean selected = p.node.id.equals(selectedId);
@@ -167,7 +167,7 @@ final class CognitiveSphereView extends View {
             paint.setTextSize(center ? sp(14) : sp(10));
             paint.setColor(withAlpha(Color.WHITE, Math.max(150, alpha)));
             paint.setTextAlign(Paint.Align.CENTER);
-            String text = center ? p.node.label : p.node.label;
+            String text = p.node.label;
             float ty = p.y - radius - dp(7);
             if (center) ty = p.y + dp(5);
             canvas.drawText(shorten(text, center ? 16 : 12), p.x, ty, paint);

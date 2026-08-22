@@ -233,21 +233,13 @@ final class CognitiveWorkingGraph {
                     "Activation means attention priority, not truth. Preserve grounded facts and hard constraints even when activation is low.");
         } catch (Exception ignored) {
         }
+        publishSnapshot();
         return result;
     }
 
     synchronized JSONObject snapshot() {
-        JSONArray nodeArray = new JSONArray();
-        for (Node node : nodes.values()) nodeArray.put(nodeJson(node));
-        JSONArray edgeArray = new JSONArray();
-        for (Edge edge : edges) edgeArray.put(edgeJson(edge));
-        JSONObject result = new JSONObject();
-        try {
-            result.put("schema_version", 1);
-            result.put("nodes", nodeArray);
-            result.put("edges", edgeArray);
-        } catch (Exception ignored) {
-        }
+        JSONObject result = snapshotJson();
+        CognitiveGraphLiveBus.publish(result);
         return copy(result);
     }
 
@@ -261,6 +253,25 @@ final class CognitiveWorkingGraph {
 
     synchronized boolean hasNode(String id) {
         return nodes.containsKey(safe(id));
+    }
+
+    private void publishSnapshot() {
+        CognitiveGraphLiveBus.publish(snapshotJson());
+    }
+
+    private JSONObject snapshotJson() {
+        JSONArray nodeArray = new JSONArray();
+        for (Node node : nodes.values()) nodeArray.put(nodeJson(node));
+        JSONArray edgeArray = new JSONArray();
+        for (Edge edge : edges) edgeArray.put(edgeJson(edge));
+        JSONObject result = new JSONObject();
+        try {
+            result.put("schema_version", 1);
+            result.put("nodes", nodeArray);
+            result.put("edges", edgeArray);
+        } catch (Exception ignored) {
+        }
+        return result;
     }
 
     private boolean addNode(Node node) {

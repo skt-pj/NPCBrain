@@ -4,7 +4,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 final class CognitiveGraphBuilder {
     private static final double STAGE_RADIUS = 1.10;
@@ -15,6 +17,7 @@ final class CognitiveGraphBuilder {
     private CognitiveGraphBuilder() {
     }
 
+    /** Legacy v0.4.4 reconstruction. Kept only for compatibility tests/history. */
     static CognitiveGraph build(JSONArray stages, JSONObject grounded) {
         JSONArray safeStages = stages == null ? new JSONArray() : stages;
         JSONObject safeGrounded = grounded == null ? new JSONObject() : grounded;
@@ -94,6 +97,131 @@ final class CognitiveGraphBuilder {
 
         addGroundedNodes(nodes, edges, safeGrounded, safeStages);
         return new CognitiveGraph(nodes, edges);
+    }
+
+    static boolean isValidSemanticSnapshot(JSONObject snapshot) {
+        if (!CognitiveGraphLiveBus.isValid(snapshot)) return false;
+        JSONArray nodes = snapshot.optJSONArray("nodes");
+        if (nodes == null) return false;
+        for (int i = 0; i < nodes.length(); i++) {
+            JSONObject node = nodes.optJSONObject(i);
+            if (node != null && !safe(node.optString("id", "")).isEmpty()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Converts the real cognitive semantic graph to 3D coordinates. Node IDs and
+     * typed edge endpoints are preserved exactly; only presentation coordinates
+     * are added here and never fed back into cognition.
+     */
+    static CognitiveGraph buildFromSemanticSnapshot(JSONObject snapshot) {
+        if (!isValidSemanticSnapshot(snapshot)) return emptyGraph();
+        JSONArray rawNodes = snapshot.optJSONArray("nodes");
+        JSONArray rawEdges = snapshot.optJSONArray("edges");
+        if (rawNodes == null || rawEdges == null) return emptyGraph();
+
+        List<JSONObject> sourceNodes = new ArrayList<>();
+        Set<String> ids = new HashSet<>();
+        for (int i = 0; i < rawNodes.length(); i++) {
+            JSONObject node = rawNodes.optJSONObject(i);
+            if (node == null) continue;
+            String id = safe(node.optString("id", ""));
+            if (id.isEmpty() || !ids.add(id)) continue;
+            sourceNodes.add(node);
+        }
+        if (sourceNodes.isEmpty()) return emptyGraph();
+
+        String centerId = resolveSemanticCenterId(sourceNodes);
+        List<CognitiveGraph.Node> nodes = new ArrayList<>();
+        for (int i = 0; i < sourceNodes.size(); i++) {
+            JSONObject source = sourceNodes.get(i);
+            String id = safe(source.optString("id", ""));
+            String moduleId = safe(source.optString("module_id", ""));
+            String type = safe(source.optString("node_type", ""));
+            String label = safe(source.optString("label", id));
+            String detail = safe(source.optString("detail", ""));
+            double activation = clamp01(source.optDouble("activation", 0.0));
+            double confidence = clamp01(source.optDouble("confidence", 0.0));
+
+            double x = 0.0;
+            double y = 0.0;
+            double z = 0.0;
+            if (!id.equals(centerId)) {
+                double radius = semanticRadius(type);
+                int order = source.optInt("order", i);
+                double[] position = spherePoint(
+                        Math.max(0, order) + 1,
+                        Math.max(12, sourceNodes.size() + 3),
+                        radius,
+                        semanticPhase(type));
+                x = position[0];
+                y = position[1];
+                z = position[2];
+            }
+            nodes.add(new CognitiveGraph.Node(
+                    id,
+                    moduleId,
+                    type,
+                    label,
+                    detail,
+                    x, y, z,
+                    activation,
+                    confidence
+            ));
+        }
+
+        List<CognitiveGraph.Edge> edges = new ArrayList<>();
+        for (int i = 0; i < rawEdges.length(); i++) {
+            JSONObject edge = rawEdges.optJSONObject(i);
+            if (edge == null) continue;
+            String from = safe(edge.optString("from_id", ""));
+            String to = safe(edge.optString("to_id", ""));
+            String type = safe(edge.optString("type", ""));
+            if (from.isEmpty() || to.isEmpty() || !ids.contains(from) || !ids.contains(to)) continue;
+            edges.add(new CognitiveGraph.Edge(from, to, type));
+        }
+        return new CognitiveGraph(nodes, edges);
+    }
+
+    private static String resolveSemanticCenterId(List<JSONObject> nodes) {
+        String firstId = safe(nodes.get(0).optString("id", ""));
+        String latestStageId = "";
+        int latestStageOrder = Integer.MIN_VALUE;
+        String inputId = "";
+        for (JSONObject node : nodes) {
+            String id = safe(node.optString("id", ""));
+            String type = safe(node.optString("node_type", ""));
+            if ("integrated_0".equals(id) || "integrated".equals(type)) return id;
+            if ("stage".equals(type)) {
+                int order = node.optInt("order", Integer.MIN_VALUE);
+                if (latestStageId.isEmpty() || order >= latestStageOrder) {
+                    latestStageOrder = order;
+                    latestStageId = id;
+                }
+            }
+            if (inputId.isEmpty() && ("input_0".equals(id) || "input".equals(type))) inputId = id;
+        }
+        if (!latestStageId.isEmpty()) return latestStageId;
+        if (!inputId.isEmpty()) return inputId;
+        return firstId;
+    }
+
+    private static double semanticRadius(String type) {
+        if ("stage".equals(type)) return STAGE_RADIUS;
+        if ("fact".equals(type)) return FACT_RADIUS;
+        if ("input".equals(type)) return GROUNDED_RADIUS;
+        return GROUNDED_RADIUS;
+    }
+
+    private static double semanticPhase(String type) {
+        if ("stage".equals(type)) return 0.21;
+        if ("fact".equals(type)) return 0.47;
+        return 0.73;
+    }
+
+    private static CognitiveGraph emptyGraph() {
+        return new CognitiveGraph(new ArrayList<>(), new ArrayList<>());
     }
 
     private static void addGroundedNodes(
@@ -202,10 +330,11 @@ final class CognitiveGraphBuilder {
 
     private static double[] spherePoint(int index, int count, double radius, double phase) {
         int safeCount = Math.max(2, count);
-        double y = 1.0 - (2.0 * (index + 0.5) / safeCount);
+        int normalizedIndex = Math.floorMod(index, safeCount);
+        double y = 1.0 - (2.0 * (normalizedIndex + 0.5) / safeCount);
         y = Math.max(-0.98, Math.min(0.98, y));
         double ring = Math.sqrt(Math.max(0.0, 1.0 - y * y));
-        double theta = index * GOLDEN_ANGLE + phase;
+        double theta = normalizedIndex * GOLDEN_ANGLE + phase;
         return new double[]{
                 radius * Math.cos(theta) * ring,
                 radius * y,
