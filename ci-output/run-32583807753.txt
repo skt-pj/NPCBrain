@@ -1,0 +1,6 @@
+run_id=32583807753
+status=success
+job_commit=01e8de0824ccb91fbe2047e459e34bc131c5e086
+artifact_id=9478498913
+artifact_name=NPCBrain-v0.4.5-hotfix1-release
+versionName=0.4.5-hotfix1
