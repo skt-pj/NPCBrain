@@ -12,26 +12,26 @@ final class WorldRuntimeV040 {
     WorldRuntimeV040(Context context) {
         clock = new WorldClock(context);
         stateStore = new WorldStateStore(context);
-        long now = clock.now();
-        syncLifeState(NpcId.NPC1, now);
-        syncLifeState(NpcId.NPC2, now);
+        syncAllNow();
     }
 
     JSONObject attachUserMessageEvent(String roomId, JSONObject userMessage) {
         JSONObject message = copy(userMessage);
-        String existingCauseId = message.optString("cause_event_id", "").trim();
-        if (!existingCauseId.isEmpty() && stateStore.eventById(existingCauseId) != null) {
-            return message;
-        }
-        String messageId = message.optString("id", "").trim();
-        WorldEvent existingMessageEvent = stateStore.eventByMessageId(messageId);
-        if (existingMessageEvent != null) {
+        WorldEvent receipt = attachIncomingMessageEvent(roomId, message);
+        if (receipt != null) {
             try {
-                message.put("cause_event_id", existingMessageEvent.eventId());
+                message.put("cause_event_id", receipt.eventId());
             } catch (Exception ignored) {
             }
-            return message;
         }
+        return message;
+    }
+
+    WorldEvent attachIncomingMessageEvent(String roomId, JSONObject incomingMessage) {
+        JSONObject message = copy(incomingMessage);
+        String messageId = message.optString("id", "").trim();
+        WorldEvent existingMessageEvent = stateStore.eventByMessageId(messageId);
+        if (existingMessageEvent != null) return existingMessageEvent;
 
         long messageTime = message.optLong("time_ms", clock.now());
         long worldTime = clock.advanceTo(messageTime);
@@ -39,14 +39,16 @@ final class WorldRuntimeV040 {
         LifeState npc2State = syncLifeState(NpcId.NPC2, worldTime);
 
         Room room = room(roomId);
+        String senderId = message.optString("sender_id", "user").trim();
+        if (senderId.isEmpty()) senderId = "user";
         JSONObject payload = new JSONObject();
         JSONObject lifeEventIds = new JSONObject();
         try {
             lifeEventIds.put(NpcId.NPC1.value(), npc1State.currentActivityEventId());
             lifeEventIds.put(NpcId.NPC2.value(), npc2State.currentActivityEventId());
-            payload.put("message_id", message.optString("id", ""));
+            payload.put("message_id", messageId);
             payload.put("room", room.toJson());
-            payload.put("sender_id", message.optString("sender_id", "user"));
+            payload.put("sender_id", senderId);
             payload.put("text", message.optString("text", ""));
             payload.put("life_event_ids", lifeEventIds);
         } catch (Exception ignored) {
@@ -54,19 +56,29 @@ final class WorldRuntimeV040 {
 
         WorldEvent event = WorldEvent.create(
                 "message_received",
-                "user",
+                senderId,
                 "",
                 worldTime,
                 "",
                 payload,
-                ""
+                message.optString("cause_event_id", "").trim()
         );
         stateStore.appendEvent(event);
-        try {
-            message.put("cause_event_id", event.eventId());
-        } catch (Exception ignored) {
-        }
-        return message;
+        return event;
+    }
+
+    void syncAllNow() {
+        long now = clock.now();
+        syncLifeState(NpcId.NPC1, now);
+        syncLifeState(NpcId.NPC2, now);
+    }
+
+    JSONArray events() {
+        return stateStore.events();
+    }
+
+    long now() {
+        return clock.now();
     }
 
     LifeState lifeState(String npcId) {
