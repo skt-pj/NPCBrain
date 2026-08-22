@@ -352,7 +352,9 @@ public final class DungeonActivity extends Activity {
     private void requestBrain(String triggerReason) {
         if (state == null || triggerReason == null || triggerReason.isEmpty()) return;
         if (brainThinking) {
-            pendingTrigger = DungeonCognitionGate.mergePending(pendingTrigger, triggerReason);
+            if (!DungeonCognitionGate.PERIODIC.equals(triggerReason)) {
+                pendingTrigger = DungeonCognitionGate.mergePending(pendingTrigger, triggerReason);
+            }
             return;
         }
 
@@ -458,11 +460,14 @@ public final class DungeonActivity extends Activity {
                 DungeonMindStore.STATE_BRAIN,
                 "",
                 System.currentTimeMillis());
-        mindStore.save(npcId, snapshot);
 
-        boolean applies = npcId.equals(selectedNpcId)
+        boolean sameSelectedNpc = npcId.equals(selectedNpcId);
+        boolean applies = sameSelectedNpc
                 && state != null
                 && state.floor == floor;
+        if (!sameSelectedNpc || applies) {
+            mindStore.save(npcId, snapshot);
+        }
         if (applies) {
             mindSnapshot = snapshot;
             currentIntent = result.intent;
@@ -557,7 +562,9 @@ public final class DungeonActivity extends Activity {
         intentView.setText("戦術: " + DungeonIntent.modeLabel(intent.mode)
                 + (intent.isBrain() ? "  ·  Brain " + confidence + "%" : "  ·  Local"));
         String summary = intent.summary;
-        if (brainThinking) summary = "10段階認知を更新中。直近の戦術で自律行動を継続します。";
+        if (isThinkingSelected()) {
+            summary = "10段階認知を更新中。直近の戦術で自律行動を継続します。";
+        }
         if (summary == null || summary.trim().isEmpty()) summary = "状況を評価しています。";
         summaryView.setText(summary);
         actionView.setText("直近: " + state.lastAction + (paused ? "   ·   PAUSED" : ""));
@@ -572,7 +579,7 @@ public final class DungeonActivity extends Activity {
     }
 
     private void renderBrainBadge() {
-        if (brainThinking) {
+        if (isThinkingSelected()) {
             brainBadgeView.setText("THINKING · 脳内更新");
             brainBadgeView.setTextColor(Color.rgb(220, 239, 255));
             brainBadgeView.setBackground(cardBackground(
@@ -590,6 +597,10 @@ public final class DungeonActivity extends Activity {
             brainBadgeView.setBackground(cardBackground(
                     Color.rgb(92, 61, 28), Color.rgb(160, 111, 50), 12));
         }
+    }
+
+    private boolean isThinkingSelected() {
+        return brainThinking && selectedNpcId.equals(activeBrainNpcId);
     }
 
     private void initializeLiveStages() {
@@ -681,7 +692,7 @@ public final class DungeonActivity extends Activity {
         mindDialogContent.removeAllViews();
         TextView stateNote = new TextView(this);
         String note;
-        if (brainThinking) {
+        if (isThinkingSelected()) {
             note = "10段階の公開用認知診断を更新中。逐語的なchain-of-thoughtではありません。";
         } else if (DungeonMindStore.STATE_BRAIN.equals(brainState)) {
             note = "直近のBrain intent: " + DungeonIntent.modeLabel(
@@ -698,7 +709,7 @@ public final class DungeonActivity extends Activity {
         noteParams.bottomMargin = dp(10);
         mindDialogContent.addView(stateNote, noteParams);
 
-        JSONArray stages = brainThinking ? liveStages
+        JSONArray stages = isThinkingSelected() ? liveStages
                 : mindSnapshot == null ? new JSONArray() : mindSnapshot.trace;
         if (stages.length() == 0) {
             TextView empty = new TextView(this);
