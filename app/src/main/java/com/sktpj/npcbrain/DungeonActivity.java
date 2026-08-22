@@ -14,6 +14,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.DisplayCutout;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.Window;
 import android.widget.Button;
@@ -25,6 +26,7 @@ import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.List;
 import java.util.Locale;
 
 public final class DungeonActivity extends Activity {
@@ -118,6 +120,7 @@ public final class DungeonActivity extends Activity {
     protected void onPause() {
         running = false;
         handler.removeCallbacks(turnTask);
+        if (boardView != null) boardView.clearEffects();
         persistCurrent();
         super.onPause();
     }
@@ -291,6 +294,7 @@ public final class DungeonActivity extends Activity {
 
     private void selectNpc(String npcId) {
         if (npcId.equals(selectedNpcId)) return;
+        if (boardView != null) boardView.clearEffects();
         persistCurrent();
         selectedNpcId = npcId;
         npc1Button.setBackground(selectorBackground("npc1".equals(npcId)));
@@ -332,7 +336,8 @@ public final class DungeonActivity extends Activity {
     private void advanceTurn() {
         if (state == null) return;
         int oldFloor = state.floor;
-        state = DungeonEngine.step(state, currentTraits(), currentIntent);
+        DungeonStepResult result = DungeonEngine.stepDetailed(state, currentTraits(), currentIntent);
+        state = result.state;
         DungeonPerception.refreshExploration(state);
         dungeonStore.save(selectedNpcId, state);
 
@@ -346,7 +351,32 @@ public final class DungeonActivity extends Activity {
         String reason = DungeonCognitionGate.reason(lastSignal, signal, lastBrainTurn);
         lastSignal = signal;
         render();
+        boardView.playCombatEvents(result.events);
+        performCombatHaptics(result.events);
         if (!reason.isEmpty()) requestBrain(reason);
+    }
+
+    private void performCombatHaptics(List<DungeonCombatEvent> events) {
+        if (boardView == null || events == null || events.isEmpty()) return;
+        boolean hit = false;
+        boolean defeated = false;
+        boolean damaged = false;
+        for (DungeonCombatEvent event : events) {
+            if (event == null) continue;
+            if (DungeonCombatEvent.PLAYER_DAMAGED.equals(event.type)) damaged = true;
+            else if (DungeonCombatEvent.ENEMY_DEFEATED.equals(event.type)) defeated = true;
+            else if (DungeonCombatEvent.PLAYER_HIT.equals(event.type)) hit = true;
+        }
+        if (!hit && !defeated && !damaged) return;
+        int feedback;
+        if (Build.VERSION.SDK_INT >= 30) {
+            feedback = damaged ? HapticFeedbackConstants.REJECT : HapticFeedbackConstants.CONFIRM;
+        } else {
+            feedback = damaged || defeated
+                    ? HapticFeedbackConstants.LONG_PRESS
+                    : HapticFeedbackConstants.VIRTUAL_KEY;
+        }
+        boardView.performHapticFeedback(feedback);
     }
 
     private void requestBrain(String triggerReason) {
@@ -444,7 +474,7 @@ public final class DungeonActivity extends Activity {
                 String message = error.getMessage() == null ? error.toString() : error.getMessage();
                 runOnUiThread(() -> finishBrainFailure(npcId, floor, message));
             }
-        }, "npcbrain-v048-dungeon-brain").start();
+        }, "npcbrain-v049-dungeon-brain").start();
     }
 
     private void finishBrainSuccess(
