@@ -20,8 +20,6 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import org.json.JSONObject;
-
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -91,7 +89,7 @@ public final class NpcStatusActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("現在状況 / 3D認知マップ");
+        subtitle.setText("現在状況 / 実認知グラフ");
         subtitle.setTextColor(Color.rgb(132, 157, 190));
         subtitle.setTextSize(11);
         header.addView(subtitle);
@@ -153,7 +151,7 @@ public final class NpcStatusActivity extends Activity {
         graphHeader.setGravity(Gravity.CENTER_VERTICAL);
         graphHeader.setPadding(0, dp(10), 0, dp(7));
         TextView graphTitle = new TextView(this);
-        graphTitle.setText("NPCの脳内マップ");
+        graphTitle.setText("NPCが実際に使っている認知グラフ");
         graphTitle.setTextColor(Color.rgb(218, 232, 250));
         graphTitle.setTextSize(15);
         graphTitle.setTypeface(Typeface.DEFAULT_BOLD);
@@ -170,7 +168,7 @@ public final class NpcStatusActivity extends Activity {
         root.addView(graphHeader);
 
         sphereView = new CognitiveSphereView(this);
-        sphereView.setContentDescription("3次元のNPC認知状態グラフ。ドラッグで回転、ピンチで拡大、点をタップして詳細表示");
+        sphereView.setContentDescription("NPCの実認知グラフ。ドラッグで回転、ピンチで拡大、点をタップして詳細表示");
         sphereView.setNodeListener(this::showNodeDetails);
         root.addView(sphereView, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -192,6 +190,7 @@ public final class NpcStatusActivity extends Activity {
         Context storageContext = storageContext(selectedNpcId);
         CharacterStateStore character = new CharacterStateStore(storageContext);
         DemoCognitionObserver.Snapshot cognition = DemoCognitionObserver.snapshot(this, selectedNpcId);
+        boolean exact = CognitiveGraphBuilder.isValidSemanticSnapshot(cognition.cognitiveGraph);
 
         nameValue.setText(character.displayName());
         activityValue.setText(displayValue(lifeState.currentActivity()));
@@ -200,21 +199,22 @@ public final class NpcStatusActivity extends Activity {
         contextValue.setText(displayValue(lifeState.activeContext()));
         stateValue.setText(character.dynamicStateSummary());
         timeValue.setText(formatDateTime(lifeState.worldTimeMs()));
-        if (cognition.live) {
-            traceValue.setText("リアルタイム公開診断");
+
+        if (cognition.live && exact) {
+            traceValue.setText("リアルタイム実認知グラフ");
+        } else if (cognition.live) {
+            traceValue.setText("思考中 · 実認知グラフ初期化中");
+        } else if (exact) {
+            traceValue.setText("保存済み実認知グラフ · " + formatTime(cognition.timeMs));
         } else if (cognition.stages.length() > 0) {
-            traceValue.setText("最新保存済みbrain_trace · " + formatTime(cognition.timeMs));
+            traceValue.setText("旧データ · 実認知グラフなし");
         } else {
-            traceValue.setText("待機中 · 保存済みtraceなし");
+            traceValue.setText("待機中 · 実認知グラフなし");
         }
 
-        JSONObject grounded = new JSONObject();
-        try {
-            grounded.put("life_state", lifeState.toJson());
-            grounded.put("character_state", character.snapshotJson());
-        } catch (Exception ignored) {
-        }
-        sphereView.setGraph(CognitiveGraphBuilder.build(cognition.stages, grounded));
+        sphereView.setGraph(exact
+                ? CognitiveGraphBuilder.buildFromSemanticSnapshot(cognition.cognitiveGraph)
+                : CognitiveGraphBuilder.buildFromSemanticSnapshot(null));
     }
 
     private Context storageContext(String npcId) {
@@ -247,10 +247,13 @@ public final class NpcStatusActivity extends Activity {
     private void showNodeDetails(CognitiveGraph.Node node) {
         StringBuilder body = new StringBuilder();
         body.append(node.detail.isEmpty() ? "公開要約なし" : node.detail);
-        body.append("\n\n種類: ").append(node.type);
+        body.append("\n\nID: ").append(node.id);
+        body.append("\n種類: ").append(node.type);
         if (!node.moduleId.isEmpty()) body.append("\n領域: ").append(node.moduleId);
         body.append("\n中心からの距離: ")
                 .append(String.format(Locale.JAPAN, "%.2f", node.radius()));
+        body.append("\nactivation: ")
+                .append((int) Math.round(node.activation * 100.0)).append("%");
         body.append("\n信頼度: ")
                 .append((int) Math.round(node.confidence * 100.0)).append("%");
         new AlertDialog.Builder(this)
