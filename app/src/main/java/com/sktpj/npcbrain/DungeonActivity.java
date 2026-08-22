@@ -356,7 +356,7 @@ public final class DungeonActivity extends Activity {
             return;
         }
 
-        String apiKey;
+        final String apiKey;
         try {
             apiKey = apiKeyStore.load().trim();
         } catch (Exception error) {
@@ -368,11 +368,12 @@ public final class DungeonActivity extends Activity {
             return;
         }
 
-        DungeonState captured;
+        final DungeonState captured;
         try {
             captured = DungeonState.fromJson(new JSONObject(state.toJson().toString()));
         } catch (Exception error) {
-            captured = null;
+            applyLocalFallback("状態コピー失敗");
+            return;
         }
         if (captured == null) {
             applyLocalFallback("状態コピー失敗");
