@@ -95,6 +95,12 @@ public final class DemoActivityV032 extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        maybeStartSpontaneousProcessing();
+    }
+
+    @Override
     protected void onDestroy() {
         if (Build.VERSION.SDK_INT >= 33 && chatBackCallbackRegistered && chatBackCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(chatBackCallback);
@@ -240,7 +246,7 @@ public final class DemoActivityV032 extends Activity {
         TextView preview = new TextView(this);
         if (last == null) {
             preview.setText("まだ会話はありません");
-        } else if (last.optString("sender_id", "").startsWith("decision_")) {
+        } else if (ConversationStore.isDebugDecisionSender(last.optString("sender_id", ""))) {
             preview.setText(last.optString("sender_name", "NPC（返信なし）"));
         } else {
             preview.setText(last.optString("sender_name", "") + ": " + last.optString("text", ""));
@@ -356,7 +362,7 @@ public final class DemoActivityV032 extends Activity {
     private View createMessageView(JSONObject message) {
         String senderId = message.optString("sender_id", "");
         boolean user = "user".equals(senderId);
-        boolean silentDecision = senderId.startsWith("decision_");
+        boolean silentDecision = ConversationStore.isDebugDecisionSender(senderId);
         JSONArray trace = message.optJSONArray("brain_trace");
         boolean hasTrace = trace != null && trace.length() > 0;
 
@@ -373,7 +379,7 @@ public final class DemoActivityV032 extends Activity {
             silent.setPadding(dp(4), dp(5), dp(4), dp(5));
             silent.setOnClickListener(v -> showMessageDetails(message));
             silent.setClickable(true);
-            silent.setContentDescription("返信なしの脳内を見る");
+            silent.setContentDescription("NPC判断の脳内を見る");
             wrapper.addView(silent);
             return wrapper;
         }
@@ -523,6 +529,117 @@ public final class DemoActivityV032 extends Activity {
                 runOnUiThread(() -> finishProcessing(roomId, msg, userMessage));
             }
         }, "npcbrain-v032-message").start();
+    }
+
+    private void maybeStartSpontaneousProcessing() {
+        if (processing || currentRoomId != null || demoRuntime == null || apiKeyStore == null) return;
+        final String apiKey;
+        try {
+            apiKey = apiKeyStore.load().trim();
+        } catch (Exception ignored) {
+            return;
+        }
+        if (apiKey.isEmpty() || !demoRuntime.hasDueSpontaneousEvents()) return;
+        startSpontaneousProcessing(apiKey);
+    }
+
+    private void startSpontaneousProcessing(String apiKey) {
+        final String effort = modelSettingsStore.reasoningEffort();
+        processing = true;
+        processingRoomId = null;
+        liveDone = false;
+        initializeLiveStages();
+        liveNpcId = "npc1";
+        liveNpcName = demoRuntime.displayName(liveNpcId);
+        if (sendButton != null) sendButton.setEnabled(false);
+        updateTypingStatus();
+
+        new Thread(() -> {
+            try {
+                demoRuntime.processPendingSpontaneous(
+                        apiKey,
+                        effort,
+                        new DemoRuntimeV032.Listener() {
+                            @Override
+                            public void onNpcStarted(String npcId, String displayName, int current, int total) {
+                                runOnUiThread(() -> {
+                                    liveNpcId = npcId;
+                                    liveNpcName = displayName;
+                                    liveDone = false;
+                                    initializeLiveStages();
+                                    renderLiveBrainDialogIfOpen();
+                                });
+                            }
+
+                            @Override
+                            public void onStageStarted(
+                                    String npcId,
+                                    String displayName,
+                                    String stageId,
+                                    String stageLabel,
+                                    int current,
+                                    int total
+                            ) {
+                                runOnUiThread(() -> {
+                                    markStageStarted(stageId, stageLabel, current, total);
+                                    renderLiveBrainDialogIfOpen();
+                                });
+                            }
+
+                            @Override
+                            public void onStageCompleted(
+                                    String npcId,
+                                    String displayName,
+                                    String stageId,
+                                    String stageLabel,
+                                    int current,
+                                    int total,
+                                    String summary,
+                                    double confidence,
+                                    JSONArray salientFacts,
+                                    String personalityEffect,
+                                    String model,
+                                    String reasoningEffort
+                            ) {
+                                runOnUiThread(() -> {
+                                    markStageCompleted(
+                                            stageId, stageLabel, current, total, summary,
+                                            confidence, salientFacts, personalityEffect,
+                                            model, reasoningEffort);
+                                    renderLiveBrainDialogIfOpen();
+                                });
+                            }
+
+                            @Override
+                            public void onNpcFinished(String npcId, String displayName, boolean sentMessage) {
+                                runOnUiThread(() -> {
+                                    liveDone = true;
+                                    renderLiveBrainDialogIfOpen();
+                                });
+                            }
+                        }
+                );
+                runOnUiThread(() -> finishSpontaneousProcessing(null));
+            } catch (Exception error) {
+                String msg = error.getMessage() == null ? error.toString() : error.getMessage();
+                runOnUiThread(() -> finishSpontaneousProcessing(msg));
+            }
+        }, "npcbrain-v043-spontaneous").start();
+    }
+
+    private void finishSpontaneousProcessing(String error) {
+        processing = false;
+        liveDone = true;
+        processingRoomId = null;
+        if (currentRoomId == null) {
+            showRoomList();
+        } else {
+            if (sendButton != null) sendButton.setEnabled(true);
+            updateTypingStatus();
+            refreshMessages();
+        }
+        renderLiveBrainDialogIfOpen();
+        if (error != null) showErrorDialog("自発送信判断に失敗しました。\n\n" + error, false);
     }
 
     private void finishProcessing(String roomId, String error, JSONObject failedUserMessage) {
@@ -764,7 +881,8 @@ public final class DemoActivityV032 extends Activity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(16), dp(4), dp(16), dp(18));
-        boolean silentDecision = message.optString("sender_id", "").startsWith("decision_");
+        boolean silentDecision = ConversationStore.isDebugDecisionSender(
+                message.optString("sender_id", ""));
         if (!silentDecision) {
             TextView utterance = new TextView(this);
             utterance.setText("「" + message.optString("text", "") + "」");
@@ -1066,6 +1184,7 @@ public final class DemoActivityV032 extends Activity {
             return false;
         }
     }
+
     private String currentModelSummary() {
         return "GPT-5.6 Luna · reasoning "
                 + ModelSettingsStore.displayLabel(modelSettingsStore.reasoningEffort())
