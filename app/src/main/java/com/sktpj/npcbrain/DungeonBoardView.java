@@ -6,12 +6,43 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.os.SystemClock;
 import android.view.View;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+
 final class DungeonBoardView extends View {
+    private static final int MAX_EFFECTS = 24;
+    private static final long HIT_DURATION_MS = 420L;
+    private static final long HURT_DURATION_MS = 460L;
+    private static final long KILL_DURATION_MS = 520L;
+    private static final long IMPACT_HOLD_MS = 65L;
+    private static final long SHAKE_DURATION_MS = 190L;
+
+    private static final class ImpactEffect {
+        final DungeonCombatEvent event;
+        final long startedAtMs;
+        final int ordinal;
+
+        ImpactEffect(DungeonCombatEvent event, long startedAtMs, int ordinal) {
+            this.event = event;
+            this.startedAtMs = startedAtMs;
+            this.ordinal = ordinal;
+        }
+
+        long durationMs() {
+            if (DungeonCombatEvent.ENEMY_DEFEATED.equals(event.type)) return KILL_DURATION_MS;
+            if (DungeonCombatEvent.PLAYER_DAMAGED.equals(event.type)) return HURT_DURATION_MS;
+            return HIT_DURATION_MS;
+        }
+    }
+
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final float density;
+    private final List<ImpactEffect> effects = new ArrayList<>();
     private DungeonState state;
 
     DungeonBoardView(Context context) {
@@ -27,10 +58,35 @@ final class DungeonBoardView extends View {
         invalidate();
     }
 
+    void playCombatEvents(List<DungeonCombatEvent> events) {
+        if (events == null || events.isEmpty()) return;
+        long now = SystemClock.uptimeMillis();
+        int ordinal = 0;
+        for (DungeonCombatEvent event : events) {
+            if (event == null) continue;
+            if (DungeonCombatEvent.FLOOR_CHANGED.equals(event.type)) {
+                clearEffects();
+                continue;
+            }
+            if (!event.isCombatImpact()) continue;
+            effects.add(new ImpactEffect(event, now, ordinal++));
+        }
+        while (effects.size() > MAX_EFFECTS) effects.remove(0);
+        if (!effects.isEmpty()) postInvalidateOnAnimation();
+    }
+
+    void clearEffects() {
+        effects.clear();
+        invalidate();
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (state == null || state.width <= 0 || state.height <= 0) return;
+
+        long now = SystemClock.uptimeMillis();
+        pruneEffects(now);
 
         float minCell = 32f * density;
         float ideal = Math.min(getWidth() / 9f, getHeight() / 10.5f);
@@ -48,9 +104,16 @@ final class DungeonBoardView extends View {
         float left = (getWidth() - boardWidth) / 2f;
         float top = (getHeight() - boardHeight) / 2f;
 
-        drawViewport(canvas, startX, startY, endX, endY, left, top, cell);
+        float[] shake = shakeOffset(now);
+        canvas.save();
+        canvas.translate(shake[0], shake[1]);
+        drawViewport(canvas, startX, startY, endX, endY, left, top, cell, now);
+        drawImpactOverlays(canvas, startX, startY, endX, endY, left, top, cell, now);
+        canvas.restore();
+
         drawMiniMap(canvas);
         drawFrame(canvas, left, top, boardWidth, boardHeight);
+        if (!effects.isEmpty()) postInvalidateOnAnimation();
     }
 
     private void drawViewport(
@@ -61,7 +124,8 @@ final class DungeonBoardView extends View {
             int endY,
             float left,
             float top,
-            float cell
+            float cell,
+            long now
     ) {
         for (int y = startY; y < endY; y++) {
             for (int x = startX; x < endX; x++) {
@@ -78,7 +142,8 @@ final class DungeonBoardView extends View {
             if (enemy.x < startX || enemy.x >= endX || enemy.y < startY || enemy.y >= endY) continue;
             float cx = left + (enemy.x - startX + 0.5f) * cell;
             float cy = top + (enemy.y - startY + 0.5f) * cell;
-            drawEnemy(canvas, cx, cy, cell, enemy.hp);
+            float[] recoil = enemyRecoil(enemy.x, enemy.y, now, cell);
+            drawEnemy(canvas, cx + recoil[0], cy + recoil[1], cell, enemy.hp);
         }
 
         float playerCx = left + (state.playerX - startX + 0.5f) * cell;
@@ -167,6 +232,295 @@ final class DungeonBoardView extends View {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.rgb(231, 249, 255));
         canvas.drawCircle(cx, cy, cell * 0.11f, paint);
+    }
+
+    private void drawImpactOverlays(
+            Canvas canvas,
+            int startX,
+            int startY,
+            int endX,
+            int endY,
+            float left,
+            float top,
+            float cell,
+            long now
+    ) {
+        boolean playerHurt = false;
+        float hurtAlpha = 0f;
+        for (ImpactEffect effect : effects) {
+            DungeonCombatEvent event = effect.event;
+            long age = now - effect.startedAtMs;
+            if (age < 0L || age > effect.durationMs()) continue;
+            float p = effectProgress(effect, age);
+            if (DungeonCombatEvent.PLAYER_HIT.equals(event.type)) {
+                drawPlayerHitEffect(canvas, effect, startX, startY, endX, endY,
+                        left, top, cell, age, p);
+            } else if (DungeonCombatEvent.ENEMY_DEFEATED.equals(event.type)) {
+                drawDefeatEffect(canvas, effect, startX, startY, endX, endY,
+                        left, top, cell, p);
+            } else if (DungeonCombatEvent.PLAYER_DAMAGED.equals(event.type)) {
+                drawPlayerDamageEffect(canvas, effect, startX, startY, endX, endY,
+                        left, top, cell, age, p);
+                playerHurt = true;
+                hurtAlpha = Math.max(hurtAlpha, 1f - Math.min(1f, age / 260f));
+            }
+        }
+        if (playerHurt && hurtAlpha > 0f) {
+            drawDamageVignette(canvas, left, top,
+                    (endX - startX) * cell, (endY - startY) * cell, hurtAlpha);
+        }
+    }
+
+    private void drawPlayerHitEffect(
+            Canvas canvas,
+            ImpactEffect effect,
+            int startX,
+            int startY,
+            int endX,
+            int endY,
+            float left,
+            float top,
+            float cell,
+            long age,
+            float p
+    ) {
+        DungeonCombatEvent event = effect.event;
+        if (!insideViewport(event.targetX, event.targetY, startX, startY, endX, endY)) return;
+        float tx = cellCenterX(event.targetX, startX, left, cell);
+        float ty = cellCenterY(event.targetY, startY, top, cell);
+        float sx = cellCenterX(event.sourceX, startX, left, cell);
+        float sy = cellCenterY(event.sourceY, startY, top, cell);
+
+        float flash = 1f - Math.min(1f, age / 145f);
+        if (flash > 0f) {
+            paint.setColor(Color.argb((int) (220f * flash), 255, 244, 205));
+            canvas.drawCircle(tx, ty, cell * (0.37f + 0.07f * flash), paint);
+        }
+
+        float dx = tx - sx;
+        float dy = ty - sy;
+        float len = (float) Math.sqrt(dx * dx + dy * dy);
+        if (len < 1f) len = 1f;
+        float nx = dx / len;
+        float ny = dy / len;
+        float px = -ny;
+        float py = nx;
+        float slashFade = 1f - Math.min(1f, p * 1.35f);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeWidth(Math.max(3f * density, cell * 0.095f));
+        paint.setColor(Color.argb((int) (245f * slashFade), 255, 236, 168));
+        canvas.drawLine(tx - px * cell * 0.38f - nx * cell * 0.08f,
+                ty - py * cell * 0.38f - ny * cell * 0.08f,
+                tx + px * cell * 0.38f + nx * cell * 0.08f,
+                ty + py * cell * 0.38f + ny * cell * 0.08f, paint);
+        paint.setStrokeWidth(Math.max(1.5f * density, cell * 0.035f));
+        paint.setColor(Color.argb((int) (255f * slashFade), 255, 255, 248));
+        canvas.drawLine(tx - px * cell * 0.31f, ty - py * cell * 0.31f,
+                tx + px * cell * 0.31f, ty + py * cell * 0.31f, paint);
+        paint.setStrokeCap(Paint.Cap.BUTT);
+        paint.setStyle(Paint.Style.FILL);
+
+        drawFragments(canvas, effect, tx, ty, cell, p, false);
+        drawDamagePopup(canvas, effect, tx, ty, cell, p, false);
+    }
+
+    private void drawDefeatEffect(
+            Canvas canvas,
+            ImpactEffect effect,
+            int startX,
+            int startY,
+            int endX,
+            int endY,
+            float left,
+            float top,
+            float cell,
+            float p
+    ) {
+        DungeonCombatEvent event = effect.event;
+        if (!insideViewport(event.targetX, event.targetY, startX, startY, endX, endY)) return;
+        float tx = cellCenterX(event.targetX, startX, left, cell);
+        float ty = cellCenterY(event.targetY, startY, top, cell);
+        float fade = 1f - p;
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(2f * density, cell * 0.055f));
+        paint.setColor(Color.argb((int) (230f * fade), 255, 202, 91));
+        canvas.drawCircle(tx, ty, cell * (0.20f + 0.54f * p), paint);
+        paint.setStyle(Paint.Style.FILL);
+        drawFragments(canvas, effect, tx, ty, cell, p, true);
+    }
+
+    private void drawPlayerDamageEffect(
+            Canvas canvas,
+            ImpactEffect effect,
+            int startX,
+            int startY,
+            int endX,
+            int endY,
+            float left,
+            float top,
+            float cell,
+            long age,
+            float p
+    ) {
+        DungeonCombatEvent event = effect.event;
+        if (!insideViewport(event.targetX, event.targetY, startX, startY, endX, endY)) return;
+        float tx = cellCenterX(event.targetX, startX, left, cell);
+        float ty = cellCenterY(event.targetY, startY, top, cell);
+        float flash = 1f - Math.min(1f, age / 160f);
+        if (flash > 0f) {
+            paint.setColor(Color.argb((int) (205f * flash), 255, 90, 102));
+            canvas.drawCircle(tx, ty, cell * 0.48f, paint);
+            paint.setColor(Color.argb((int) (150f * flash), 255, 235, 235));
+            canvas.drawCircle(tx, ty, cell * 0.28f, paint);
+        }
+        drawDamagePopup(canvas, effect, tx, ty, cell, p, true);
+        drawFragments(canvas, effect, tx, ty, cell, p, true);
+    }
+
+    private void drawDamagePopup(
+            Canvas canvas,
+            ImpactEffect effect,
+            float tx,
+            float ty,
+            float cell,
+            float p,
+            boolean hurt
+    ) {
+        if (effect.event.damage <= 0) return;
+        float rise = cell * (0.12f + 0.54f * p);
+        float spread = ((effect.ordinal % 3) - 1) * cell * 0.16f;
+        float fade = 1f - Math.max(0f, (p - 0.58f) / 0.42f);
+        textPaint.setTypeface(Typeface.DEFAULT_BOLD);
+        textPaint.setTextSize(Math.max(15f * density, cell * 0.38f));
+        textPaint.setShadowLayer(3f * density, 0f, 1f * density, Color.argb(190, 0, 0, 0));
+        textPaint.setColor(hurt
+                ? Color.argb((int) (255f * fade), 255, 113, 122)
+                : Color.argb((int) (255f * fade), 255, 231, 144));
+        canvas.drawText("-" + effect.event.damage, tx + spread, ty - rise, textPaint);
+        textPaint.clearShadowLayer();
+    }
+
+    private void drawFragments(
+            Canvas canvas,
+            ImpactEffect effect,
+            float tx,
+            float ty,
+            float cell,
+            float p,
+            boolean strong
+    ) {
+        int count = strong ? 8 : 6;
+        float fade = 1f - p;
+        int seed = effect.event.targetX * 31
+                + effect.event.targetY * 17
+                + effect.ordinal * 13
+                + effect.event.type.hashCode();
+        float phase = ((seed & 255) / 255f) * (float) (Math.PI * 2.0);
+        for (int i = 0; i < count; i++) {
+            float angle = phase + (float) (Math.PI * 2.0 * i / count);
+            float distance = cell * ((strong ? 0.14f : 0.10f) + (strong ? 0.56f : 0.42f) * p);
+            float x = tx + (float) Math.cos(angle) * distance;
+            float y = ty + (float) Math.sin(angle) * distance;
+            float radius = cell * (strong ? 0.065f : 0.045f) * (0.55f + 0.45f * fade);
+            paint.setColor(strong
+                    ? Color.argb((int) (230f * fade), 255, 116, 92)
+                    : Color.argb((int) (235f * fade), 255, 212, 108));
+            canvas.drawCircle(x, y, Math.max(1.5f * density, radius), paint);
+        }
+    }
+
+    private void drawDamageVignette(
+            Canvas canvas,
+            float left,
+            float top,
+            float width,
+            float height,
+            float strength
+    ) {
+        float alpha = Math.min(1f, strength);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(9f * density);
+        paint.setColor(Color.argb((int) (155f * alpha), 220, 44, 60));
+        float inset = 5f * density;
+        canvas.drawRoundRect(new RectF(
+                        left + inset, top + inset, left + width - inset, top + height - inset),
+                12f * density, 12f * density, paint);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    private float[] enemyRecoil(int x, int y, long now, float cell) {
+        float ox = 0f;
+        float oy = 0f;
+        for (ImpactEffect effect : effects) {
+            if (!DungeonCombatEvent.PLAYER_HIT.equals(effect.event.type)) continue;
+            if (effect.event.targetX != x || effect.event.targetY != y) continue;
+            long age = now - effect.startedAtMs;
+            if (age < 0L || age > 150L) continue;
+            float t = age / 150f;
+            float recoil = (float) Math.sin(Math.PI * t) * cell * 0.10f;
+            int dx = effect.event.targetX - effect.event.sourceX;
+            int dy = effect.event.targetY - effect.event.sourceY;
+            ox += dx * recoil;
+            oy += dy * recoil;
+        }
+        return new float[]{ox, oy};
+    }
+
+    private float[] shakeOffset(long now) {
+        float amplitudeDp = 0f;
+        long newestAge = Long.MAX_VALUE;
+        for (ImpactEffect effect : effects) {
+            long age = now - effect.startedAtMs;
+            if (age < 0L || age > SHAKE_DURATION_MS) continue;
+            float candidate;
+            if (DungeonCombatEvent.PLAYER_DAMAGED.equals(effect.event.type)) candidate = 4.5f;
+            else if (DungeonCombatEvent.ENEMY_DEFEATED.equals(effect.event.type)) candidate = 3.6f;
+            else if (DungeonCombatEvent.PLAYER_HIT.equals(effect.event.type)) candidate = 2.2f;
+            else continue;
+            amplitudeDp = Math.max(amplitudeDp, candidate);
+            newestAge = Math.min(newestAge, age);
+        }
+        if (amplitudeDp <= 0f || newestAge == Long.MAX_VALUE) return new float[]{0f, 0f};
+        float t = Math.min(1f, newestAge / (float) SHAKE_DURATION_MS);
+        float decay = (1f - t) * (1f - t);
+        float amplitude = amplitudeDp * density * decay;
+        float x = (float) Math.sin(newestAge * 0.23) * amplitude;
+        float y = (float) Math.cos(newestAge * 0.31) * amplitude * 0.72f;
+        return new float[]{x, y};
+    }
+
+    private float effectProgress(ImpactEffect effect, long age) {
+        if (age <= IMPACT_HOLD_MS) return 0f;
+        long effective = Math.max(1L, effect.durationMs() - IMPACT_HOLD_MS);
+        return Math.min(1f, (age - IMPACT_HOLD_MS) / (float) effective);
+    }
+
+    private void pruneEffects(long now) {
+        Iterator<ImpactEffect> iterator = effects.iterator();
+        while (iterator.hasNext()) {
+            ImpactEffect effect = iterator.next();
+            if (now - effect.startedAtMs > effect.durationMs()) iterator.remove();
+        }
+    }
+
+    private static boolean insideViewport(
+            int x,
+            int y,
+            int startX,
+            int startY,
+            int endX,
+            int endY
+    ) {
+        return x >= startX && x < endX && y >= startY && y < endY;
+    }
+
+    private static float cellCenterX(int x, int startX, float left, float cell) {
+        return left + (x - startX + 0.5f) * cell;
+    }
+
+    private static float cellCenterY(int y, int startY, float top, float cell) {
+        return top + (y - startY + 0.5f) * cell;
     }
 
     private void drawMiniMap(Canvas canvas) {
