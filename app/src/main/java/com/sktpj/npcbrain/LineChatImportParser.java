@@ -68,6 +68,10 @@ final class LineChatImportParser {
             }
 
             String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                if (currentText != null) currentText.append('\n');
+                continue;
+            }
             if (isStructuralLine(trimmed)) {
                 flush(messages, speakers, currentTime, currentSender, currentText);
                 currentTime = null;
@@ -77,7 +81,9 @@ final class LineChatImportParser {
             }
 
             if (currentText != null) {
-                if (currentText.length() > 0) currentText.append('\n');
+                if (currentText.length() > 0 && currentText.charAt(currentText.length() - 1) != '\n') {
+                    currentText.append('\n');
+                }
                 currentText.append(line);
             }
         }
@@ -176,7 +182,6 @@ final class LineChatImportParser {
     }
 
     private static boolean isStructuralLine(String trimmed) {
-        if (trimmed.isEmpty()) return true;
         if (trimmed.startsWith("[LINE]")) return true;
         if (trimmed.startsWith("保存日時") || trimmed.startsWith("Saved on")) return true;
         return DATE_LINE.matcher(trimmed).matches();
