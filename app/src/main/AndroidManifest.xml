@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
+        android:name=".NPCBrainApplication"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="NPCBrain"
@@ -11,6 +12,10 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity
+            android:name=".NpcStatusActivity"
+            android:enableOnBackInvokedCallback="true"
+            android:exported="false" />
         <activity
             android:name=".LineImportActivity"
             android:exported="true"
