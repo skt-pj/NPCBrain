@@ -22,6 +22,50 @@ final class BrainEngine {
         );
     }
 
+    static final class Decision {
+        private final String displayOutput;
+        private final String utterance;
+        private final String action;
+        private final String internalState;
+        private final BrainCommunicationDecision communication;
+
+        Decision(
+                String displayOutput,
+                String utterance,
+                String action,
+                String internalState,
+                BrainCommunicationDecision communication
+        ) {
+            this.displayOutput = displayOutput == null ? "" : displayOutput;
+            this.utterance = utterance == null ? "" : utterance;
+            this.action = action == null ? "" : action;
+            this.internalState = internalState == null ? "" : internalState;
+            this.communication = communication == null
+                    ? BrainCommunicationDecision.none()
+                    : communication;
+        }
+
+        String displayOutput() {
+            return displayOutput;
+        }
+
+        String utterance() {
+            return utterance;
+        }
+
+        String action() {
+            return action;
+        }
+
+        String internalState() {
+            return internalState;
+        }
+
+        BrainCommunicationDecision communication() {
+            return communication;
+        }
+    }
+
     private static final class Module {
         final String id;
         final String label;
@@ -107,6 +151,10 @@ final class BrainEngine {
     }
 
     String think(String userInput, ProgressListener listener) throws Exception {
+        return thinkDecision(userInput, listener).displayOutput();
+    }
+
+    Decision thinkDecision(String userInput, ProgressListener listener) throws Exception {
         JSONObject characterState = characterStore.snapshotJson();
         characterState.put("characteristic_adaptations", memoryStore.characterAdaptations());
         String longTermMemory = memoryStore.contextFor(userInput, characterState);
@@ -165,6 +213,7 @@ final class BrainEngine {
         double memoryImportance = clamp01(finalResult.optDouble("memory_importance", 0.5));
         JSONArray semanticFacts = finalResult.optJSONArray("semantic_facts");
         if (semanticFacts == null) semanticFacts = new JSONArray();
+        BrainCommunicationDecision communication = BrainCommunicationDecision.fromJson(finalResult);
 
         JSONObject dynamicState = finalResult.optJSONObject("dynamic_state");
         if (dynamicState != null) {
@@ -175,6 +224,15 @@ final class BrainEngine {
             JSONArray workspaceFacts = new JSONArray();
             if (!utterance.isEmpty()) workspaceFacts.put("発話: " + utterance);
             if (!action.isEmpty()) workspaceFacts.put("行動: " + action);
+            if (!communication.isNone()) {
+                workspaceFacts.put("送信判断: " + communication.decision());
+                if (!communication.targetId().isEmpty()) {
+                    workspaceFacts.put("送信先: " + communication.targetId());
+                }
+                if (communication.deferUntilMs() > 0L) {
+                    workspaceFacts.put("延期時刻: " + communication.deferUntilMs());
+                }
+            }
             listener.onStageCompleted(
                     GLOBAL_ID,
                     GLOBAL_LABEL,
@@ -195,7 +253,7 @@ final class BrainEngine {
                 memoryImportance,
                 semanticFacts
         );
-        return display;
+        return new Decision(display, utterance, action, internalState, communication);
     }
 
     static int moduleCount() {
@@ -272,13 +330,17 @@ final class BrainEngine {
                 + "dynamic_state updates valence (-1.0..1.0), arousal (0.0..1.0), and stress (0.0..1.0) after this event. "
                 + "semantic_facts may contain durable learned memory objects using types world_fact, self_belief, goal, value, fear, relationship, habit_strategy, or role_identity. "
                 + "Do not store API keys, secrets, transient speculation, or private reasoning.\n"
+                + "communication is a structured runtime decision. Unless the user_input Runtime JSON has mode=spontaneous_life_event, communication.decision MUST be none with empty target_id and defer_until_ms=0. "
+                + "For mode=spontaneous_life_event, communication.decision MUST be send, defer, or skip. Send only when there is a concrete social, emotional, practical, relationship, or goal-related reason to message now; elapsed time alone is not a reason. "
+                + "For send, choose target_id only from allowed_targets and provide a non-empty npc_utterance. For defer or skip, npc_utterance MUST be empty. For defer, defer_until_ms must be a future time justified by the grounded situation. Never invent an off-screen event merely to create a message.\n"
                 + "Return ONLY JSON. The word JSON and the exact JSON format are mandatory.\n"
                 + "JSON format:\n"
                 + "{\"module\":\"global_workspace\",\"npc_utterance\":\"spoken words or empty\",\"npc_action\":\"in-world action or empty\","
                 + "\"internal_state_summary\":\"concise public state summary\",\"confidence\":0.0,\"personality_effect\":\"short public effect or empty\","
                 + "\"dynamic_state\":{\"valence\":0.0,\"arousal\":0.0,\"stress\":0.0},"
                 + "\"memory_summary\":\"brief episodic summary worth recalling later\",\"memory_importance\":0.0,"
-                + "\"semantic_facts\":[{\"type\":\"world_fact\",\"text\":\"durable fact\"}]}\n"
+                + "\"semantic_facts\":[{\"type\":\"world_fact\",\"text\":\"durable fact\"}],"
+                + "\"communication\":{\"decision\":\"none\",\"target_id\":\"\",\"defer_until_ms\":0}}\n"
                 + "confidence and memory_importance must be between 0.0 and 1.0. semantic_facts may be [] when none qualify. "
                 + "Do not add keys outside this JSON format.\n"
                 + "Input JSON:\n" + context.toString();
