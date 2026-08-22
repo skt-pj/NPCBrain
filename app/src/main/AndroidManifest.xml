@@ -13,6 +13,10 @@
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
+            android:name=".DungeonActivity"
+            android:enableOnBackInvokedCallback="true"
+            android:exported="false" />
+        <activity
             android:name=".NpcStatusActivity"
             android:enableOnBackInvokedCallback="true"
             android:exported="false" />
