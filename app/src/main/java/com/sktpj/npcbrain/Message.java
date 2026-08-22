@@ -48,8 +48,34 @@ final class Message {
             String causeEventId,
             JSONArray brainTrace
     ) {
-        return new Message(
+        return createWithId(
                 UUID.randomUUID().toString(),
+                roomId,
+                senderId,
+                senderName,
+                text,
+                action,
+                timeMs,
+                causeEventId,
+                brainTrace
+        );
+    }
+
+    static Message createWithId(
+            String id,
+            String roomId,
+            String senderId,
+            String senderName,
+            String text,
+            String action,
+            long timeMs,
+            String causeEventId,
+            JSONArray brainTrace
+    ) {
+        String resolvedId = safe(id);
+        if (resolvedId.isEmpty()) resolvedId = UUID.randomUUID().toString();
+        return new Message(
+                resolvedId,
                 roomId,
                 senderId,
                 senderName,

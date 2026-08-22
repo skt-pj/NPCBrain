@@ -75,6 +75,34 @@ final class WorldEvent {
         return eventId;
     }
 
+    String eventType() {
+        return eventType;
+    }
+
+    String actorId() {
+        return actorId;
+    }
+
+    String targetId() {
+        return targetId;
+    }
+
+    long timeMs() {
+        return timeMs;
+    }
+
+    String location() {
+        return location;
+    }
+
+    JSONObject payload() {
+        return copy(payload);
+    }
+
+    String causeEventId() {
+        return causeEventId;
+    }
+
     JSONObject toJson() {
         JSONObject json = new JSONObject();
         try {
