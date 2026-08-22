@@ -11,7 +11,6 @@ import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
-import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -39,6 +38,7 @@ public final class LineImportActivity extends Activity {
     private Button analyzeButton;
     private TextView statusView;
     private volatile boolean busy;
+    private volatile boolean cancelled;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,6 +47,12 @@ public final class LineImportActivity extends Activity {
         modelSettingsStore = new ModelSettingsStore(this);
         setContentView(buildLoadingScreen());
         loadSharedChat();
+    }
+
+    @Override
+    protected void onDestroy() {
+        cancelled = true;
+        super.onDestroy();
     }
 
     private View buildLoadingScreen() {
@@ -76,10 +82,16 @@ public final class LineImportActivity extends Activity {
                 if (parsed.speakerNames.isEmpty()) {
                     throw new IllegalArgumentException("話者を検出できませんでした。");
                 }
+                if (cancelled) return;
                 parsedChat = parsed;
-                runOnUiThread(() -> setContentView(buildReadyScreen(parsed)));
+                runOnUiThread(() -> {
+                    if (!cancelled) setContentView(buildReadyScreen(parsed));
+                });
             } catch (Exception error) {
-                runOnUiThread(() -> showLoadError(error));
+                if (cancelled) return;
+                runOnUiThread(() -> {
+                    if (!cancelled) showLoadError(error);
+                });
             }
         }, "line-import-read").start();
     }
@@ -197,6 +209,7 @@ public final class LineImportActivity extends Activity {
                         parsedChat,
                         speaker
                 );
+                if (cancelled) return;
                 characterStore(npcId).saveProfile(
                         profile.name,
                         profile.extraversion,
@@ -206,12 +219,16 @@ public final class LineImportActivity extends Activity {
                         profile.openness,
                         profile.speechStyle
                 );
+                if (cancelled) return;
                 runOnUiThread(() -> {
+                    if (cancelled) return;
                     setBusy(false, "人格を設定しました。");
                     showSuccessDialog(npcId, profile);
                 });
             } catch (Exception error) {
+                if (cancelled) return;
                 runOnUiThread(() -> {
+                    if (cancelled) return;
                     setBusy(false, "解析に失敗しました。人格は変更していません。");
                     showMessage("解析に失敗しました。人格は変更していません。\n\n" + safeError(error));
                 });
@@ -384,11 +401,11 @@ public final class LineImportActivity extends Activity {
         return view;
     }
 
-    private LinearLayout.LayoutParams topMargin(int dp) {
+    private LinearLayout.LayoutParams topMargin(int valueDp) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.topMargin = dp(dp);
+        params.topMargin = dp(valueDp);
         return params;
     }
 
