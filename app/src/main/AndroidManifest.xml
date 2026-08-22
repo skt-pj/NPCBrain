@@ -12,6 +12,18 @@
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
+            android:name=".LineImportActivity"
+            android:exported="true"
+            android:label="NPCBrain"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+        </activity>
+        <activity
             android:name=".DemoActivityV032"
             android:enableOnBackInvokedCallback="true"
             android:exported="true"
