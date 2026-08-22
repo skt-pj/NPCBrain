@@ -28,13 +28,15 @@ final class BrainEngine {
         private final String action;
         private final String internalState;
         private final BrainCommunicationDecision communication;
+        private final JSONObject cognitiveGraph;
 
         Decision(
                 String displayOutput,
                 String utterance,
                 String action,
                 String internalState,
-                BrainCommunicationDecision communication
+                BrainCommunicationDecision communication,
+                JSONObject cognitiveGraph
         ) {
             this.displayOutput = displayOutput == null ? "" : displayOutput;
             this.utterance = utterance == null ? "" : utterance;
@@ -43,6 +45,7 @@ final class BrainEngine {
             this.communication = communication == null
                     ? BrainCommunicationDecision.none()
                     : communication;
+            this.cognitiveGraph = copyJson(cognitiveGraph);
         }
 
         String displayOutput() {
@@ -63,6 +66,10 @@ final class BrainEngine {
 
         BrainCommunicationDecision communication() {
             return communication;
+        }
+
+        JSONObject cognitiveGraph() {
+            return copyJson(cognitiveGraph);
         }
     }
 
@@ -159,6 +166,7 @@ final class BrainEngine {
         characterState.put("characteristic_adaptations", memoryStore.characterAdaptations());
         String longTermMemory = memoryStore.contextFor(userInput, characterState);
         JSONArray workingMemory = new JSONArray();
+        CognitiveWorkingGraph cognitiveGraph = new CognitiveWorkingGraph(userInput);
         int total = MODULES.size() + 1;
 
         for (int i = 0; i < MODULES.size(); i++) {
@@ -173,21 +181,36 @@ final class BrainEngine {
             context.put("character_state", characterState);
             context.put("long_term_memory", new JSONObject(longTermMemory));
             context.put("working_memory", workingMemory);
+            context.put("cognitive_graph_focus", safeGraphFocus(cognitiveGraph, module.id));
 
             JSONObject result = client.requestJson(modulePrompt(module, context));
             result.put("module", module.id);
             workingMemory.put(result);
 
+            JSONArray facts = result.optJSONArray("salient_facts");
+            if (facts == null) facts = new JSONArray();
+            String content = result.optString("content", "").trim();
+            double confidence = clamp01(result.optDouble("confidence", 0.0));
+            try {
+                cognitiveGraph.completeStage(
+                        module.id,
+                        module.label,
+                        content,
+                        confidence,
+                        facts,
+                        result.optJSONArray("graph_used_node_ids")
+                );
+            } catch (Exception ignored) {
+            }
+
             if (listener != null) {
-                JSONArray facts = result.optJSONArray("salient_facts");
-                if (facts == null) facts = new JSONArray();
                 listener.onStageCompleted(
                         module.id,
                         module.label,
                         current,
                         total,
-                        result.optString("content", "").trim(),
-                        clamp01(result.optDouble("confidence", 0.0)),
+                        content,
+                        confidence,
                         facts,
                         result.optString("personality_effect", "").trim()
                 );
@@ -203,6 +226,7 @@ final class BrainEngine {
         finalContext.put("character_state", characterState);
         finalContext.put("long_term_memory", new JSONObject(longTermMemory));
         finalContext.put("working_memory", workingMemory);
+        finalContext.put("cognitive_graph_focus", safeGraphFocus(cognitiveGraph, GLOBAL_ID));
 
         JSONObject finalResult = client.requestJson(globalWorkspacePrompt(finalContext));
         String utterance = finalResult.optString("npc_utterance", "").trim();
@@ -214,6 +238,16 @@ final class BrainEngine {
         JSONArray semanticFacts = finalResult.optJSONArray("semantic_facts");
         if (semanticFacts == null) semanticFacts = new JSONArray();
         BrainCommunicationDecision communication = BrainCommunicationDecision.fromJson(finalResult);
+        double finalConfidence = clamp01(finalResult.optDouble("confidence", 0.0));
+
+        try {
+            cognitiveGraph.completeIntegration(
+                    internalState.isEmpty() ? "発話と行動を統合しました。" : internalState,
+                    finalConfidence,
+                    finalResult.optJSONArray("graph_used_node_ids")
+            );
+        } catch (Exception ignored) {
+        }
 
         JSONObject dynamicState = finalResult.optJSONObject("dynamic_state");
         if (dynamicState != null) {
@@ -239,7 +273,7 @@ final class BrainEngine {
                     total,
                     total,
                     internalState.isEmpty() ? "発話と行動を統合しました。" : internalState,
-                    clamp01(finalResult.optDouble("confidence", 0.0)),
+                    finalConfidence,
                     workspaceFacts,
                     personalityEffect
             );
@@ -253,7 +287,14 @@ final class BrainEngine {
                 memoryImportance,
                 semanticFacts
         );
-        return new Decision(display, utterance, action, internalState, communication);
+        return new Decision(
+                display,
+                utterance,
+                action,
+                internalState,
+                communication,
+                safeGraphSnapshot(cognitiveGraph)
+        );
     }
 
     static int moduleCount() {
@@ -275,6 +316,43 @@ final class BrainEngine {
         }
         if (GLOBAL_ID.equals(stageId)) return GLOBAL_LABEL;
         return stageId;
+    }
+
+    private static JSONObject safeGraphFocus(CognitiveWorkingGraph graph, String moduleId) {
+        try {
+            return graph == null
+                    ? emptyGraphFocus()
+                    : graph.focusFor(moduleId, CognitiveWorkingGraph.MAX_FOCUS_NODES);
+        } catch (Exception ignored) {
+            return emptyGraphFocus();
+        }
+    }
+
+    private static JSONObject emptyGraphFocus() {
+        JSONObject result = new JSONObject();
+        try {
+            result.put("nodes", new JSONArray());
+            result.put("edges", new JSONArray());
+            result.put("policy", "Graph unavailable; use grounded context and working_memory normally.");
+        } catch (Exception ignored) {
+        }
+        return result;
+    }
+
+    private static JSONObject safeGraphSnapshot(CognitiveWorkingGraph graph) {
+        try {
+            return graph == null ? new JSONObject() : graph.snapshot();
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
+    }
+
+    private static JSONObject copyJson(JSONObject source) {
+        try {
+            return source == null ? new JSONObject() : new JSONObject(source.toString());
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
     }
 
     private static double clamp01(double value) {
@@ -305,14 +383,19 @@ final class BrainEngine {
                 + "Personality integration rule: " + module.personalityRule + "\n"
                 + "character_state contains stable Big Five traits, current affective state, speech style, and typed characteristic adaptations. "
                 + "long_term_memory contains retrieved episodic and semantic evidence. working_memory contains earlier specialist outputs from this same cycle. "
+                + "cognitive_graph_focus is a bounded semantic point-link working-memory view of currently active evidence and earlier public cognitive outputs. "
+                + "Use its activation as attention priority, never as truth probability. Low-activation grounded facts and hard constraints still apply. "
+                + "Graph x/y/z display coordinates do not exist in this input and must not be inferred. "
                 + "Treat memory and personality as biases/context, not permission to invent facts.\n"
                 + "The content field is a concise public diagnostic summary for the brain monitor. "
                 + "personality_effect is one short sentence describing which trait/state/adaptation materially influenced this module; use an empty string when none mattered. "
+                + "graph_used_node_ids must contain only IDs present in cognitive_graph_focus.nodes that materially contributed to this module's public result. Use [] when none did; maximum 8. "
                 + "Do not provide hidden chain-of-thought, private scratch work, or step-by-step internal reasoning.\n"
                 + "Return ONLY JSON. The word JSON and the exact JSON format are mandatory.\n"
                 + "JSON format:\n"
                 + "{\"module\":\"" + module.id + "\",\"content\":\"concise public summary\",\"confidence\":0.0,"
-                + "\"salient_facts\":[\"important grounded fact\"],\"personality_effect\":\"short public effect or empty\"}\n"
+                + "\"salient_facts\":[\"important grounded fact\"],\"personality_effect\":\"short public effect or empty\","
+                + "\"graph_used_node_ids\":[\"node_id\"]}\n"
                 + "confidence must be between 0.0 and 1.0. Keep content concise. Do not add keys outside this JSON format.\n"
                 + "Input JSON:\n" + context.toString();
     }
@@ -321,6 +404,9 @@ final class BrainEngine {
         return "You are the existing Global Workspace of a brain-inspired NPC cognitive architecture. "
                 + "Integrate the nine specialist outputs, the character's stable personality, current affective state, and long-term adaptations. "
                 + "The user_input is a scene/event presented to the character, NOT a request for an AI assistant answer. "
+                + "cognitive_graph_focus is a bounded semantic point-link working-memory view of currently active evidence and specialist outputs. "
+                + "Use activation only to prioritize attention; it is not truth probability and may not override grounded facts, uncertainty, or hard constraints. "
+                + "graph_used_node_ids must contain only IDs present in cognitive_graph_focus.nodes that materially contributed to the final public integration; maximum 8. "
                 + "Do not give generic advice, explain the architecture, mention being an AI, or append analysis/reasons to the product output. "
                 + "Choose what the character actually says and does in-world. The situation may override personality; personality is a probabilistic bias, not a script. "
                 + "Resolve conflicts while preserving uncertainty and physical/social constraints.\n"
@@ -337,6 +423,7 @@ final class BrainEngine {
                 + "JSON format:\n"
                 + "{\"module\":\"global_workspace\",\"npc_utterance\":\"spoken words or empty\",\"npc_action\":\"in-world action or empty\","
                 + "\"internal_state_summary\":\"concise public state summary\",\"confidence\":0.0,\"personality_effect\":\"short public effect or empty\","
+                + "\"graph_used_node_ids\":[\"node_id\"],"
                 + "\"dynamic_state\":{\"valence\":0.0,\"arousal\":0.0,\"stress\":0.0},"
                 + "\"memory_summary\":\"brief episodic summary worth recalling later\",\"memory_importance\":0.0,"
                 + "\"semantic_facts\":[{\"type\":\"world_fact\",\"text\":\"durable fact\"}],"
