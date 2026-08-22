@@ -10,6 +10,7 @@ import java.util.Set;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class CognitiveGraphBuilderTest {
@@ -111,6 +112,97 @@ public class CognitiveGraphBuilderTest {
         JSONObject stage = stage("perception", "知覚", "summary only", 0.5, "done");
         CognitiveGraph graph = CognitiveGraphBuilder.build(new JSONArray().put(stage), new JSONObject());
         assertFalse(containsType(graph, "fact"));
+    }
+
+    @Test
+    public void semanticSnapshotPreservesRealIdsAndTypedEdges() throws Exception {
+        JSONObject snapshot = semanticSnapshot(true);
+        CognitiveGraph graph = CognitiveGraphBuilder.buildFromSemanticSnapshot(snapshot);
+
+        assertEquals(4, graph.nodes().size());
+        assertEquals(3, graph.edges().size());
+        assertNull(graph.nodeById("center"));
+        assertNotNull(graph.nodeById("input_0"));
+        assertNotNull(graph.nodeById("stage_perception"));
+        assertNotNull(graph.nodeById("fact_perception_0"));
+        assertNotNull(graph.nodeById("integrated_0"));
+        assertEquals(0.0, graph.nodeById("integrated_0").radius(), 0.0001);
+        assertTrue(graph.nodeById("stage_perception").radius() > 0.0);
+        assertTrue(graph.nodeById("fact_perception_0").radius()
+                > graph.nodeById("stage_perception").radius());
+        assertTrue(hasEdge(graph, "input_0", "stage_perception", "observes"));
+        assertTrue(hasEdge(graph, "fact_perception_0", "stage_perception", "supports"));
+        assertTrue(hasEdge(graph, "stage_perception", "integrated_0", "integrates"));
+    }
+
+    @Test
+    public void partialSemanticSnapshotCentersLatestRealStageWithoutSyntheticNodes() throws Exception {
+        JSONObject snapshot = semanticSnapshot(false);
+        CognitiveGraph graph = CognitiveGraphBuilder.buildFromSemanticSnapshot(snapshot);
+
+        assertEquals(3, graph.nodes().size());
+        assertEquals(2, graph.edges().size());
+        assertNull(graph.nodeById("center"));
+        assertEquals(0.0, graph.nodeById("stage_perception").radius(), 0.0001);
+        assertNotNull(graph.nodeById("input_0"));
+        assertNotNull(graph.nodeById("fact_perception_0"));
+        assertTrue(hasEdge(graph, "input_0", "stage_perception", "observes"));
+        assertTrue(hasEdge(graph, "fact_perception_0", "stage_perception", "supports"));
+    }
+
+    @Test
+    public void invalidSemanticSnapshotProducesNoDisplayOnlyGraph() {
+        CognitiveGraph graph = CognitiveGraphBuilder.buildFromSemanticSnapshot(new JSONObject());
+        assertEquals(0, graph.nodes().size());
+        assertEquals(0, graph.edges().size());
+    }
+
+    private static JSONObject semanticSnapshot(boolean integrated) throws Exception {
+        JSONArray nodes = new JSONArray()
+                .put(semanticNode("input_0", "perception", "input", "入力イベント", "hello", 1.0, 0.8, 0))
+                .put(semanticNode("stage_perception", "perception", "stage", "知覚", "入力を確認", 0.8, 1.0, 1))
+                .put(semanticNode("fact_perception_0", "perception", "fact", "注目事実", "helloが入力された", 0.8, 0.7, 2));
+        JSONArray edges = new JSONArray()
+                .put(semanticEdge("input_0", "stage_perception", "observes"))
+                .put(semanticEdge("fact_perception_0", "stage_perception", "supports"));
+        if (integrated) {
+            nodes.put(semanticNode("integrated_0", "global_workspace", "integrated",
+                    "現在の統合状態", "短く返す", 0.9, 1.0, 3));
+            edges.put(semanticEdge("stage_perception", "integrated_0", "integrates"));
+        }
+        return new JSONObject()
+                .put("schema_version", 1)
+                .put("nodes", nodes)
+                .put("edges", edges);
+    }
+
+    private static JSONObject semanticNode(
+            String id,
+            String moduleId,
+            String type,
+            String label,
+            String detail,
+            double confidence,
+            double activation,
+            int order
+    ) throws Exception {
+        return new JSONObject()
+                .put("id", id)
+                .put("module_id", moduleId)
+                .put("node_type", type)
+                .put("label", label)
+                .put("detail", detail)
+                .put("confidence", confidence)
+                .put("activation", activation)
+                .put("order", order);
+    }
+
+    private static JSONObject semanticEdge(String from, String to, String type) throws Exception {
+        return new JSONObject()
+                .put("from_id", from)
+                .put("to_id", to)
+                .put("type", type)
+                .put("weight", 0.9);
     }
 
     private static JSONObject stage(
