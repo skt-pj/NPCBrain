@@ -141,6 +141,7 @@ final class OpenAiClient {
 
         byte[] request = body.toString().getBytes(StandardCharsets.UTF_8);
         IOException firstFailure = null;
+        String attributedNpcId = attributedNpcId(prompt);
 
         for (int pass = 0; pass < CONNECTION_RETRY_PASSES; pass++) {
             if (pass > 0) {
@@ -155,7 +156,7 @@ final class OpenAiClient {
             Network preferred = validCachedNetwork();
             if (preferred != null) {
                 try {
-                    JSONObject result = executeRequest(preferred, request);
+                    JSONObject result = executeRequest(preferred, request, attributedNpcId);
                     rememberNetwork(preferred);
                     return result;
                 } catch (IOException error) {
@@ -168,7 +169,7 @@ final class OpenAiClient {
             }
 
             try {
-                JSONObject result = executeRequest(null, request);
+                JSONObject result = executeRequest(null, request, attributedNpcId);
                 rememberActiveNetwork();
                 return result;
             } catch (IOException error) {
@@ -181,7 +182,7 @@ final class OpenAiClient {
             for (Network network : candidateNetworks()) {
                 if (network == null || network.equals(preferred)) continue;
                 try {
-                    JSONObject result = executeRequest(network, request);
+                    JSONObject result = executeRequest(network, request, attributedNpcId);
                     rememberNetwork(network);
                     return result;
                 } catch (IOException error) {
@@ -198,7 +199,7 @@ final class OpenAiClient {
                 : firstFailure);
     }
 
-    private JSONObject executeRequest(Network network, byte[] request) throws Exception {
+    private JSONObject executeRequest(Network network, byte[] request, String attributedNpcId) throws Exception {
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) (network == null
@@ -227,7 +228,7 @@ final class OpenAiClient {
             }
 
             JSONObject response = new JSONObject(responseText);
-            notifyUsage(Usage.fromResponse(response));
+            notifyUsage(Usage.fromResponse(response), attributedNpcId);
             String outputText = extractOutputText(response);
             if (outputText.isEmpty()) {
                 throw new IllegalStateException("OpenAI API returned no output_text");
@@ -242,12 +243,44 @@ final class OpenAiClient {
         }
     }
 
-    private void notifyUsage(Usage usage) {
-        if (usageListener == null || usage == null) return;
+    private void notifyUsage(Usage usage, String attributedNpcId) {
+        if (usage == null) return;
+        if (usageListener != null) {
+            try {
+                usageListener.onUsage(usage);
+            } catch (RuntimeException ignored) {
+            }
+            return;
+        }
+        if (attributedNpcId == null || attributedNpcId.isEmpty()) return;
         try {
-            usageListener.onUsage(usage);
+            new NpcAiStaminaStore(appContext).recordUsage(attributedNpcId, usage);
         } catch (RuntimeException ignored) {
         }
+    }
+
+    static String attributedNpcId(String prompt) {
+        if (prompt == null || prompt.isEmpty()) return "";
+        int marker = prompt.indexOf("character_id");
+        if (marker < 0) return "";
+        int limit = Math.min(prompt.length(), marker + 192);
+        String tail = prompt.substring(marker, limit);
+        int cursor = 0;
+        while (cursor >= 0 && cursor < tail.length()) {
+            int npc = tail.indexOf("npc", cursor);
+            if (npc < 0) return "";
+            int end = npc + 3;
+            while (end < tail.length() && Character.isDigit(tail.charAt(end))) end++;
+            if (end > npc + 3) {
+                String candidate = tail.substring(npc, end);
+                try {
+                    return NpcId.of(candidate).value();
+                } catch (Exception ignored) {
+                }
+            }
+            cursor = npc + 3;
+        }
+        return "";
     }
 
     private Network validCachedNetwork() {
