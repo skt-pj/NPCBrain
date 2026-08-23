@@ -76,9 +76,11 @@ final class DungeonCognitionGate {
     }
 
     static String mergePending(String current, String incoming) {
-        if (incoming == null || incoming.isEmpty()) return current == null ? "" : current;
-        if (current == null || current.isEmpty()) return incoming;
-        return priority(incoming) < priority(current) ? incoming : current;
+        String safeCurrent = current == null ? "" : current;
+        if (incoming == null || incoming.isEmpty()) return safeCurrent;
+        if (PROGRESS_STALLED.equals(incoming)) return safeCurrent;
+        if (safeCurrent.isEmpty()) return incoming;
+        return priority(incoming) < priority(safeCurrent) ? incoming : safeCurrent;
     }
 
     private static int priority(String reason) {
