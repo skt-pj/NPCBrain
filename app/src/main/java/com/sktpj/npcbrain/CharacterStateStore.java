@@ -18,9 +18,11 @@ final class CharacterStateStore {
     private static final String AROUSAL = "arousal";
     private static final String STRESS = "stress";
 
+    private final Context storageContext;
     private final SharedPreferences preferences;
 
     CharacterStateStore(Context context) {
+        storageContext = context;
         preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
@@ -57,6 +59,10 @@ final class CharacterStateStore {
             dynamic.put("arousal", clamp01(preferences.getFloat(AROUSAL, 0.25f)));
             dynamic.put("stress", clamp01(preferences.getFloat(STRESS, 0.15f)));
             root.put("current_state", dynamic);
+
+            root.put("human_baseline", HumanBaseline.toJson());
+            root.put("dungeon_participation",
+                    new DungeonParticipationStore(storageContext).load().toJson());
         } catch (Exception ignored) {
         }
         return root;
