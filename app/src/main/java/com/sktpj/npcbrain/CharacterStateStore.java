@@ -17,6 +17,7 @@ final class CharacterStateStore {
     private static final String VALENCE = "valence";
     private static final String AROUSAL = "arousal";
     private static final String STRESS = "stress";
+    private static final String DEAD = "dead";
 
     private final Context storageContext;
     private final SharedPreferences preferences;
@@ -26,21 +27,29 @@ final class CharacterStateStore {
         preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
+    synchronized boolean isDead() {
+        return preferences.getBoolean(DEAD, false);
+    }
+
     synchronized String displayName() {
+        if (isDead()) return "死亡";
         String value = preferences.getString(NAME, "NPC");
         return value == null || value.trim().isEmpty() ? "NPC" : value.trim();
     }
 
     synchronized String speechStyle() {
+        if (isDead()) return "";
         String value = preferences.getString(SPEECH_STYLE, "");
         return value == null ? "" : value;
     }
 
     synchronized int traitPercent(String key) {
+        if (isDead()) return 0;
         return preferences.getInt(key, 50);
     }
 
     synchronized JSONObject snapshotJson() {
+        if (isDead()) throw new IllegalStateException("NPC is dead");
         JSONObject root = new JSONObject();
         JSONObject traits = new JSONObject();
         JSONObject dynamic = new JSONObject();
@@ -77,6 +86,7 @@ final class CharacterStateStore {
             int openness,
             String speechStyle
     ) {
+        if (isDead()) return;
         preferences.edit()
                 .putString(NAME, safe(name, "NPC"))
                 .putInt(EXTRAVERSION, clampPercent(extraversion))
@@ -89,7 +99,7 @@ final class CharacterStateStore {
     }
 
     synchronized void updateDynamicState(JSONObject state) {
-        if (state == null) return;
+        if (state == null || isDead()) return;
         float valence = (float) clampSigned(state.optDouble("valence", preferences.getFloat(VALENCE, 0.0f)));
         float arousal = (float) clamp01(state.optDouble("arousal", preferences.getFloat(AROUSAL, 0.25f)));
         float stress = (float) clamp01(state.optDouble("stress", preferences.getFloat(STRESS, 0.15f)));
@@ -101,13 +111,19 @@ final class CharacterStateStore {
     }
 
     synchronized String dynamicStateSummary() {
+        if (isDead()) return "—";
         int valence = Math.round(preferences.getFloat(VALENCE, 0.0f) * 100f);
         int arousal = Math.round(preferences.getFloat(AROUSAL, 0.25f) * 100f);
         int stress = Math.round(preferences.getFloat(STRESS, 0.15f) * 100f);
         return "感情価 " + signed(valence) + " · 覚醒 " + arousal + " · ストレス " + stress;
     }
 
+    synchronized void markDead() {
+        preferences.edit().clear().putBoolean(DEAD, true).commit();
+    }
+
     synchronized void reset() {
+        if (isDead()) return;
         preferences.edit().clear().apply();
     }
 
