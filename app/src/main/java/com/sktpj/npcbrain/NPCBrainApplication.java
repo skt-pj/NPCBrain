@@ -57,11 +57,15 @@ public final class NPCBrainApplication extends Application {
 
     private void injectPrimaryTabs(Activity activity) {
         if (activity instanceof DemoActivityV032) {
-            injectDemoTabs((DemoActivityV032) activity);
+            DemoActivityV032 demo = (DemoActivityV032) activity;
+            injectDemoTabs(demo);
+            DungeonParticipationChatBridge.install(demo);
         } else if (activity instanceof NpcStatusActivity) {
             injectDungeonIntoStatus((NpcStatusActivity) activity);
         } else if (activity instanceof DungeonActivity) {
-            DungeonGoalInputBridge.install((DungeonActivity) activity);
+            DungeonActivity dungeon = (DungeonActivity) activity;
+            DungeonGoalInputBridge.install(dungeon);
+            DungeonConsentBridge.install(dungeon);
         }
     }
 
