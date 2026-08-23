@@ -15,7 +15,6 @@ import java.lang.reflect.Method;
 
 final class DungeonGoalInputBridge {
     private static final String BUTTON_TAG = "npcbrain_user_goal_button_v0412";
-    private static final String INTERPRETATION_TAG = "npcbrain_goal_interpretation_v0412";
     private static final long REFRESH_MS = 450L;
 
     private DungeonGoalInputBridge() {
@@ -103,9 +102,7 @@ final class DungeonGoalInputBridge {
 
     private static TextView ensureInterpretationView(DungeonActivity activity) {
         try {
-            Field field = DungeonActivity.class.getDeclaredField("objectiveView");
-            field.setAccessible(true);
-            Object raw = field.get(activity);
+            Object raw = objectField(activity, "objectiveView");
             if (!(raw instanceof TextView)) return null;
             TextView objective = (TextView) raw;
             if (!(objective.getParent() instanceof LinearLayout)) return null;
@@ -180,6 +177,7 @@ final class DungeonGoalInputBridge {
                 plan = mind == null ? null : mind.plan;
             }
 
+            refreshEffectiveTactic(activity);
             boolean thinking = booleanField(activity, "brainThinking")
                     && npcId.equals(stringField(activity, "activeBrainNpcId"));
             if (!objective.isActive()) {
@@ -196,9 +194,11 @@ final class DungeonGoalInputBridge {
                     interpretation = DungeonPlan.SOURCE_BRAIN.equals(plan.source)
                             ? "Brain計画を適用中" : "Brainの解釈待ち。Local planで継続";
                 }
-                String suffix = plan.targetFloor > 0 && objective.isCustom()
+                String target = plan.targetFloor > 0 && objective.isCustom()
                         ? " · 目標 " + plan.targetFloor + "F" : "";
-                view.setText("解釈: " + interpretation + suffix);
+                String strategy = DungeonPlan.SOURCE_BRAIN.equals(plan.source)
+                        ? " · " + DungeonPlan.strategyLabel(plan.strategy) : "";
+                view.setText("解釈: " + interpretation + target + strategy);
                 return;
             }
             String error = mind == null ? "" : mind.error;
@@ -207,6 +207,23 @@ final class DungeonGoalInputBridge {
                     : "解釈: 未確定 · " + compact(error));
         } catch (Exception ignored) {
             view.setText("解釈: Local planで継続");
+        }
+    }
+
+    private static void refreshEffectiveTactic(DungeonActivity activity) {
+        try {
+            Object rawState = objectField(activity, "state");
+            Object rawIntent = objectField(activity, "currentIntent");
+            Object rawPlan = objectField(activity, "currentPlan");
+            Object rawView = objectField(activity, "intentView");
+            if (!(rawState instanceof DungeonState) || !(rawView instanceof TextView)) return;
+            DungeonState state = (DungeonState) rawState;
+            DungeonIntent intent = rawIntent instanceof DungeonIntent ? (DungeonIntent) rawIntent : null;
+            DungeonPlan plan = rawPlan instanceof DungeonPlan ? (DungeonPlan) rawPlan : null;
+            String mode = DungeonPersonalityPolicy.effectiveMode(state, intent, plan);
+            ((TextView) rawView).setText(
+                    "戦術: " + DungeonIntent.modeLabel(mode) + " · LOCAL EXECUTION");
+        } catch (Exception ignored) {
         }
     }
 
@@ -227,15 +244,19 @@ final class DungeonGoalInputBridge {
         return stringField(activity, "selectedNpcId");
     }
 
-    private static String stringField(DungeonActivity activity, String name) {
+    private static Object objectField(DungeonActivity activity, String name) {
         try {
             Field field = DungeonActivity.class.getDeclaredField(name);
             field.setAccessible(true);
-            Object value = field.get(activity);
-            return value == null ? "" : value.toString();
+            return field.get(activity);
         } catch (Exception ignored) {
-            return "";
+            return null;
         }
+    }
+
+    private static String stringField(DungeonActivity activity, String name) {
+        Object value = objectField(activity, name);
+        return value == null ? "" : value.toString();
     }
 
     private static boolean booleanField(DungeonActivity activity, String name) {
@@ -281,10 +302,5 @@ final class DungeonGoalInputBridge {
 
     private static final class RefreshTag {
         boolean running;
-
-        @Override
-        public String toString() {
-            return INTERPRETATION_TAG;
-        }
     }
 }
