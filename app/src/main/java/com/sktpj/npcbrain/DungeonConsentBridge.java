@@ -37,7 +37,11 @@ final class DungeonConsentBridge {
             participationView.post(new Runnable() {
                 @Override
                 public void run() {
-                    if (activity.isFinishing() || participationView.getWindowToken() == null) return;
+                    if (activity.isFinishing()) return;
+                    if (participationView.getWindowToken() == null) {
+                        participationView.postDelayed(this, REFRESH_MS);
+                        return;
+                    }
                     refresh(activity, state);
                     participationView.postDelayed(this, REFRESH_MS);
                 }
@@ -64,8 +68,10 @@ final class DungeonConsentBridge {
         boolean canExecute = DungeonParticipationPolicy.canAutoExecute(participation, objective);
         boolean paused = booleanField(activity, "paused");
         if (!canExecute) {
-            if (!paused) setBooleanField(activity, "paused", true);
-            bridge.forcedPause = true;
+            if (!paused) {
+                setBooleanField(activity, "paused", true);
+                bridge.forcedPause = true;
+            }
         } else if (bridge.forcedPause) {
             setBooleanField(activity, "paused", false);
             bridge.forcedPause = false;
