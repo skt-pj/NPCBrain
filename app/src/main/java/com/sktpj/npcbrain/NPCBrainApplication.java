@@ -81,6 +81,7 @@ public final class NPCBrainApplication extends Application {
             DungeonActivity dungeon = (DungeonActivity) activity;
             DungeonGoalInputBridge.install(dungeon);
             DungeonConsentBridge.install(dungeon);
+            DungeonAiStaminaBridge.install(dungeon);
         }
     }
 
