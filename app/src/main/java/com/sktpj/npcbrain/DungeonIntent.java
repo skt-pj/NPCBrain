@@ -90,7 +90,7 @@ final class DungeonIntent {
         } else if (visibleEnemyDistance == 1) {
             double caution = traits == null ? 0.5
                     : (traits.neuroticism + traits.agreeableness) / 200.0;
-            mode = caution >= 0.65 ? EVADE : ENGAGE;
+            mode = hpRate <= 0.45 && caution >= 0.65 ? EVADE : ENGAGE;
         } else if (DungeonPerception.stairsKnown(state)) {
             mode = SEEK_STAIRS;
         } else if (visibleEnemyDistance <= 3 && traits != null
