@@ -31,9 +31,6 @@ final class DungeonParticipationStore {
     }
 
     static DungeonParticipationStore forNpc(Context context, String npcId) {
-        Context storage = "npc2".equals(npcId)
-                ? new NpcStorageContext(context, "npc2")
-                : context;
-        return new DungeonParticipationStore(storage);
+        return new DungeonParticipationStore(NpcContexts.storage(context, npcId));
     }
 }
