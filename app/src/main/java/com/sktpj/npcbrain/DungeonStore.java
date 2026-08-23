@@ -7,10 +7,12 @@ import org.json.JSONObject;
 
 final class DungeonStore {
     private static final String PREFS = "npcbrain_dungeon_v1";
+    private final Context appContext;
     private final SharedPreferences preferences;
 
     DungeonStore(Context context) {
-        preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        appContext = context.getApplicationContext();
+        preferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
     synchronized DungeonState load(String npcId) {
@@ -25,6 +27,9 @@ final class DungeonStore {
 
     synchronized void save(String npcId, DungeonState state) {
         if (state == null) return;
+        if (state.hp <= 0) {
+            new NpcArchiveStore(appContext).archiveDeath(npcId, state);
+        }
         preferences.edit().putString(key(npcId), state.toJson().toString()).apply();
     }
 
