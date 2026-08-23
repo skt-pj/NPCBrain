@@ -1,0 +1,63 @@
+name: v0.4.19 source fix
+
+on:
+  push:
+    branches:
+      - feature/v0.4.19-dungeon-roster
+
+permissions:
+  contents: write
+
+jobs:
+  fix-source:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature/v0.4.19-dungeon-roster
+          fetch-depth: 0
+      - name: Fix DungeonActivity dynamic NPC context
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app/src/main/java/com/sktpj/npcbrain/DungeonActivity.java')
+          text = path.read_text()
+          old_traits = '''    private DungeonPersonalityPolicy.Traits traitsForNpc(String npcId) {
+        Context app = getApplicationContext();
+        Context context = "npc2".equals(npcId)
+                ? new NpcStorageContext(app, "npc2") : app;
+        CharacterStateStore character = new CharacterStateStore(context);
+'''
+          new_traits = '''    private DungeonPersonalityPolicy.Traits traitsForNpc(String npcId) {
+        CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(this, npcId));
+'''
+          old_current = '''    private CharacterStateStore currentCharacterStore() {
+        Context app = getApplicationContext();
+        Context context = "npc2".equals(selectedNpcId)
+                ? new NpcStorageContext(app, "npc2") : app;
+        return new CharacterStateStore(context);
+    }
+'''
+          new_current = '''    private CharacterStateStore currentCharacterStore() {
+        return new CharacterStateStore(NpcContexts.storage(this, selectedNpcId));
+    }
+'''
+          if old_traits not in text and 'NpcContexts.storage(this, npcId)' not in text:
+              raise SystemExit('traitsForNpc signature mismatch')
+          if old_current not in text and 'NpcContexts.storage(this, selectedNpcId)' not in text:
+              raise SystemExit('currentCharacterStore signature mismatch')
+          text = text.replace(old_traits, new_traits).replace(old_current, new_current)
+          path.write_text(text)
+          Path('.github/workflows/v0419-source-fix.yml').unlink()
+          PY
+      - name: Commit source fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix dynamic dungeon NPC profile context"
+          git push origin HEAD:feature/v0.4.19-dungeon-roster
