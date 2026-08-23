@@ -1,0 +1,6 @@
+run_id=32618515835
+status=success
+job_commit=6608c33137c97706e62e4b7c4b81ecea2b4f824d
+artifact_id=9487680402
+artifact_name=NPCBrain-v0.4.13-hotfix1-release
+versionName=0.4.13-hotfix1
