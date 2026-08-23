@@ -3,7 +3,6 @@ package com.sktpj.npcbrain;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ClipData;
-import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -13,6 +12,7 @@ import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -27,11 +27,14 @@ import java.util.HashMap;
 import java.util.Map;
 
 public final class LineImportActivity extends Activity {
+    private static final String NEW_NPC = "__new_npc__";
+
     private final Map<Integer, String> speakerByViewId = new HashMap<>();
     private final Map<Integer, String> npcByViewId = new HashMap<>();
 
     private SecureApiKeyStore apiKeyStore;
     private ModelSettingsStore modelSettingsStore;
+    private NpcRegistryStore npcRegistry;
     private LineChatImportParser.ParsedChat parsedChat;
     private RadioGroup speakerGroup;
     private RadioGroup npcGroup;
@@ -45,6 +48,7 @@ public final class LineImportActivity extends Activity {
         super.onCreate(savedInstanceState);
         apiKeyStore = new SecureApiKeyStore(this);
         modelSettingsStore = new ModelSettingsStore(this);
+        npcRegistry = new NpcRegistryStore(this);
         setContentView(buildLoadingScreen());
         loadSharedChat();
     }
@@ -128,24 +132,27 @@ public final class LineImportActivity extends Activity {
         }
         root.addView(speakerGroup);
 
-        TextView npcLabel = section("人格を設定するNPC");
+        TextView npcLabel = section("保存先");
         root.addView(npcLabel, topMargin(18));
         npcGroup = new RadioGroup(this);
         npcGroup.setOrientation(RadioGroup.VERTICAL);
         npcByViewId.clear();
-        addNpcOption("npc1", "NPC1");
-        addNpcOption("npc2", "NPC2");
+        addNpcOption(NEW_NPC, "新しいNPCとして追加", true);
+        for (String npcId : npcRegistry.activeNpcIds()) {
+            CharacterStateStore store = characterStore(npcId);
+            addNpcOption(npcId, store.displayName() + "（" + npcId + "）", false);
+        }
         root.addView(npcGroup);
 
-        statusView = body("選択した人物の発話だけを解析し、人格設定へ反映します。トーク本文は会話履歴や長期記憶へ保存しません。");
+        statusView = body("人格に加えて、関係・年齢・経歴も会話内容から推定します。根拠がない項目は既定値を入れ、保存前に確認・編集できます。トーク本文は会話履歴や長期記憶へ保存しません。");
         LinearLayout.LayoutParams statusParams = topMargin(18);
         root.addView(statusView, statusParams);
 
         analyzeButton = new Button(this);
-        analyzeButton.setText("解析して人格に設定");
+        analyzeButton.setText("解析して確認");
         analyzeButton.setTextSize(15);
         analyzeButton.setTypeface(Typeface.DEFAULT_BOLD);
-        analyzeButton.setOnClickListener(v -> analyzeAndSave());
+        analyzeButton.setOnClickListener(v -> analyzeAndConfirm());
         LinearLayout.LayoutParams buttonParams = topMargin(18);
         buttonParams.height = dp(52);
         root.addView(analyzeButton, buttonParams);
@@ -157,13 +164,7 @@ public final class LineImportActivity extends Activity {
         return wrap(root);
     }
 
-    private void addNpcOption(String npcId, String slotLabel) {
-        CharacterStateStore store = characterStore(npcId);
-        String currentName = store.displayName();
-        String label = slotLabel;
-        if (currentName != null && !currentName.trim().isEmpty() && !"NPC".equals(currentName.trim())) {
-            label += "（現在: " + currentName.trim() + "）";
-        }
+    private void addNpcOption(String npcId, String label, boolean checked) {
         RadioButton button = new RadioButton(this);
         int id = View.generateViewId();
         button.setId(id);
@@ -171,19 +172,19 @@ public final class LineImportActivity extends Activity {
         button.setTextSize(16);
         npcByViewId.put(id, npcId);
         npcGroup.addView(button);
-        if ("npc1".equals(npcId)) button.setChecked(true);
+        if (checked) button.setChecked(true);
     }
 
-    private void analyzeAndSave() {
+    private void analyzeAndConfirm() {
         if (busy || parsedChat == null) return;
         String speaker = speakerByViewId.get(speakerGroup.getCheckedRadioButtonId());
-        String npcId = npcByViewId.get(npcGroup.getCheckedRadioButtonId());
+        String npcSelection = npcByViewId.get(npcGroup.getCheckedRadioButtonId());
         if (speaker == null || speaker.trim().isEmpty()) {
             showMessage("解析する人物を選択してください。");
             return;
         }
-        if (npcId == null || npcId.trim().isEmpty()) {
-            showMessage("人格を設定するNPCを選択してください。");
+        if (npcSelection == null || npcSelection.trim().isEmpty()) {
+            showMessage("保存先を選択してください。");
             return;
         }
 
@@ -199,7 +200,7 @@ public final class LineImportActivity extends Activity {
             return;
         }
 
-        setBusy(true, speaker + " の人格を解析しています…");
+        setBusy(true, speaker + " の人格と初期プロフィールを解析しています…");
         new Thread(() -> {
             try {
                 ImportedPersonalityProfile profile = PersonalityImportAnalyzer.analyze(
@@ -210,20 +211,10 @@ public final class LineImportActivity extends Activity {
                         speaker
                 );
                 if (cancelled) return;
-                characterStore(npcId).saveProfile(
-                        profile.name,
-                        profile.extraversion,
-                        profile.neuroticism,
-                        profile.agreeableness,
-                        profile.conscientiousness,
-                        profile.openness,
-                        profile.speechStyle
-                );
-                if (cancelled) return;
                 runOnUiThread(() -> {
                     if (cancelled) return;
-                    setBusy(false, "人格を設定しました。");
-                    showSuccessDialog(npcId, profile);
+                    setBusy(false, "解析しました。内容を確認して保存してください。");
+                    showProfileConfirmation(npcSelection, profile);
                 });
             } catch (Exception error) {
                 if (cancelled) return;
@@ -236,12 +227,102 @@ public final class LineImportActivity extends Activity {
         }, "line-personality-analysis").start();
     }
 
-    private void showSuccessDialog(String npcId, ImportedPersonalityProfile profile) {
-        String slot = "npc2".equals(npcId) ? "NPC2" : "NPC1";
+    private void showProfileConfirmation(String npcSelection, ImportedPersonalityProfile profile) {
+        boolean createNew = NEW_NPC.equals(npcSelection);
+        CharacterStateStore existing = createNew ? null : characterStore(npcSelection);
+        boolean metadataEditable = createNew || (existing != null && !existing.identityMetadataLocked());
+
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(18), dp(4), dp(18), 0);
+
+        EditText name = input("名前", profile.name, true);
+        EditText relationship = input("ユーザーとの関係",
+                metadataEditable ? profile.relationshipToUser : existing.relationshipToUser(), metadataEditable);
+        EditText age = input("年齢",
+                metadataEditable ? profile.age : existing.age(), metadataEditable);
+        EditText background = input("経歴",
+                metadataEditable ? profile.background : existing.background(), metadataEditable);
+        form.addView(name);
+        form.addView(relationship);
+        form.addView(age);
+        form.addView(background);
+
+        TextView traits = body("外向性 " + profile.extraversion
+                + " / 神経症傾向 " + profile.neuroticism
+                + " / 協調性 " + profile.agreeableness
+                + " / 誠実性 " + profile.conscientiousness
+                + " / 開放性 " + profile.openness
+                + "\n話し方: " + profile.speechStyle);
+        form.addView(traits, topMargin(12));
+
+        String note = metadataEditable
+                ? "関係・年齢・経歴は、この保存後に編集できません。"
+                : "関係・年齢・経歴は初回確定済みのため変更しません。";
+
+        new AlertDialog.Builder(this)
+                .setTitle("解析結果を確認")
+                .setMessage(note)
+                .setView(form)
+                .setNegativeButton("キャンセル", null)
+                .setPositiveButton("保存", (dialog, which) -> saveConfirmedProfile(
+                        npcSelection,
+                        profile,
+                        name.getText().toString(),
+                        relationship.getText().toString(),
+                        age.getText().toString(),
+                        background.getText().toString(),
+                        metadataEditable))
+                .show();
+    }
+
+    private void saveConfirmedProfile(
+            String npcSelection,
+            ImportedPersonalityProfile profile,
+            String name,
+            String relationship,
+            String age,
+            String background,
+            boolean initializeMetadata
+    ) {
+        String npcId = NEW_NPC.equals(npcSelection) ? npcRegistry.createNpcId() : npcSelection;
+        CharacterStateStore store = characterStore(npcId);
+        store.saveProfile(
+                safe(name, profile.name),
+                profile.extraversion,
+                profile.neuroticism,
+                profile.agreeableness,
+                profile.conscientiousness,
+                profile.openness,
+                profile.speechStyle
+        );
+        if (initializeMetadata) {
+            store.initializeIdentityMetadata(relationship, age, background);
+        }
+        showSuccessDialog(npcId, store, profile);
+    }
+
+    private EditText input(String hint, String value, boolean enabled) {
+        EditText edit = new EditText(this);
+        edit.setHint(hint);
+        edit.setText(value);
+        edit.setEnabled(enabled);
+        edit.setMinHeight(dp(50));
+        return edit;
+    }
+
+    private void showSuccessDialog(
+            String npcId,
+            CharacterStateStore store,
+            ImportedPersonalityProfile profile
+    ) {
         new AlertDialog.Builder(this)
                 .setTitle("人格を設定しました")
-                .setMessage(slot + " に " + profile.name + " の人格を設定しました。\n\n"
-                        + "外向性 " + profile.extraversion
+                .setMessage(store.displayName() + "（" + npcId + "）を保存しました。\n\n"
+                        + "関係: " + store.relationshipToUser()
+                        + "\n年齢: " + store.age()
+                        + "\n経歴: " + store.background()
+                        + "\n\n外向性 " + profile.extraversion
                         + " / 神経症傾向 " + profile.neuroticism
                         + " / 協調性 " + profile.agreeableness
                         + " / 誠実性 " + profile.conscientiousness
@@ -295,10 +376,7 @@ public final class LineImportActivity extends Activity {
     }
 
     private CharacterStateStore characterStore(String npcId) {
-        Context context = "npc2".equals(npcId)
-                ? new NpcStorageContext(getApplicationContext(), "npc2")
-                : getApplicationContext();
-        return new CharacterStateStore(context);
+        return new CharacterStateStore(NpcContexts.storage(getApplicationContext(), npcId));
     }
 
     private SharedText readSharedText(Intent intent) throws Exception {
