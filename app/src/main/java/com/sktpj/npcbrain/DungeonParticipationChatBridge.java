@@ -49,22 +49,28 @@ final class DungeonParticipationChatBridge {
     static void process(Context context) {
         if (context == null) return;
         ConversationStore conversations = new ConversationStore(context);
-        processNpc(context, conversations, "npc1", DemoRuntimeV032.ROOM_NPC1);
-        processNpc(context, conversations, "npc2", DemoRuntimeV032.ROOM_NPC2);
+        NpcRegistryStore registry = new NpcRegistryStore(context);
+        for (String npcId : registry.activeNpcIds()) {
+            boolean legacyGroupMember = "npc1".equals(npcId) || "npc2".equals(npcId);
+            processNpc(context, conversations, npcId, "direct_" + npcId, legacyGroupMember);
+        }
     }
 
     private static void processNpc(
             Context context,
             ConversationStore conversations,
             String npcId,
-            String directRoom
+            String directRoom,
+            boolean includeLegacyGroup
     ) {
         SharedPreferences checkpoint = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         String initKey = npcId + "_initialized";
         String timeKey = npcId + "_last_time";
         List<Evidence> evidence = new ArrayList<>();
         collect(conversations.messages(directRoom), npcId, evidence);
-        collect(conversations.messages(DemoRuntimeV032.ROOM_GROUP), npcId, evidence);
+        if (includeLegacyGroup) {
+            collect(conversations.messages(DemoRuntimeV032.ROOM_GROUP), npcId, evidence);
+        }
         evidence.sort(Comparator.comparingLong(item -> item.timeMs));
         long newest = evidence.isEmpty() ? 0L : evidence.get(evidence.size() - 1).timeMs;
 

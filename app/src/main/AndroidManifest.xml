@@ -21,6 +21,10 @@
             android:enableOnBackInvokedCallback="true"
             android:exported="false" />
         <activity
+            android:name=".DungeonRosterActivity"
+            android:enableOnBackInvokedCallback="true"
+            android:exported="false" />
+        <activity
             android:name=".DungeonActivity"
             android:enableOnBackInvokedCallback="true"
             android:exported="false" />
