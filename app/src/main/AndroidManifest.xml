@@ -13,6 +13,10 @@
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
+            android:name=".NpcManagerActivity"
+            android:enableOnBackInvokedCallback="true"
+            android:exported="false" />
+        <activity
             android:name=".CodexActivity"
             android:enableOnBackInvokedCallback="true"
             android:exported="false" />

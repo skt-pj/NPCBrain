@@ -16,8 +16,9 @@ import android.widget.LinearLayout;
 import java.lang.ref.WeakReference;
 
 public final class NPCBrainApplication extends Application {
-    private static final String TAB_TAG = "npcbrain_top_tabs_v047";
+    private static final String TAB_TAG = "npcbrain_top_tabs_v0416";
     private static WeakReference<DemoActivityV032> demoActivityRef = new WeakReference<>(null);
+    private static volatile boolean demoRoomRefreshRequested;
 
     @Override
     public void onCreate() {
@@ -36,6 +37,10 @@ public final class NPCBrainApplication extends Application {
             @Override public void onActivityResumed(Activity activity) {
                 if (activity instanceof DemoActivityV032) {
                     demoActivityRef = new WeakReference<>((DemoActivityV032) activity);
+                    if (consumeDemoRoomRefreshRequest()) {
+                        activity.recreate();
+                        return;
+                    }
                 }
                 injectPrimaryTabs(activity);
             }
@@ -53,6 +58,16 @@ public final class NPCBrainApplication extends Application {
 
     static DemoActivityV032 currentDemoActivity() {
         return demoActivityRef.get();
+    }
+
+    static void requestDemoRoomRefresh() {
+        demoRoomRefreshRequested = true;
+    }
+
+    private static boolean consumeDemoRoomRefreshRequest() {
+        if (!demoRoomRefreshRequested) return false;
+        demoRoomRefreshRequested = false;
+        return true;
     }
 
     private void injectPrimaryTabs(Activity activity) {
@@ -92,14 +107,20 @@ public final class NPCBrainApplication extends Application {
         Button status = lightTabButton(activity, "NPC状況", false);
         status.setOnClickListener(v -> activity.startActivity(new Intent(activity, NpcStatusActivity.class)));
         LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(0, dp(activity, 42), 1f);
-        statusParams.leftMargin = dp(activity, 8);
+        statusParams.leftMargin = dp(activity, 6);
         tabs.addView(status, statusParams);
 
         Button dungeon = lightTabButton(activity, "ダンジョン", false);
         dungeon.setOnClickListener(v -> activity.startActivity(new Intent(activity, DungeonActivity.class)));
         LinearLayout.LayoutParams dungeonParams = new LinearLayout.LayoutParams(0, dp(activity, 42), 1f);
-        dungeonParams.leftMargin = dp(activity, 8);
+        dungeonParams.leftMargin = dp(activity, 6);
         tabs.addView(dungeon, dungeonParams);
+
+        Button manager = lightTabButton(activity, "NPC管理", false);
+        manager.setOnClickListener(v -> activity.startActivity(new Intent(activity, NpcManagerActivity.class)));
+        LinearLayout.LayoutParams managerParams = new LinearLayout.LayoutParams(0, dp(activity, 42), 1f);
+        managerParams.leftMargin = dp(activity, 6);
+        tabs.addView(manager, managerParams);
 
         int insertAt = Math.min(1, root.getChildCount());
         root.addView(tabs, insertAt, new LinearLayout.LayoutParams(
@@ -144,12 +165,12 @@ public final class NPCBrainApplication extends Application {
         Button button = new Button(activity);
         button.setAllCaps(false);
         button.setText(label);
-        button.setTextSize(13);
+        button.setTextSize(12);
         button.setTypeface(Typeface.DEFAULT_BOLD);
         button.setTextColor(selected ? Color.rgb(26, 78, 145) : Color.rgb(70, 74, 84));
         button.setBackgroundColor(selected ? Color.rgb(225, 236, 252) : Color.rgb(241, 243, 247));
         button.setGravity(Gravity.CENTER);
-        button.setPadding(dp(activity, 6), 0, dp(activity, 6), 0);
+        button.setPadding(dp(activity, 4), 0, dp(activity, 4), 0);
         return button;
     }
 

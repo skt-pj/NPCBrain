@@ -104,14 +104,14 @@ final class DungeonMindStore {
     }
 
     static String key(String npcId) {
-        return "npc2".equals(npcId) ? "npc2_mind" : "npc1_mind";
+        String id = NpcId.of(npcId).value();
+        if ("npc1".equals(id)) return "npc1_mind";
+        if ("npc2".equals(id)) return "npc2_mind";
+        return id + "_mind";
     }
 
     private boolean isDead(String npcId) {
-        Context characterContext = "npc2".equals(npcId)
-                ? new NpcStorageContext(appContext, "npc2")
-                : appContext;
-        return new CharacterStateStore(characterContext).isDead();
+        return new CharacterStateStore(NpcContexts.storage(appContext, npcId)).isDead();
     }
 
     private static String safe(String value, String fallback) {

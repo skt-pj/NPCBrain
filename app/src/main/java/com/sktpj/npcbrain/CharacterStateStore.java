@@ -6,6 +6,10 @@ import android.content.SharedPreferences;
 import org.json.JSONObject;
 
 final class CharacterStateStore {
+    static final String DEFAULT_RELATIONSHIP = "知人";
+    static final String DEFAULT_AGE = "不明";
+    static final String DEFAULT_BACKGROUND = "特記事項なし";
+
     private static final String PREFS = "npcbrain_character_v1";
     private static final String NAME = "name";
     private static final String SPEECH_STYLE = "speech_style";
@@ -17,6 +21,10 @@ final class CharacterStateStore {
     private static final String VALENCE = "valence";
     private static final String AROUSAL = "arousal";
     private static final String STRESS = "stress";
+    private static final String RELATIONSHIP_TO_USER = "relationship_to_user";
+    private static final String AGE = "age";
+    private static final String BACKGROUND = "background";
+    private static final String IDENTITY_METADATA_LOCKED = "identity_metadata_locked";
     private static final String DEAD = "dead";
 
     private final Context storageContext;
@@ -48,6 +56,32 @@ final class CharacterStateStore {
         return preferences.getInt(key, 50);
     }
 
+    synchronized String relationshipToUser() {
+        return safe(preferences.getString(RELATIONSHIP_TO_USER, DEFAULT_RELATIONSHIP), DEFAULT_RELATIONSHIP);
+    }
+
+    synchronized String age() {
+        return safe(preferences.getString(AGE, DEFAULT_AGE), DEFAULT_AGE);
+    }
+
+    synchronized String background() {
+        return safe(preferences.getString(BACKGROUND, DEFAULT_BACKGROUND), DEFAULT_BACKGROUND);
+    }
+
+    synchronized boolean identityMetadataLocked() {
+        return preferences.getBoolean(IDENTITY_METADATA_LOCKED, false);
+    }
+
+    synchronized boolean initializeIdentityMetadata(String relationship, String age, String background) {
+        if (isDead() || identityMetadataLocked()) return false;
+        return preferences.edit()
+                .putString(RELATIONSHIP_TO_USER, safe(relationship, DEFAULT_RELATIONSHIP))
+                .putString(AGE, safe(age, DEFAULT_AGE))
+                .putString(BACKGROUND, safe(background, DEFAULT_BACKGROUND))
+                .putBoolean(IDENTITY_METADATA_LOCKED, true)
+                .commit();
+    }
+
     synchronized JSONObject snapshotJson() {
         if (isDead()) throw new IllegalStateException("NPC is dead");
         JSONObject root = new JSONObject();
@@ -56,6 +90,9 @@ final class CharacterStateStore {
         try {
             root.put("name", displayName());
             root.put("speech_style", speechStyle());
+            root.put("relationship_to_user", relationshipToUser());
+            root.put("age", age());
+            root.put("background", background());
 
             traits.put(EXTRAVERSION, traitPercent(EXTRAVERSION) / 100.0);
             traits.put(NEUROTICISM, traitPercent(NEUROTICISM) / 100.0);
@@ -124,7 +161,18 @@ final class CharacterStateStore {
 
     synchronized void reset() {
         if (isDead()) return;
-        preferences.edit().clear().apply();
+        boolean locked = identityMetadataLocked();
+        String relationship = relationshipToUser();
+        String age = age();
+        String background = background();
+        SharedPreferences.Editor editor = preferences.edit().clear();
+        if (locked) {
+            editor.putString(RELATIONSHIP_TO_USER, relationship)
+                    .putString(AGE, age)
+                    .putString(BACKGROUND, background)
+                    .putBoolean(IDENTITY_METADATA_LOCKED, true);
+        }
+        editor.apply();
     }
 
     static String extraversionKey() {

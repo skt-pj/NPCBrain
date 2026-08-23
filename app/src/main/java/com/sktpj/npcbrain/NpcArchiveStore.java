@@ -102,10 +102,10 @@ final class NpcArchiveStore {
 
     synchronized List<Record> records() {
         List<Record> records = new ArrayList<>();
-        Record npc1 = load("npc1");
-        Record npc2 = load("npc2");
-        if (npc1 != null) records.add(npc1);
-        if (npc2 != null) records.add(npc2);
+        for (String npcId : new NpcRegistryStore(appContext).npcIds()) {
+            Record record = load(npcId);
+            if (record != null) records.add(record);
+        }
         return records;
     }
 
@@ -114,8 +114,7 @@ final class NpcArchiveStore {
         Record existing = load(npcId);
         if (existing != null) return existing;
 
-        Context characterContext = characterContext(npcId);
-        CharacterStateStore characterStore = new CharacterStateStore(characterContext);
+        CharacterStateStore characterStore = new CharacterStateStore(NpcContexts.storage(appContext, npcId));
         if (characterStore.isDead()) return null;
 
         JSONObject snapshot;
@@ -130,6 +129,11 @@ final class NpcArchiveStore {
             personality.put("name", snapshot.optString("name", "NPC"));
             personality.put("speech_style", snapshot.optString("speech_style", ""));
             personality.put("traits", copyObject(snapshot.optJSONObject("traits")));
+            personality.put("relationship_to_user", snapshot.optString(
+                    "relationship_to_user", CharacterStateStore.DEFAULT_RELATIONSHIP));
+            personality.put("age", snapshot.optString("age", CharacterStateStore.DEFAULT_AGE));
+            personality.put("background", snapshot.optString(
+                    "background", CharacterStateStore.DEFAULT_BACKGROUND));
         } catch (Exception ignored) {
         }
 
@@ -164,18 +168,15 @@ final class NpcArchiveStore {
         return record;
     }
 
-    private Context characterContext(String npcId) {
-        return "npc2".equals(npcId)
-                ? new NpcStorageContext(appContext, "npc2")
-                : appContext;
-    }
-
     static String key(String npcId) {
-        return "npc2".equals(npcId) ? "npc2_archive" : "npc1_archive";
+        String id = safeNpcId(npcId);
+        if ("npc1".equals(id)) return "npc1_archive";
+        if ("npc2".equals(id)) return "npc2_archive";
+        return id + "_archive";
     }
 
     private static String safeNpcId(String npcId) {
-        return "npc2".equals(npcId) ? "npc2" : "npc1";
+        return NpcId.of(npcId).value();
     }
 
     private static JSONObject copyObject(JSONObject source) {

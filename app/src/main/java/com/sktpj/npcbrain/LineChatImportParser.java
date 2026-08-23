@@ -122,22 +122,37 @@ final class LineChatImportParser {
         if (maxChars <= 0) throw new IllegalArgumentException("maxChars must be positive");
 
         List<String> utterances = new ArrayList<>();
-        int totalChars = 0;
         for (Message message : chat.messages) {
             if (!speaker.equals(message.sender)) continue;
             String value = message.text == null ? "" : message.text.trim();
-            if (value.isEmpty()) continue;
-            utterances.add(value);
-            totalChars += value.length();
+            if (!value.isEmpty()) utterances.add(value);
         }
-        if (utterances.isEmpty()) return utterances;
-        if (totalChars <= maxChars) return utterances;
+        return sampleStrings(utterances, maxChars);
+    }
+
+    static List<String> contextSample(ParsedChat chat, int maxChars) {
+        if (chat == null) throw new IllegalArgumentException("chat is required");
+        if (maxChars <= 0) throw new IllegalArgumentException("maxChars must be positive");
+        List<String> context = new ArrayList<>();
+        for (Message message : chat.messages) {
+            String body = message.text == null ? "" : message.text.trim();
+            if (body.isEmpty()) continue;
+            context.add(message.time + " " + message.sender + ": " + body);
+        }
+        return sampleStrings(context, maxChars);
+    }
+
+    private static List<String> sampleStrings(List<String> values, int maxChars) {
+        List<String> source = values == null ? new ArrayList<>() : values;
+        int totalChars = 0;
+        for (String value : source) totalChars += value == null ? 0 : value.length();
+        if (source.isEmpty() || totalChars <= maxChars) return new ArrayList<>(source);
 
         int sampleCount = Math.min(
-                utterances.size(),
+                source.size(),
                 Math.max(1, Math.min(1000, maxChars / 32))
         );
-        if (utterances.size() >= 3 && maxChars >= 96) {
+        if (source.size() >= 3 && maxChars >= 96) {
             sampleCount = Math.max(3, sampleCount);
         }
 
@@ -146,11 +161,11 @@ final class LineChatImportParser {
         for (int i = 0; i < sampleCount; i++) {
             int index;
             if (sampleCount == 1) {
-                index = utterances.size() / 2;
+                index = source.size() / 2;
             } else {
-                index = (int) Math.round(i * (utterances.size() - 1.0) / (sampleCount - 1.0));
+                index = (int) Math.round(i * (source.size() - 1.0) / (sampleCount - 1.0));
             }
-            String value = utterances.get(index);
+            String value = source.get(index) == null ? "" : source.get(index);
             int remainingItems = sampleCount - i;
             int perItemBudget = Math.max(1, remainingBudget / remainingItems);
             String selected = value.length() <= perItemBudget

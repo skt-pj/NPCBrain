@@ -30,6 +30,9 @@ final class DungeonObjectiveStore {
     }
 
     static String key(String npcId) {
-        return "npc2".equals(npcId) ? "npc2_objective" : "npc1_objective";
+        String id = NpcId.of(npcId).value();
+        if ("npc1".equals(id)) return "npc1_objective";
+        if ("npc2".equals(id)) return "npc2_objective";
+        return id + "_objective";
     }
 }

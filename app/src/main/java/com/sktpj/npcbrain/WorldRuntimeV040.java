@@ -6,12 +6,18 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 final class WorldRuntimeV040 {
+    private static final String DIRECT_PREFIX = "direct_";
+
+    private final Context appContext;
     private final WorldClock clock;
     private final WorldStateStore stateStore;
+    private final NpcRegistryStore npcRegistry;
 
     WorldRuntimeV040(Context context) {
-        clock = new WorldClock(context);
-        stateStore = new WorldStateStore(context);
+        appContext = context.getApplicationContext();
+        clock = new WorldClock(appContext);
+        stateStore = new WorldStateStore(appContext);
+        npcRegistry = new NpcRegistryStore(appContext);
         syncAllNow();
     }
 
@@ -35,17 +41,20 @@ final class WorldRuntimeV040 {
 
         long messageTime = message.optLong("time_ms", clock.now());
         long worldTime = clock.advanceTo(messageTime);
-        LifeState npc1State = syncLifeState(NpcId.NPC1, worldTime);
-        LifeState npc2State = syncLifeState(NpcId.NPC2, worldTime);
+        JSONObject lifeEventIds = new JSONObject();
+        for (String npcId : npcRegistry.activeNpcIds()) {
+            LifeState state = syncLifeState(NpcId.of(npcId), worldTime);
+            try {
+                lifeEventIds.put(npcId, state.currentActivityEventId());
+            } catch (Exception ignored) {
+            }
+        }
 
         Room room = room(roomId);
         String senderId = message.optString("sender_id", "user").trim();
         if (senderId.isEmpty()) senderId = "user";
         JSONObject payload = new JSONObject();
-        JSONObject lifeEventIds = new JSONObject();
         try {
-            lifeEventIds.put(NpcId.NPC1.value(), npc1State.currentActivityEventId());
-            lifeEventIds.put(NpcId.NPC2.value(), npc2State.currentActivityEventId());
             payload.put("message_id", messageId);
             payload.put("room", room.toJson());
             payload.put("sender_id", senderId);
@@ -69,8 +78,9 @@ final class WorldRuntimeV040 {
 
     void syncAllNow() {
         long now = clock.now();
-        syncLifeState(NpcId.NPC1, now);
-        syncLifeState(NpcId.NPC2, now);
+        for (String npcId : npcRegistry.activeNpcIds()) {
+            syncLifeState(NpcId.of(npcId), now);
+        }
     }
 
     JSONArray events() {
@@ -148,11 +158,9 @@ final class WorldRuntimeV040 {
     }
 
     Room room(String roomId) {
-        if (DemoRuntimeV032.ROOM_NPC1.equals(roomId)) {
-            return new Room(roomId, "direct_chat", "user", NpcId.NPC1.value());
-        }
-        if (DemoRuntimeV032.ROOM_NPC2.equals(roomId)) {
-            return new Room(roomId, "direct_chat", "user", NpcId.NPC2.value());
+        String directNpcId = directNpcId(roomId);
+        if (!directNpcId.isEmpty()) {
+            return new Room(roomId, "direct_chat", "user", directNpcId);
         }
         if (DemoRuntimeV032.ROOM_GROUP.equals(roomId)) {
             return new Room(
@@ -164,6 +172,18 @@ final class WorldRuntimeV040 {
             );
         }
         return new Room(roomId, "unknown", "user");
+    }
+
+    private String directNpcId(String roomId) {
+        if (roomId == null || !roomId.startsWith(DIRECT_PREFIX)) return "";
+        String raw = roomId.substring(DIRECT_PREFIX.length()).trim();
+        if (raw.isEmpty()) return "";
+        try {
+            String id = NpcId.of(raw).value();
+            return npcRegistry.contains(id) ? id : "";
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     private LifeState syncLifeState(NpcId npcId, long worldTime) {
