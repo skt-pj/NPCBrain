@@ -121,7 +121,10 @@ final class DungeonPersonalityPolicy {
         double planRisk = plan == null ? 0.5 : plan.riskTolerance;
         double planCombat = plan == null ? 0.5 : plan.combatPreference;
         double planExplore = plan == null ? 0.5 : plan.explorationPreference;
+        double planProgress = plan == null ? 0.5 : plan.progressPreference;
         double planPersistence = plan == null ? 0.5 : plan.persistence;
+        String strategy = plan == null
+                ? DungeonPlan.STRATEGY_BALANCED : DungeonPlan.normalizeStrategy(plan.strategy);
 
         boolean stairsKnown = DungeonPerception.stairsKnown(state);
         int currentStairDistance = stairsKnown
@@ -142,23 +145,31 @@ final class DungeonPersonalityPolicy {
 
         DungeonIntent resolved = intent == null
                 ? DungeonIntent.localFallback(state, traits, "intentなし") : intent;
-        String effectiveMode = effectiveMode(state, resolved);
-        Direction progressDirection = progressDirection(state);
+        String effectiveMode = effectiveMode(state, resolved, plan);
+        Direction progressDirection = progressDirection(state, plan);
 
         double score = 0.0;
-        if (stairsKnown) score += stairGain * (0.7 + 2.7 * c);
-        if (unvisited) score += 0.35 + 2.5 * o;
+        if (stairsKnown) {
+            score += stairGain * (0.25 + 2.7 * c) * (0.35 + 1.20 * planProgress);
+        }
+        if (unvisited) {
+            score += 0.35 + 2.5 * o + 1.5 * planExplore;
+        }
 
         if (currentEnemyDistance < 999 && nextEnemyDistance < 999) {
             int enemyApproach = currentEnemyDistance - nextEnemyDistance;
             score += enemyApproach * (1.8 * e - 2.8 * n - 0.8 * a);
-            score += enemyApproach * (1.4 * (planCombat - 0.5) + 1.2 * (planRisk - 0.5));
+            score += enemyApproach * (2.2 * (planCombat - 0.5) + 1.8 * (planRisk - 0.5));
+            if (DungeonPlan.STRATEGY_HUNT.equals(strategy)) score += enemyApproach * 2.4;
+            if (DungeonPlan.STRATEGY_SURVIVE.equals(strategy)) score -= enemyApproach * 2.8;
         }
         if (attacksEnemy) {
             score += 4.2 * e;
             score -= 4.6 * n;
             score -= 3.1 * a;
-            score += 3.2 * (planCombat - 0.5) + 1.8 * (planRisk - 0.5);
+            score += 5.0 * (planCombat - 0.5) + 2.6 * (planRisk - 0.5);
+            if (DungeonPlan.STRATEGY_HUNT.equals(strategy)) score += 4.8;
+            if (DungeonPlan.STRATEGY_SURVIVE.equals(strategy)) score -= 5.2;
             if (targetEnemy.hp <= 2) score += 14.0 + 0.7 * c;
             if (currentEnemyDistance == 1 && !DungeonIntent.EVADE.equals(effectiveMode)) {
                 score += 5.0;
@@ -167,46 +178,55 @@ final class DungeonPersonalityPolicy {
             score += 0.8 * e;
             score -= 2.0 * n;
             score -= 0.7 * a;
-            score += 1.2 * (planRisk - 0.5);
+            score += 1.8 * (planRisk - 0.5);
         }
 
-        if (unvisited) score += 2.0 * (planExplore - 0.5);
         if (direction == Direction.WAIT) {
             score -= 2.0 + 1.2 * c + 0.6 * o;
             score -= 1.4 * planPersistence;
         }
         if (stairsKnown && state.tileAt(nx, ny) == DungeonState.STAIRS) {
-            score += 8.0 + 2.5 * c + 2.0 * planPersistence;
+            score += 2.5 + 8.0 * planProgress + 1.5 * c + 1.0 * planPersistence;
+            if (DungeonPlan.STRATEGY_EXPLORE.equals(strategy)
+                    && firstStepToNearestFrontier(state) != null) {
+                score -= 8.0 * planExplore;
+            }
         }
 
         if (progressDirection != null && direction == progressDirection) {
-            score += 7.5 + 1.5 * c + 0.8 * o;
+            score += 2.5 + 7.0 * planProgress + 1.0 * c + 0.5 * o;
             score += 2.4 * (planPersistence - 0.5);
         } else if (progressDirection != null && direction != Direction.WAIT) {
-            score -= 0.4;
+            score -= 0.2 + 0.6 * planProgress;
         }
 
         if (resolved.preferredDirection == direction && direction != Direction.WAIT) {
-            score += 2.2 * Math.max(0.30, resolved.confidence);
+            score += 1.2 * Math.max(0.30, resolved.confidence);
         }
         switch (effectiveMode) {
             case DungeonIntent.SEEK_STAIRS:
                 if (stairsKnown) {
-                    score += stairGain * 4.5;
-                    if (state.tileAt(nx, ny) == DungeonState.STAIRS) score += 10.0;
+                    score += stairGain * (1.5 + 4.0 * planProgress);
+                    if (state.tileAt(nx, ny) == DungeonState.STAIRS) {
+                        score += 4.0 + 8.0 * planProgress;
+                    }
                 }
-                if (progressDirection != null && direction == progressDirection) score += 3.5;
+                if (progressDirection != null && direction == progressDirection) {
+                    score += 1.0 + 4.0 * planProgress;
+                }
                 break;
             case DungeonIntent.ENGAGE:
-                if (attacksEnemy) score += 6.0;
+                if (attacksEnemy) score += 3.0 + 6.0 * planCombat;
                 if (currentEnemyDistance < 999 && nextEnemyDistance < 999) {
-                    score += (currentEnemyDistance - nextEnemyDistance) * 3.2;
+                    score += (currentEnemyDistance - nextEnemyDistance)
+                            * (1.8 + 3.0 * planCombat);
                 }
                 break;
             case DungeonIntent.EVADE:
-                if (attacksEnemy) score -= 8.0;
+                if (attacksEnemy) score -= 8.0 + 4.0 * (1.0 - planRisk);
                 if (currentEnemyDistance < 999 && nextEnemyDistance < 999) {
-                    score += (nextEnemyDistance - currentEnemyDistance) * 5.0;
+                    score += (nextEnemyDistance - currentEnemyDistance)
+                            * (3.2 + 4.2 * (1.0 - planRisk));
                 }
                 if (!hasDistanceIncreasingMove(state, currentEnemyDistance) && attacksEnemy) {
                     score += 13.0;
@@ -216,54 +236,103 @@ final class DungeonPersonalityPolicy {
                 if (direction == Direction.WAIT) score += 2.0;
                 break;
             default:
-                if (unvisited) score += 3.0 + 1.0 * o;
+                if (unvisited) score += 2.0 + 2.0 * planExplore + 0.8 * o;
                 if (frontierGain(state, nx, ny) > frontierGain(state, state.playerX, state.playerY)) {
-                    score += 1.2 + 0.8 * planExplore;
+                    score += 1.0 + 1.6 * planExplore;
                 }
-                if (progressDirection != null && direction == progressDirection) score += 2.5;
+                if (progressDirection != null && direction == progressDirection) {
+                    score += 1.0 + 2.5 * planProgress;
+                }
                 break;
         }
         return score;
     }
 
     static String effectiveMode(DungeonState state, DungeonIntent intent) {
+        return effectiveMode(state, intent, null);
+    }
+
+    static String effectiveMode(
+            DungeonState state,
+            DungeonIntent intent,
+            DungeonPlan plan
+    ) {
         if (state == null) return DungeonIntent.HOLD;
         boolean stairsKnown = DungeonPerception.stairsKnown(state);
-        String progressMode = stairsKnown ? DungeonIntent.SEEK_STAIRS : DungeonIntent.EXPLORE;
-        if (intent == null) return progressMode;
-
+        String legacyProgressMode = stairsKnown ? DungeonIntent.SEEK_STAIRS : DungeonIntent.EXPLORE;
         int visibleEnemyDistance = DungeonPerception.nearestVisibleEnemyDistance(
                 state, state.playerX, state.playerY);
         double hpRate = state.maxHp <= 0 ? 0.0 : state.hp / (double) state.maxHp;
-        int intentAge = Math.max(0, state.turn - intent.turn);
+        int intentAge = intent == null ? Integer.MAX_VALUE : Math.max(0, state.turn - intent.turn);
 
-        if (DungeonIntent.EVADE.equals(intent.mode)) {
+        if (hpRate <= 0.25 && visibleEnemyDistance <= 3) return DungeonIntent.EVADE;
+
+        if (intent != null && DungeonIntent.EVADE.equals(intent.mode)) {
             boolean critical = hpRate <= 0.30 && visibleEnemyDistance <= 3;
             boolean shortTacticalEvade = visibleEnemyDistance <= 2
                     && intentAge <= NORMAL_EVADE_LEASE_TURNS;
-            return critical || shortTacticalEvade ? DungeonIntent.EVADE : progressMode;
+            if (critical || shortTacticalEvade) return DungeonIntent.EVADE;
         }
-        if (DungeonIntent.HOLD.equals(intent.mode)) {
+        if (intent != null && DungeonIntent.HOLD.equals(intent.mode)) {
             boolean oneTurnHold = visibleEnemyDistance < 999 && intentAge <= 1;
-            return oneTurnHold ? DungeonIntent.HOLD : progressMode;
+            if (oneTurnHold) return DungeonIntent.HOLD;
         }
+
+        String strategy = plan == null
+                ? DungeonPlan.STRATEGY_BALANCED : DungeonPlan.normalizeStrategy(plan.strategy);
+        switch (strategy) {
+            case DungeonPlan.STRATEGY_HUNT:
+                return visibleEnemyDistance < 999 ? DungeonIntent.ENGAGE : DungeonIntent.EXPLORE;
+            case DungeonPlan.STRATEGY_EXPLORE:
+                return firstStepToNearestFrontier(state) != null
+                        ? DungeonIntent.EXPLORE : legacyProgressMode;
+            case DungeonPlan.STRATEGY_SURVIVE:
+                if (visibleEnemyDistance <= 3) return DungeonIntent.EVADE;
+                if (stairsKnown && plan != null && plan.progressPreference >= 0.65) {
+                    return DungeonIntent.SEEK_STAIRS;
+                }
+                return DungeonIntent.EXPLORE;
+            case DungeonPlan.STRATEGY_ADVANCE:
+                return legacyProgressMode;
+            default:
+                break;
+        }
+
+        if (intent == null) return legacyProgressMode;
         if (DungeonIntent.ENGAGE.equals(intent.mode) && visibleEnemyDistance >= 999) {
-            return progressMode;
+            return legacyProgressMode;
         }
         if (DungeonIntent.SEEK_STAIRS.equals(intent.mode) && !stairsKnown) {
             return DungeonIntent.EXPLORE;
+        }
+        if (DungeonIntent.EVADE.equals(intent.mode) || DungeonIntent.HOLD.equals(intent.mode)) {
+            return legacyProgressMode;
         }
         return intent.mode;
     }
 
     static Direction progressDirection(DungeonState state) {
+        return progressDirection(state, null);
+    }
+
+    static Direction progressDirection(DungeonState state, DungeonPlan plan) {
         if (state == null) return null;
+        String strategy = plan == null
+                ? DungeonPlan.STRATEGY_BALANCED : DungeonPlan.normalizeStrategy(plan.strategy);
+        boolean frontierFirst = DungeonPlan.STRATEGY_EXPLORE.equals(strategy)
+                || DungeonPlan.STRATEGY_HUNT.equals(strategy);
+
+        if (frontierFirst) {
+            Direction frontier = firstStepToNearestFrontier(state);
+            if (frontier != null) return frontier;
+        }
         if (DungeonPerception.stairsKnown(state)) {
             Direction stairDirection = firstStepToKnownTarget(
                     state, state.stairsX(), state.stairsY());
             if (stairDirection != null) return stairDirection;
         }
-        return firstStepToNearestFrontier(state);
+        if (!frontierFirst) return firstStepToNearestFrontier(state);
+        return null;
     }
 
     private static Direction firstStepToKnownTarget(DungeonState state, int targetX, int targetY) {
