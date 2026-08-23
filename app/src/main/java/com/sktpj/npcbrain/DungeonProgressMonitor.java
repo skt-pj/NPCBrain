@@ -67,6 +67,7 @@ final class DungeonProgressMonitor {
                 explored,
                 stairDistance,
                 lastProgressTurn);
+        if (state.hp <= 0) return new Result(next, progressed, false);
         boolean stalled = state.turn - lastProgressTurn >= STALL_TURNS;
         boolean cooldownReady = lastBrainPlanTurn < 0
                 || state.turn - lastBrainPlanTurn >= REPLAN_COOLDOWN_TURNS;
