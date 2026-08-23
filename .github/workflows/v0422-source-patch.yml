@@ -1,0 +1,194 @@
+name: v0.4.22 source patch
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch-source:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout head branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Apply exact v0.4.22 source patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exact block once, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          demo = 'app/src/main/java/com/sktpj/npcbrain/DemoActivityV032.java'
+          replace_exact(demo,
+          '''    private String firstNpcId(String roomId) {
+              if (DemoRuntimeV032.ROOM_NPC2.equals(roomId)) return "npc2";
+              return "npc1";
+          }
+          ''',
+          '''    private String firstNpcId(String roomId) {
+              if (roomId != null && roomId.startsWith("direct_")) {
+                  String raw = roomId.substring("direct_".length()).trim();
+                  if (!raw.isEmpty()) {
+                      try {
+                          String npcId = NpcId.of(raw).value();
+                          if (new NpcRegistryStore(this).activeNpcIds().contains(npcId)) return npcId;
+                      } catch (Exception ignored) {
+                      }
+                  }
+              }
+              java.util.List<String> active = new NpcRegistryStore(this).activeNpcIds();
+              return active.isEmpty() ? "npc1" : active.get(0);
+          }
+          ''')
+          replace_exact(demo,
+          '''    private void startSpontaneousProcessing(String apiKey) {
+              final String effort = modelSettingsStore.reasoningEffort();
+              processing = true;
+              processingRoomId = null;
+              liveDone = false;
+              initializeLiveStages();
+              liveNpcId = "npc1";
+              liveNpcName = demoRuntime.displayName(liveNpcId);
+          ''',
+          '''    private void startSpontaneousProcessing(String apiKey) {
+              final String effort = modelSettingsStore.reasoningEffort();
+              processing = true;
+              processingRoomId = null;
+              liveDone = false;
+              initializeLiveStages();
+              liveNpcId = firstNpcId(null);
+              liveNpcName = demoRuntime.displayName(liveNpcId);
+          ''')
+
+          runtime = 'app/src/main/java/com/sktpj/npcbrain/DemoRuntimeV032.java'
+          replace_exact(runtime,
+          '''                processSpontaneousGroupChain(
+                          sourceEventId,
+                          npcId,
+                          message,
+                          apiKey,
+                          effort,
+                          listener
+                  );
+          ''',
+          '''                processSpontaneousGroupChain(
+                          sourceEventId,
+                          npcId,
+                          targetId,
+                          message,
+                          apiKey,
+                          effort,
+                          listener
+                  );
+          ''')
+          replace_exact(runtime,
+          '''    private void processSpontaneousGroupChain(
+              String sourceEventId,
+              String initialSenderId,
+              JSONObject initialMessage,
+              String apiKey,
+              String effort,
+              Listener listener
+          ) throws Exception {
+          ''',
+          '''    private void processSpontaneousGroupChain(
+              String sourceEventId,
+              String initialSenderId,
+              String initialTargetId,
+              JSONObject initialMessage,
+              String apiKey,
+              String effort,
+              Listener listener
+          ) throws Exception {
+          ''')
+          replace_exact(runtime,
+          '''        while (SpontaneousMessagePolicy.canContinueGroupChain(generatedMessages)) {
+              List<String> activeNpcIds = npcRegistry.activeNpcIds();
+              String recipientId = SpontaneousMessagePolicy.nextNpc(senderId, activeNpcIds);
+              if (recipientId.isEmpty() || !activeNpcIds.contains(recipientId)) return;
+          ''',
+          '''        while (SpontaneousMessagePolicy.canContinueGroupChain(generatedMessages)) {
+              List<String> activeNpcIds = npcRegistry.activeNpcIds();
+              String recipientId = generatedMessages == 1
+                      ? SpontaneousMessagePolicy.firstRecipient(
+                              initialSenderId, initialTargetId, activeNpcIds)
+                      : SpontaneousMessagePolicy.nextNpc(senderId, activeNpcIds);
+              if (recipientId.isEmpty() || !activeNpcIds.contains(recipientId)) return;
+          ''')
+
+          codex = 'app/src/main/java/com/sktpj/npcbrain/CodexActivity.java'
+          replace_exact(codex,
+          '''import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.ScrollView;
+          ''',
+          '''import android.widget.Button;
+          import android.widget.HorizontalScrollView;
+          import android.widget.LinearLayout;
+          import android.widget.ScrollView;
+          ''')
+          replace_exact(codex,
+          '''        LinearLayout selector = new LinearLayout(this);
+              selector.setOrientation(LinearLayout.HORIZONTAL);
+              for (int i = 0; i < records.size(); i++) {
+                  NpcArchiveStore.Record record = records.get(i);
+                  Button button = archiveSelector(record);
+                  LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(52), 1f);
+                  if (i > 0) params.leftMargin = dp(8);
+                  selector.addView(button, params);
+              }
+              archiveContent.addView(selector);
+          ''',
+          '''        HorizontalScrollView selectorScroll = new HorizontalScrollView(this);
+              selectorScroll.setHorizontalScrollBarEnabled(false);
+              LinearLayout selector = new LinearLayout(this);
+              selector.setOrientation(LinearLayout.HORIZONTAL);
+              selector.setPadding(0, 0, dp(4), 0);
+              for (int i = 0; i < records.size(); i++) {
+                  NpcArchiveStore.Record record = records.get(i);
+                  Button button = archiveSelector(record);
+                  LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(132), dp(52));
+                  if (i > 0) params.leftMargin = dp(8);
+                  selector.addView(button, params);
+              }
+              selectorScroll.addView(selector, new HorizontalScrollView.LayoutParams(
+                      HorizontalScrollView.LayoutParams.WRAP_CONTENT,
+                      HorizontalScrollView.LayoutParams.WRAP_CONTENT));
+              archiveContent.addView(selectorScroll);
+          ''')
+          PY
+
+          git diff --check
+          git diff -- app/src/main/java/com/sktpj/npcbrain/DemoActivityV032.java \
+                     app/src/main/java/com/sktpj/npcbrain/DemoRuntimeV032.java \
+                     app/src/main/java/com/sktpj/npcbrain/CodexActivity.java
+
+      - name: Commit patched sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/sktpj/npcbrain/DemoActivityV032.java \
+                  app/src/main/java/com/sktpj/npcbrain/DemoRuntimeV032.java \
+                  app/src/main/java/com/sktpj/npcbrain/CodexActivity.java
+          git commit -m "Complete v0.4.22 dynamic NPC source fixes [skip ci]"
+          git push origin HEAD:${{ github.head_ref }}
