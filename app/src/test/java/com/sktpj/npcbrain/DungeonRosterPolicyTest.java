@@ -3,6 +3,7 @@ package com.sktpj.npcbrain;
 import static org.junit.Assert.assertEquals;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import org.junit.Test;
@@ -43,5 +44,12 @@ public class DungeonRosterPolicyTest {
         assertEquals(
                 Arrays.asList("npc1", "npc3", "npc4"),
                 DungeonRosterPolicy.toggle(removed, "npc4", registry));
+    }
+
+    @Test
+    public void emptyRegistryProducesEmptyRoster() {
+        assertEquals(
+                Collections.emptyList(),
+                DungeonRosterPolicy.normalize(Arrays.asList("npc1", "npc2"), Collections.emptyList()));
     }
 }
