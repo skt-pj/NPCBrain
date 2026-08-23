@@ -1,0 +1,75 @@
+name: v0.4.19 source patch
+
+on:
+  push:
+    branches:
+      - feature/v0.4.19-dungeon-roster
+    paths:
+      - .github/workflows/v0419-source-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply exact source changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/com/sktpj/npcbrain/DungeonActivity.java')
+          text = path.read_text()
+          old_traits = '''    private DungeonPersonalityPolicy.Traits traitsForNpc(String npcId) {
+        Context app = getApplicationContext();
+        Context context = "npc2".equals(npcId)
+                ? new NpcStorageContext(app, "npc2") : app;
+        CharacterStateStore character = new CharacterStateStore(context);
+'''
+          new_traits = '''    private DungeonPersonalityPolicy.Traits traitsForNpc(String npcId) {
+        CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(this, npcId));
+'''
+          old_current = '''    private CharacterStateStore currentCharacterStore() {
+        Context app = getApplicationContext();
+        Context context = "npc2".equals(selectedNpcId)
+                ? new NpcStorageContext(app, "npc2") : app;
+        return new CharacterStateStore(context);
+    }
+'''
+          new_current = '''    private CharacterStateStore currentCharacterStore() {
+        return new CharacterStateStore(NpcContexts.storage(this, selectedNpcId));
+    }
+'''
+          if text.count(old_traits) != 1:
+              raise SystemExit('traitsForNpc source signature mismatch')
+          if text.count(old_current) != 1:
+              raise SystemExit('currentCharacterStore source signature mismatch')
+          text = text.replace(old_traits, new_traits).replace(old_current, new_current)
+          path.write_text(text)
+
+          version = Path('version.properties')
+          current = version.read_text()
+          expected = 'VERSION_NAME=0.4.18\nVERSION_CODE=35\n'
+          if current != expected:
+              raise SystemExit(f'unexpected version.properties: {current!r}')
+          version.write_text('VERSION_NAME=0.4.19\nVERSION_CODE=36\n')
+
+          test = Path('app/src/test/java/com/sktpj/npcbrain/DungeonRosterPolicyTest.java')
+          test.write_text('''package com.sktpj.npcbrain;\n\nimport static org.junit.Assert.assertEquals;\n\nimport java.util.Arrays;\nimport java.util.List;\n\nimport org.junit.Test;\n\npublic class DungeonRosterPolicyTest {\n    @Test\n    public void normalizeKeepsRegisteredUniqueAndAtMostThree() {\n        List<String> result = DungeonRosterPolicy.normalize(\n                Arrays.asList("npc3", "npc3", "npc9", "npc2", "npc1", "npc4"),\n                Arrays.asList("npc1", "npc2", "npc3", "npc4"));\n        assertEquals(Arrays.asList("npc3", "npc2", "npc1"), result);\n    }\n\n    @Test\n    public void initialUsesFirstThreeActiveRegistryNpcs() {\n        assertEquals(\n                Arrays.asList("npc1", "npc2", "npc3"),\n                DungeonRosterPolicy.initial(Arrays.asList("npc1", "npc2", "npc3", "npc4")));\n    }\n\n    @Test\n    public void toggleDoesNotSilentlyDropExistingMemberAtLimit() {\n        List<String> full = Arrays.asList("npc1", "npc2", "npc3");\n        assertEquals(\n                full,\n                DungeonRosterPolicy.toggle(\n                        full,\n                        "npc4",\n                        Arrays.asList("npc1", "npc2", "npc3", "npc4")));\n    }\n\n    @Test\n    public void toggleCanRemoveAndThenAddAnotherMember() {\n        List<String> registry = Arrays.asList("npc1", "npc2", "npc3", "npc4");\n        List<String> removed = DungeonRosterPolicy.toggle(\n                Arrays.asList("npc1", "npc2", "npc3"), "npc2", registry);\n        assertEquals(Arrays.asList("npc1", "npc3"), removed);\n        assertEquals(\n                Arrays.asList("npc1", "npc3", "npc4"),\n                DungeonRosterPolicy.toggle(removed, "npc4", registry));\n    }\n}\n''')
+
+          Path('.github/workflows/v0419-source-patch.yml').unlink()
+          PY
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Complete v0.4.19 dynamic dungeon roster"
+          git push origin HEAD:feature/v0.4.19-dungeon-roster
