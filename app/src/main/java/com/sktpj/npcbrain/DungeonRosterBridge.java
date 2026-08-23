@@ -1,24 +1,20 @@
 package com.sktpj.npcbrain;
 
-import android.app.AlertDialog;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
-import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,8 +62,8 @@ final class DungeonRosterBridge {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        Button change = compactButton(activity, "変更");
-        header.addView(change, new LinearLayout.LayoutParams(dp(activity, 76), dp(activity, 38)));
+        Button change = compactButton(activity, "メンバー選択");
+        header.addView(change, new LinearLayout.LayoutParams(dp(activity, 112), dp(activity, 38)));
         container.addView(header);
 
         LinearLayout slots = new LinearLayout(activity);
@@ -88,7 +84,7 @@ final class DungeonRosterBridge {
                 slots,
                 change);
         STATES.put(activity, state);
-        change.setOnClickListener(v -> showRosterDialog(activity, state));
+        change.setOnClickListener(v -> openRosterScreen(activity));
         reconcileSelection(activity, state);
         render(activity, state);
 
@@ -109,7 +105,7 @@ final class DungeonRosterBridge {
 
     private static void render(DungeonActivity activity, BridgeState state) {
         List<String> active = state.store.activeNpcIds();
-        state.title.setText("探索メンバー  " + active.size() + "/" + DungeonRosterPolicy.MAX_ACTIVE);
+        state.title.setText("探索中  " + active.size() + "/" + DungeonRosterPolicy.MAX_ACTIVE);
         state.slots.removeAllViews();
         String selected = selectedNpcId(activity);
         for (int i = 0; i < DungeonRosterPolicy.MAX_ACTIVE; i++) {
@@ -120,8 +116,9 @@ final class DungeonRosterBridge {
                 slot.setContentDescription(slotDescription(activity, state, npcId));
                 slot.setOnClickListener(v -> selectNpc(activity, npcId));
             } else {
-                slot = slotButton(activity, "+ メンバー", false);
-                slot.setOnClickListener(v -> showRosterDialog(activity, state));
+                slot = slotButton(activity, "+ 追加", false);
+                slot.setContentDescription("探索メンバーを追加");
+                slot.setOnClickListener(v -> openRosterScreen(activity));
             }
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(activity, 60), 1f);
             if (i > 0) params.leftMargin = dp(activity, 6);
@@ -152,115 +149,16 @@ final class DungeonRosterBridge {
 
     private static String shortParticipation(DungeonParticipationState state) {
         if (state == null) return "未相談";
-        if (state.isAccepted()) return "参加中";
+        if (state.isAccepted()) return "参加";
         if (DungeonParticipationState.HESITATE.equals(state.stance)) return "迷い";
         if (DungeonParticipationState.REFUSE.equals(state.stance)) return "拒否";
         if (DungeonParticipationState.WITHDRAW.equals(state.stance)) return "撤回";
         return "未相談";
     }
 
-    private static void showRosterDialog(DungeonActivity activity, BridgeState bridge) {
-        List<String> candidates = bridge.store.candidates();
-        List<String> working = new ArrayList<>(bridge.store.activeNpcIds());
-
-        LinearLayout body = new LinearLayout(activity);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(dp(activity, 16), dp(activity, 4), dp(activity, 16), dp(activity, 6));
-        TextView count = new TextView(activity);
-        count.setTextSize(13);
-        count.setTypeface(Typeface.DEFAULT_BOLD);
-        count.setTextColor(Color.rgb(42, 50, 62));
-        body.addView(count);
-
-        TextView note = new TextView(activity);
-        note.setText("最大3人。同じ画面でそれぞれ独立したダンジョンを進みます。参加未了承のNPCは会話で相談するまで自動進行しません。");
-        note.setTextSize(11);
-        note.setTextColor(Color.rgb(98, 105, 116));
-        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        noteParams.topMargin = dp(activity, 5);
-        noteParams.bottomMargin = dp(activity, 8);
-        body.addView(note, noteParams);
-
-        ScrollView scroll = new ScrollView(activity);
-        LinearLayout list = new LinearLayout(activity);
-        list.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(list);
-        body.addView(scroll, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(activity, 390)));
-
-        populatePicker(activity, bridge, candidates, working, count, list);
-        AlertDialog dialog = new AlertDialog.Builder(activity)
-                .setTitle("ダンジョンに行くNPCを選択")
-                .setView(body)
-                .setPositiveButton("このメンバーで探索", null)
-                .setNegativeButton("キャンセル", null)
-                .create();
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                .setOnClickListener(v -> {
-                    if (working.isEmpty()) {
-                        Toast.makeText(activity, "1人以上選んでください", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    bridge.store.save(working);
-                    reconcileSelection(activity, bridge);
-                    render(activity, bridge);
-                    dialog.dismiss();
-                }));
-        dialog.show();
-    }
-
-    private static void populatePicker(
-            DungeonActivity activity,
-            BridgeState bridge,
-            List<String> candidates,
-            List<String> working,
-            TextView count,
-            LinearLayout list
-    ) {
-        count.setText("選択中  " + working.size() + "/" + DungeonRosterPolicy.MAX_ACTIVE);
-        list.removeAllViews();
-        if (candidates.isEmpty()) {
-            TextView empty = new TextView(activity);
-            empty.setText("参加できる登録NPCがいません。");
-            empty.setTextSize(13);
-            list.addView(empty);
-            return;
-        }
-        for (String npcId : candidates) {
-            boolean selected = working.contains(npcId);
-            CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(activity, npcId));
-            DungeonState dungeon = new DungeonStore(activity).load(npcId);
-            DungeonParticipationState participation = DungeonParticipationStore.forNpc(activity, npcId).load();
-            NpcAiStaminaStore.Snapshot stamina = bridge.stamina.snapshot(npcId);
-            String floor = dungeon == null ? "未開始" : dungeon.floor + "F";
-            Button row = new Button(activity);
-            row.setAllCaps(false);
-            row.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-            row.setTextSize(12);
-            row.setTextColor(Color.rgb(37, 45, 56));
-            row.setText((selected ? "✓  " : "○  ") + character.displayName() + "  (" + npcId + ")\n"
-                    + "     " + participation.label() + " · " + floor
-                    + " · AI STAMINA " + stamina.remainingPercent + "%");
-            row.setBackground(pickerBackground(activity, selected));
-            row.setPadding(dp(activity, 12), dp(activity, 7), dp(activity, 10), dp(activity, 7));
-            row.setOnClickListener(v -> {
-                if (working.contains(npcId)) {
-                    working.remove(npcId);
-                } else if (working.size() >= DungeonRosterPolicy.MAX_ACTIVE) {
-                    Toast.makeText(activity, "探索メンバーは最大3人です", Toast.LENGTH_SHORT).show();
-                    return;
-                } else {
-                    working.add(npcId);
-                }
-                populatePicker(activity, bridge, candidates, working, count, list);
-            });
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, dp(activity, 64));
-            params.bottomMargin = dp(activity, 6);
-            list.addView(row, params);
-        }
+    private static void openRosterScreen(DungeonActivity activity) {
+        Intent intent = new Intent(activity, DungeonRosterActivity.class);
+        activity.startActivity(intent);
     }
 
     private static void reconcileSelection(DungeonActivity activity, BridgeState state) {
@@ -272,13 +170,10 @@ final class DungeonRosterBridge {
 
     private static void advanceBackgroundIfDue(DungeonActivity activity, BridgeState bridge) {
         List<String> active = bridge.store.activeNpcIds();
-        if (active.size() <= 1) return;
+        if (active.size() <= 1 || booleanField(activity, "paused")) return;
         String selected = selectedNpcId(activity);
         long now = System.currentTimeMillis();
         long interval = turnInterval(activity);
-
-        boolean paused = booleanField(activity, "paused");
-        if (paused && canAdvance(activity, selected)) return;
 
         for (String npcId : active) {
             if (npcId.equals(selected) || !canAdvance(activity, npcId)) continue;
@@ -422,14 +317,6 @@ final class DungeonRosterBridge {
         drawable.setColor(selected ? Color.rgb(42, 91, 156) : Color.rgb(20, 32, 47));
         drawable.setStroke(dp(activity, 1), selected ? Color.rgb(80, 139, 207) : Color.rgb(42, 59, 77));
         drawable.setCornerRadius(dp(activity, 11));
-        return drawable;
-    }
-
-    private static GradientDrawable pickerBackground(DungeonActivity activity, boolean selected) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(selected ? Color.rgb(226, 238, 253) : Color.rgb(246, 248, 251));
-        drawable.setStroke(dp(activity, 1), selected ? Color.rgb(91, 143, 207) : Color.rgb(218, 224, 232));
-        drawable.setCornerRadius(dp(activity, 10));
         return drawable;
     }
 
