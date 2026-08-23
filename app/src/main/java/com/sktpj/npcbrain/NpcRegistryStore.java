@@ -55,6 +55,7 @@ final class NpcRegistryStore {
         String id = nextNpcId(ids);
         ids.add(id);
         write(ids);
+        NPCBrainApplication.requestDemoRoomRefresh();
         return id;
     }
 
