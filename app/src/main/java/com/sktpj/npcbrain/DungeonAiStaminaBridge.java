@@ -13,7 +13,7 @@ import java.lang.reflect.Field;
 import java.util.Locale;
 
 final class DungeonAiStaminaBridge {
-    private static final String TAG = "npcbrain_dungeon_ai_stamina_v0417";
+    private static final String TAG = "npcbrain_dungeon_ai_stamina_v0419";
     private static final long REFRESH_MS = 400L;
 
     private DungeonAiStaminaBridge() {
@@ -21,6 +21,7 @@ final class DungeonAiStaminaBridge {
 
     static void install(DungeonActivity activity) {
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
+        DungeonRosterBridge.install(activity);
         try {
             ProgressBar hpBar = (ProgressBar) field(activity, "hpBar");
             if (hpBar == null) return;
@@ -63,7 +64,7 @@ final class DungeonAiStaminaBridge {
             staminaParams.topMargin = dp(activity, 6);
             hud.addView(stamina, Math.min(hpIndex + 1, hud.getChildCount()), staminaParams);
 
-            DungeonAiStaminaStore store = new DungeonAiStaminaStore(activity);
+            NpcAiStaminaStore store = new NpcAiStaminaStore(activity);
             Runnable refresh = new Runnable() {
                 @Override
                 public void run() {
@@ -71,13 +72,14 @@ final class DungeonAiStaminaBridge {
                         return;
                     }
                     String npcId = selectedNpcId(activity);
-                    DungeonAiStaminaStore.Snapshot snapshot = store.snapshot(npcId);
+                    NpcAiStaminaStore.Snapshot snapshot = store.snapshot(npcId);
                     label.setText(String.format(
                             Locale.JAPAN,
-                            "AI STAMINA %d%% · 概算 ¥%.2f / ¥%.2f",
+                            "AI STAMINA %d%% · 概算 ¥%.2f / ¥%.2f · 累積 %,d tokens",
                             snapshot.remainingPercent,
                             snapshot.remainingJpy,
-                            DungeonTokenCostPolicy.MAX_BUDGET_JPY));
+                            DungeonTokenCostPolicy.MAX_BUDGET_JPY,
+                            snapshot.totalTokens));
                     bar.setProgress(snapshot.remainingPercent);
                     stamina.setContentDescription(label.getText());
                     stamina.postDelayed(this, REFRESH_MS);
