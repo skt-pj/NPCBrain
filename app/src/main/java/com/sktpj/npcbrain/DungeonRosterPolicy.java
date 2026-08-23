@@ -14,13 +14,7 @@ final class DungeonRosterPolicy {
     static List<String> normalize(List<String> requested, List<String> activeRegistry) {
         List<String> result = new ArrayList<>();
         if (activeRegistry == null || activeRegistry.isEmpty()) return result;
-        Set<String> allowed = new HashSet<>();
-        for (String raw : activeRegistry) {
-            try {
-                allowed.add(NpcId.of(raw).value());
-            } catch (Exception ignored) {
-            }
-        }
+        Set<String> allowed = allowedIds(activeRegistry);
         if (requested != null) {
             for (String raw : requested) {
                 if (result.size() >= MAX_ACTIVE) break;
@@ -48,8 +42,19 @@ final class DungeonRosterPolicy {
         }
         if (result.remove(id)) return result;
         if (result.size() >= MAX_ACTIVE) return result;
-        List<String> allowed = normalize(activeRegistry, activeRegistry);
-        if (allowed.contains(id)) result.add(id);
+        if (allowedIds(activeRegistry).contains(id)) result.add(id);
         return result;
+    }
+
+    private static Set<String> allowedIds(List<String> activeRegistry) {
+        Set<String> allowed = new HashSet<>();
+        if (activeRegistry == null) return allowed;
+        for (String raw : activeRegistry) {
+            try {
+                allowed.add(NpcId.of(raw).value());
+            } catch (Exception ignored) {
+            }
+        }
+        return allowed;
     }
 }
