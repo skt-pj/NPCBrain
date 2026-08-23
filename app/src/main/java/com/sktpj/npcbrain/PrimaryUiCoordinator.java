@@ -8,6 +8,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -122,12 +123,37 @@ final class PrimaryUiCoordinator {
         if (activity instanceof DemoActivityV032) {
             setTextColor(field(activity, "titleView"), AppUiTheme.APP_TEXT);
             setTextColor(field(activity, "subtitleView"), AppUiTheme.APP_MUTED);
+            watchDemoTransparentContent(field(activity, "screenContainer"));
         }
     }
 
     private static void setTextColor(Object candidate, int color) {
         if (candidate instanceof TextView) {
             ((TextView) candidate).setTextColor(color);
+        }
+    }
+
+    private static void watchDemoTransparentContent(Object candidate) {
+        if (!(candidate instanceof View)) return;
+        styleAndWatchDemoView((View) candidate, false);
+    }
+
+    private static void styleAndWatchDemoView(View view, boolean insideSurface) {
+        boolean surface = insideSurface || view.getBackground() != null;
+        if (!surface && view instanceof TextView && !(view instanceof Button)) {
+            ((TextView) view).setTextColor(AppUiTheme.APP_MUTED);
+        }
+        if (!(view instanceof ViewGroup) || surface) return;
+        ViewGroup group = (ViewGroup) view;
+        group.setOnHierarchyChangeListener(new ViewGroup.OnHierarchyChangeListener() {
+            @Override public void onChildViewAdded(View parent, View child) {
+                styleAndWatchDemoView(child, false);
+            }
+
+            @Override public void onChildViewRemoved(View parent, View child) {}
+        });
+        for (int i = 0; i < group.getChildCount(); i++) {
+            styleAndWatchDemoView(group.getChildAt(i), false);
         }
     }
 
