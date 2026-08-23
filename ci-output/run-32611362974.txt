@@ -1,0 +1,6 @@
+run_id=32611362974
+status=success
+job_commit=35ababa5e757d8564977fff887382986a0e99266
+artifact_id=9485625396
+artifact_name=NPCBrain-v0.4.11-release
+versionName=0.4.11
