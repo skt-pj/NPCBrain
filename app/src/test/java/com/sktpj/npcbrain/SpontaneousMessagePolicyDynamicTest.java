@@ -47,6 +47,13 @@ public class SpontaneousMessagePolicyDynamicTest {
     }
 
     @Test
+    public void explicitNpcTargetIsFirstGroupRecipient() {
+        java.util.List<String> active = Arrays.asList("npc1", "npc2", "npc3", "npc4");
+        assertEquals("npc4", SpontaneousMessagePolicy.firstRecipient("npc2", "npc4", active));
+        assertEquals("npc3", SpontaneousMessagePolicy.firstRecipient("npc2", "group", active));
+    }
+
+    @Test
     public void groupChainCyclesAcrossAllActiveNpcs() {
         java.util.List<String> active = Arrays.asList("npc1", "npc2", "npc3", "npc4");
         assertEquals("npc2", SpontaneousMessagePolicy.nextNpc("npc1", active));
