@@ -11,6 +11,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -68,6 +69,7 @@ final class PrimaryUiCoordinator {
         if (!(rootView instanceof LinearLayout)) return;
         LinearLayout root = (LinearLayout) rootView;
 
+        applyShellTheme(activity, root);
         hideLegacyNavigationRows(root);
         ensureContentSpacer(activity, root);
 
@@ -113,6 +115,20 @@ final class PrimaryUiCoordinator {
                 Gravity.BOTTOM);
         content.addView(shell, params);
         shell.requestApplyInsets();
+    }
+
+    private static void applyShellTheme(Activity activity, LinearLayout root) {
+        root.setBackgroundColor(AppUiTheme.APP_BACKGROUND);
+        if (activity instanceof DemoActivityV032) {
+            setTextColor(field(activity, "titleView"), AppUiTheme.APP_TEXT);
+            setTextColor(field(activity, "subtitleView"), AppUiTheme.APP_MUTED);
+        }
+    }
+
+    private static void setTextColor(Object candidate, int color) {
+        if (candidate instanceof TextView) {
+            ((TextView) candidate).setTextColor(color);
+        }
     }
 
     private static void hideLegacyNavigationRows(LinearLayout root) {
@@ -168,6 +184,7 @@ final class PrimaryUiCoordinator {
         return drawable;
     }
 
+    @SuppressWarnings("deprecation")
     private static void navigate(Activity current, String destination) {
         if (!PrimaryNavigationPolicy.isDestination(destination)) return;
         if (destination.equals(destinationFor(current))) return;
@@ -175,8 +192,9 @@ final class PrimaryUiCoordinator {
         Class<? extends Activity> target = activityFor(destination);
         if (target == null) return;
         Intent intent = new Intent(current, target);
-        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.addFlags(PrimaryNavigationPolicy.intentFlags());
         current.startActivity(intent);
+        current.overridePendingTransition(0, 0);
     }
 
     private static Class<? extends Activity> activityFor(String destination) {
