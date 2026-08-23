@@ -3,6 +3,7 @@ package com.sktpj.npcbrain;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -14,7 +15,6 @@ import android.view.DisplayCutout;
 import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
-import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -34,6 +34,7 @@ public final class NpcStatusActivity extends Activity {
     };
 
     private WorldRuntimeV040 worldRuntime;
+    private NpcArchiveStore archiveStore;
     private String selectedNpcId = "npc1";
     private Button npc1Button;
     private Button npc2Button;
@@ -52,6 +53,7 @@ public final class NpcStatusActivity extends Activity {
         super.onCreate(savedInstanceState);
         configureWindow();
         worldRuntime = new WorldRuntimeV040(this);
+        archiveStore = new NpcArchiveStore(this);
         setContentView(buildContent());
         refreshStatus();
     }
@@ -98,13 +100,26 @@ public final class NpcStatusActivity extends Activity {
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         Button conversation = tabButton("会話", false);
-        conversation.setOnClickListener(v -> finish());
-        tabs.addView(conversation, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        conversation.setOnClickListener(v -> openConversation());
+        tabs.addView(conversation, new LinearLayout.LayoutParams(0, dp(48), 1f));
+
         Button status = tabButton("NPC状況", true);
         status.setEnabled(false);
-        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(0, dp(42), 1f);
-        statusParams.leftMargin = dp(8);
+        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        statusParams.leftMargin = dp(4);
         tabs.addView(status, statusParams);
+
+        Button dungeon = tabButton("ダンジョン", false);
+        dungeon.setOnClickListener(v -> openDungeon());
+        LinearLayout.LayoutParams dungeonParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        dungeonParams.leftMargin = dp(4);
+        tabs.addView(dungeon, dungeonParams);
+
+        Button codex = tabButton("図鑑", false);
+        codex.setOnClickListener(v -> openCodex());
+        LinearLayout.LayoutParams codexParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        codexParams.leftMargin = dp(4);
+        tabs.addView(codex, codexParams);
         root.addView(tabs);
 
         LinearLayout selector = new LinearLayout(this);
@@ -114,8 +129,8 @@ public final class NpcStatusActivity extends Activity {
         npc2Button = selectorButton("NPC2", false);
         npc1Button.setOnClickListener(v -> selectNpc("npc1"));
         npc2Button.setOnClickListener(v -> selectNpc("npc2"));
-        selector.addView(npc1Button, new LinearLayout.LayoutParams(0, dp(40), 1f));
-        LinearLayout.LayoutParams n2 = new LinearLayout.LayoutParams(0, dp(40), 1f);
+        selector.addView(npc1Button, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        LinearLayout.LayoutParams n2 = new LinearLayout.LayoutParams(0, dp(48), 1f);
         n2.leftMargin = dp(8);
         selector.addView(npc2Button, n2);
         root.addView(selector);
@@ -164,7 +179,7 @@ public final class NpcStatusActivity extends Activity {
         reset.setTextColor(Color.rgb(197, 220, 250));
         reset.setBackgroundColor(Color.rgb(25, 39, 58));
         reset.setOnClickListener(v -> sphereView.resetView());
-        graphHeader.addView(reset, new LinearLayout.LayoutParams(dp(104), dp(38)));
+        graphHeader.addView(reset, new LinearLayout.LayoutParams(dp(104), dp(48)));
         root.addView(graphHeader);
 
         sphereView = new CognitiveSphereView(this);
@@ -186,6 +201,19 @@ public final class NpcStatusActivity extends Activity {
 
     private void refreshStatus() {
         if (worldRuntime == null || sphereView == null) return;
+        if (archiveStore != null && archiveStore.isDead(selectedNpcId)) {
+            nameValue.setText("死亡");
+            activityValue.setText("死亡");
+            locationValue.setText("—");
+            goalValue.setText("—");
+            contextValue.setText("図鑑に保存済み");
+            stateValue.setText("—");
+            timeValue.setText("—");
+            traceValue.setText("図鑑に保存済み");
+            sphereView.setGraph(CognitiveGraphBuilder.buildFromSemanticSnapshot(null));
+            return;
+        }
+
         LifeState lifeState = worldRuntime.lifeState(selectedNpcId);
         Context storageContext = storageContext(selectedNpcId);
         CharacterStateStore character = new CharacterStateStore(storageContext);
@@ -263,14 +291,36 @@ public final class NpcStatusActivity extends Activity {
                 .show();
     }
 
+    private void openConversation() {
+        Intent intent = new Intent(this, DemoActivityV032.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(intent);
+        finish();
+    }
+
+    private void openDungeon() {
+        Intent intent = new Intent(this, DungeonActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(intent);
+        finish();
+    }
+
+    private void openCodex() {
+        Intent intent = new Intent(this, CodexActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(intent);
+        finish();
+    }
+
     private Button tabButton(String label, boolean selected) {
         Button button = new Button(this);
         button.setText(label);
         button.setAllCaps(false);
-        button.setTextSize(13);
+        button.setTextSize(11);
         button.setTypeface(Typeface.DEFAULT_BOLD);
         button.setTextColor(selected ? Color.WHITE : Color.rgb(188, 203, 222));
         button.setBackgroundColor(selected ? Color.rgb(42, 91, 156) : Color.rgb(21, 33, 49));
+        button.setMinHeight(dp(48));
         return button;
     }
 
@@ -282,6 +332,7 @@ public final class NpcStatusActivity extends Activity {
         button.setTypeface(Typeface.DEFAULT_BOLD);
         button.setTextColor(Color.WHITE);
         button.setBackgroundColor(selected ? Color.rgb(42, 91, 156) : Color.rgb(25, 39, 58));
+        button.setMinHeight(dp(48));
         return button;
     }
 
