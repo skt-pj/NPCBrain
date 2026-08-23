@@ -11,6 +11,7 @@ final class DungeonCognitionGate {
     static final String STAIRS_SPOTTED = "stairs_spotted";
     static final String HP_RISK = "hp_risk";
     static final String COMBAT_CHANGE = "combat_change";
+    static final String TACTICAL_EXPIRED = "tactical_intent_expired";
     static final String PERIODIC = "periodic";
 
     static final class Signal {
@@ -79,7 +80,8 @@ final class DungeonCognitionGate {
         if (ENEMY_SPOTTED.equals(reason)) return 2;
         if (STAIRS_SPOTTED.equals(reason)) return 3;
         if (COMBAT_CHANGE.equals(reason)) return 4;
-        return 5;
+        if (TACTICAL_EXPIRED.equals(reason)) return 5;
+        return 6;
     }
 
     private static boolean containsNew(List<String> current, List<String> previous) {

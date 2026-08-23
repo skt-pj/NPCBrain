@@ -1,10 +1,14 @@
 package com.sktpj.npcbrain;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Queue;
 import java.util.Random;
 
 final class DungeonPersonalityPolicy {
+    private static final int NORMAL_EVADE_LEASE_TURNS = 2;
+
     enum Direction {
         UP(0, -1),
         DOWN(0, 1),
@@ -97,10 +101,12 @@ final class DungeonPersonalityPolicy {
 
         boolean stairsKnown = DungeonPerception.stairsKnown(state);
         int currentStairDistance = stairsKnown
-                ? DungeonPerception.knownStairDistance(state, state.playerX, state.playerY) : 999;
+                ? knownPathDistance(state, state.playerX, state.playerY,
+                state.stairsX(), state.stairsY()) : 999;
         int nextStairDistance = stairsKnown
-                ? DungeonPerception.knownStairDistance(state, nx, ny) : 999;
-        int stairGain = stairsKnown ? currentStairDistance - nextStairDistance : 0;
+                ? knownPathDistance(state, nx, ny, state.stairsX(), state.stairsY()) : 999;
+        int stairGain = currentStairDistance < 999 && nextStairDistance < 999
+                ? currentStairDistance - nextStairDistance : 0;
 
         int currentEnemyDistance = DungeonPerception.nearestVisibleEnemyDistance(
                 state, state.playerX, state.playerY);
@@ -109,6 +115,11 @@ final class DungeonPersonalityPolicy {
         boolean attacksEnemy = targetEnemy != null
                 && DungeonPerception.isVisible(state, targetEnemy.x, targetEnemy.y);
         boolean unvisited = state.inside(nx, ny) && !state.visited[ny][nx];
+
+        DungeonIntent resolved = intent == null
+                ? DungeonIntent.localFallback(state, traits, "intentなし") : intent;
+        String effectiveMode = effectiveMode(state, resolved);
+        Direction progressDirection = progressDirection(state);
 
         double score = 0.0;
         if (stairsKnown) score += stairGain * (0.7 + 2.7 * c);
@@ -122,31 +133,37 @@ final class DungeonPersonalityPolicy {
             score += 4.2 * e;
             score -= 4.6 * n;
             score -= 3.1 * a;
-            if (targetEnemy.hp <= 2) score += 0.7 * c;
+            if (targetEnemy.hp <= 2) score += 14.0 + 0.7 * c;
+            if (currentEnemyDistance == 1 && !DungeonIntent.EVADE.equals(effectiveMode)) {
+                score += 5.0;
+            }
         } else if (nextEnemyDistance == 1) {
             score += 0.8 * e;
             score -= 2.0 * n;
             score -= 0.7 * a;
         }
 
-        if (direction == Direction.WAIT) score -= 1.2 + 1.0 * c + 0.4 * o;
+        if (direction == Direction.WAIT) score -= 2.0 + 1.2 * c + 0.6 * o;
         if (stairsKnown && state.tileAt(nx, ny) == DungeonState.STAIRS) {
-            score += 6.0 + 2.0 * c;
+            score += 8.0 + 2.5 * c;
         }
 
-        DungeonIntent resolved = intent == null
-                ? DungeonIntent.localFallback(state, traits, "intentなし") : intent;
-        if (resolved.preferredDirection == direction && direction != Direction.WAIT) {
-            score += 3.2 * Math.max(0.35, resolved.confidence);
+        if (progressDirection != null && direction == progressDirection) {
+            score += 7.5 + 1.5 * c + 0.8 * o;
+        } else if (progressDirection != null && direction != Direction.WAIT) {
+            score -= 0.4;
         }
-        switch (resolved.mode) {
+
+        if (resolved.preferredDirection == direction && direction != Direction.WAIT) {
+            score += 2.2 * Math.max(0.30, resolved.confidence);
+        }
+        switch (effectiveMode) {
             case DungeonIntent.SEEK_STAIRS:
                 if (stairsKnown) {
-                    score += stairGain * 5.0;
-                    if (state.tileAt(nx, ny) == DungeonState.STAIRS) score += 8.0;
-                } else if (unvisited) {
-                    score += 1.6 + 1.5 * o;
+                    score += stairGain * 4.5;
+                    if (state.tileAt(nx, ny) == DungeonState.STAIRS) score += 10.0;
                 }
+                if (progressDirection != null && direction == progressDirection) score += 3.5;
                 break;
             case DungeonIntent.ENGAGE:
                 if (attacksEnemy) score += 6.0;
@@ -159,36 +176,195 @@ final class DungeonPersonalityPolicy {
                 if (currentEnemyDistance < 999 && nextEnemyDistance < 999) {
                     score += (nextEnemyDistance - currentEnemyDistance) * 5.0;
                 }
+                if (!hasDistanceIncreasingMove(state, currentEnemyDistance) && attacksEnemy) {
+                    score += 13.0;
+                }
                 break;
             case DungeonIntent.HOLD:
-                if (direction == Direction.WAIT) score += 4.0;
+                if (direction == Direction.WAIT) score += 2.0;
                 break;
             default:
                 if (unvisited) score += 3.0 + 1.0 * o;
                 if (frontierGain(state, nx, ny) > frontierGain(state, state.playerX, state.playerY)) {
                     score += 1.2;
                 }
+                if (progressDirection != null && direction == progressDirection) score += 2.5;
                 break;
         }
         return score;
     }
 
+    static String effectiveMode(DungeonState state, DungeonIntent intent) {
+        if (state == null) return DungeonIntent.HOLD;
+        boolean stairsKnown = DungeonPerception.stairsKnown(state);
+        String progressMode = stairsKnown ? DungeonIntent.SEEK_STAIRS : DungeonIntent.EXPLORE;
+        if (intent == null) return progressMode;
+
+        int visibleEnemyDistance = DungeonPerception.nearestVisibleEnemyDistance(
+                state, state.playerX, state.playerY);
+        double hpRate = state.maxHp <= 0 ? 0.0 : state.hp / (double) state.maxHp;
+        int intentAge = Math.max(0, state.turn - intent.turn);
+
+        if (DungeonIntent.EVADE.equals(intent.mode)) {
+            boolean critical = hpRate <= 0.30 && visibleEnemyDistance <= 3;
+            boolean shortTacticalEvade = visibleEnemyDistance <= 2
+                    && intentAge <= NORMAL_EVADE_LEASE_TURNS;
+            return critical || shortTacticalEvade ? DungeonIntent.EVADE : progressMode;
+        }
+        if (DungeonIntent.HOLD.equals(intent.mode)) {
+            boolean oneTurnHold = visibleEnemyDistance < 999 && intentAge <= 1;
+            return oneTurnHold ? DungeonIntent.HOLD : progressMode;
+        }
+        if (DungeonIntent.ENGAGE.equals(intent.mode) && visibleEnemyDistance >= 999) {
+            return progressMode;
+        }
+        if (DungeonIntent.SEEK_STAIRS.equals(intent.mode) && !stairsKnown) {
+            return DungeonIntent.EXPLORE;
+        }
+        return intent.mode;
+    }
+
+    static Direction progressDirection(DungeonState state) {
+        if (state == null) return null;
+        if (DungeonPerception.stairsKnown(state)) {
+            Direction stairDirection = firstStepToKnownTarget(
+                    state, state.stairsX(), state.stairsY());
+            if (stairDirection != null) return stairDirection;
+        }
+        return firstStepToNearestFrontier(state);
+    }
+
+    private static Direction firstStepToKnownTarget(DungeonState state, int targetX, int targetY) {
+        if (!knownTraversable(state, targetX, targetY)) return null;
+        boolean[][] seen = new boolean[state.height][state.width];
+        Direction[][] first = new Direction[state.height][state.width];
+        Queue<int[]> queue = new ArrayDeque<>();
+        queue.add(new int[]{state.playerX, state.playerY});
+        seen[state.playerY][state.playerX] = true;
+
+        while (!queue.isEmpty()) {
+            int[] point = queue.remove();
+            int x = point[0];
+            int y = point[1];
+            if (x == targetX && y == targetY) return first[y][x];
+            for (Direction direction : orderedDirections()) {
+                int nx = x + direction.dx;
+                int ny = y + direction.dy;
+                if (!knownTraversable(state, nx, ny) || seen[ny][nx]) continue;
+                seen[ny][nx] = true;
+                first[ny][nx] = x == state.playerX && y == state.playerY
+                        ? direction : first[y][x];
+                queue.add(new int[]{nx, ny});
+            }
+        }
+        return null;
+    }
+
+    private static Direction firstStepToNearestFrontier(DungeonState state) {
+        boolean[][] seen = new boolean[state.height][state.width];
+        Direction[][] first = new Direction[state.height][state.width];
+        Queue<int[]> queue = new ArrayDeque<>();
+        queue.add(new int[]{state.playerX, state.playerY});
+        seen[state.playerY][state.playerX] = true;
+
+        while (!queue.isEmpty()) {
+            int[] point = queue.remove();
+            int x = point[0];
+            int y = point[1];
+            if (!(x == state.playerX && y == state.playerY) && isFrontierCell(state, x, y)) {
+                return first[y][x];
+            }
+            for (Direction direction : orderedDirections()) {
+                int nx = x + direction.dx;
+                int ny = y + direction.dy;
+                if (!knownTraversable(state, nx, ny) || seen[ny][nx]) continue;
+                seen[ny][nx] = true;
+                first[ny][nx] = x == state.playerX && y == state.playerY
+                        ? direction : first[y][x];
+                queue.add(new int[]{nx, ny});
+            }
+        }
+        return null;
+    }
+
+    private static int knownPathDistance(
+            DungeonState state,
+            int startX,
+            int startY,
+            int targetX,
+            int targetY
+    ) {
+        if (!knownTraversable(state, startX, startY)
+                || !knownTraversable(state, targetX, targetY)) return 999;
+        boolean[][] seen = new boolean[state.height][state.width];
+        Queue<int[]> queue = new ArrayDeque<>();
+        queue.add(new int[]{startX, startY, 0});
+        seen[startY][startX] = true;
+        while (!queue.isEmpty()) {
+            int[] point = queue.remove();
+            if (point[0] == targetX && point[1] == targetY) return point[2];
+            for (Direction direction : orderedDirections()) {
+                int nx = point[0] + direction.dx;
+                int ny = point[1] + direction.dy;
+                if (!knownTraversable(state, nx, ny) || seen[ny][nx]) continue;
+                seen[ny][nx] = true;
+                queue.add(new int[]{nx, ny, point[2] + 1});
+            }
+        }
+        return 999;
+    }
+
+    private static boolean knownTraversable(DungeonState state, int x, int y) {
+        return state != null
+                && state.inside(x, y)
+                && state.visited[y][x]
+                && state.walkable(x, y);
+    }
+
+    private static boolean isFrontierCell(DungeonState state, int x, int y) {
+        if (!knownTraversable(state, x, y)) return false;
+        for (Direction direction : orderedDirections()) {
+            int nx = x + direction.dx;
+            int ny = y + direction.dy;
+            if (state.inside(nx, ny)
+                    && !state.visited[ny][nx]
+                    && !DungeonPerception.isVisible(state, nx, ny)) return true;
+        }
+        return false;
+    }
+
+    private static boolean hasDistanceIncreasingMove(DungeonState state, int currentDistance) {
+        if (state == null || currentDistance >= 999) return false;
+        for (Direction direction : orderedDirections()) {
+            int nx = state.playerX + direction.dx;
+            int ny = state.playerY + direction.dy;
+            if (!state.walkable(nx, ny) || state.enemyAt(nx, ny) != null) continue;
+            int nextDistance = DungeonPerception.nearestVisibleEnemyDistance(state, nx, ny);
+            if (nextDistance > currentDistance) return true;
+        }
+        return false;
+    }
+
+    private static Direction[] orderedDirections() {
+        return new Direction[]{Direction.UP, Direction.RIGHT, Direction.DOWN, Direction.LEFT};
+    }
+
     private static int frontierGain(DungeonState state, int x, int y) {
         if (!state.inside(x, y)) return 0;
         int count = 0;
-        int[][] dirs = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-        for (int[] dir : dirs) {
-            int nx = x + dir[0];
-            int ny = y + dir[1];
-            if (state.inside(nx, ny) && state.walkable(nx, ny) && !state.visited[ny][nx]) count++;
+        for (Direction direction : orderedDirections()) {
+            int nx = x + direction.dx;
+            int ny = y + direction.dy;
+            if (state.inside(nx, ny)
+                    && !state.visited[ny][nx]
+                    && !DungeonPerception.isVisible(state, nx, ny)) count++;
         }
         return count;
     }
 
     private static List<Direction> legalDirections(DungeonState state) {
         List<Direction> result = new ArrayList<>();
-        Direction[] ordered = {Direction.UP, Direction.RIGHT, Direction.DOWN, Direction.LEFT};
-        for (Direction direction : ordered) {
+        for (Direction direction : orderedDirections()) {
             int nx = state.playerX + direction.dx;
             int ny = state.playerY + direction.dy;
             if (state.walkable(nx, ny)) result.add(direction);

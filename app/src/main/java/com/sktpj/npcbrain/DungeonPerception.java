@@ -102,12 +102,28 @@ final class DungeonPerception {
             root.put("visible_enemies", visibleEnemiesJson(state));
             root.put("visible_cells", visibleCellsJson(state));
             root.put("candidate_actions", candidateActions(state));
+            root.put("grounded_progress", groundedProgressJson(state));
             root.put("explored_cell_count", exploredCellCount(state));
             root.put("runtime_contract",
-                    "Use only visible_enemies, visible_cells, explored state, known stairs and candidate_actions. Never infer hidden map, hidden enemies or undiscovered stairs. Choose one feasible candidate action. Personality may change attention/value/action preference but may not change observed facts or game rules.");
+                    "Use only visible_enemies, visible_cells, explored state, known stairs, grounded_progress and candidate_actions. Never infer hidden map, hidden enemies or undiscovered stairs. The long-term goal is to clear the floor: seek known stairs or continue exploration. Evade and hold are short tactical responses, not indefinite goals; once the immediate visible threat is no longer close, resume grounded_progress. Choose one feasible candidate action. Personality may change attention/value/action preference but may not change observed facts or game rules.");
         } catch (Exception ignored) {
         }
         return root;
+    }
+
+    private static JSONObject groundedProgressJson(DungeonState state) {
+        JSONObject object = new JSONObject();
+        try {
+            DungeonPersonalityPolicy.Direction direction =
+                    DungeonPersonalityPolicy.progressDirection(state);
+            object.put("goal", stairsKnown(state) ? "known_stairs" : "explore_frontier");
+            object.put("direction", DungeonIntent.directionName(direction));
+            object.put("available", direction != null
+                    && direction != DungeonPersonalityPolicy.Direction.WAIT);
+            object.put("knowledge_scope", "visited_walkable_cells_only");
+        } catch (Exception ignored) {
+        }
+        return object;
     }
 
     private static JSONArray visibleEnemiesJson(DungeonState state) {
