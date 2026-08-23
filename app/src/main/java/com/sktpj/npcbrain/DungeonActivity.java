@@ -1031,10 +1031,7 @@ public final class DungeonActivity extends Activity {
     }
 
     private DungeonPersonalityPolicy.Traits traitsForNpc(String npcId) {
-        Context app = getApplicationContext();
-        Context context = "npc2".equals(npcId)
-                ? new NpcStorageContext(app, "npc2") : app;
-        CharacterStateStore character = new CharacterStateStore(context);
+        CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(this, npcId));
         return new DungeonPersonalityPolicy.Traits(
                 character.traitPercent(CharacterStateStore.extraversionKey()),
                 character.traitPercent(CharacterStateStore.neuroticismKey()),
@@ -1044,10 +1041,7 @@ public final class DungeonActivity extends Activity {
     }
 
     private CharacterStateStore currentCharacterStore() {
-        Context app = getApplicationContext();
-        Context context = "npc2".equals(selectedNpcId)
-                ? new NpcStorageContext(app, "npc2") : app;
-        return new CharacterStateStore(context);
+        return new CharacterStateStore(NpcContexts.storage(this, selectedNpcId));
     }
 
     private void openConversation() {
