@@ -16,13 +16,20 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
 import android.widget.Button;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public final class NpcStatusActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -35,9 +42,10 @@ public final class NpcStatusActivity extends Activity {
 
     private WorldRuntimeV040 worldRuntime;
     private NpcArchiveStore archiveStore;
+    private NpcRegistryStore registryStore;
+    private NpcAiStaminaStore staminaStore;
     private String selectedNpcId = "npc1";
-    private Button npc1Button;
-    private Button npc2Button;
+    private final Map<String, Button> selectorButtons = new LinkedHashMap<>();
     private TextView nameValue;
     private TextView activityValue;
     private TextView locationValue;
@@ -46,6 +54,8 @@ public final class NpcStatusActivity extends Activity {
     private TextView stateValue;
     private TextView timeValue;
     private TextView traceValue;
+    private TextView replyValue;
+    private TextView staminaValue;
     private CognitiveSphereView sphereView;
 
     @Override
@@ -54,6 +64,9 @@ public final class NpcStatusActivity extends Activity {
         configureWindow();
         worldRuntime = new WorldRuntimeV040(this);
         archiveStore = new NpcArchiveStore(this);
+        registryStore = new NpcRegistryStore(this);
+        staminaStore = new NpcAiStaminaStore(this);
+        normalizeSelection();
         setContentView(buildContent());
         refreshStatus();
     }
@@ -61,6 +74,7 @@ public final class NpcStatusActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        normalizeSelection();
         handler.removeCallbacks(refreshTask);
         handler.post(refreshTask);
     }
@@ -69,6 +83,12 @@ public final class NpcStatusActivity extends Activity {
     protected void onPause() {
         handler.removeCallbacks(refreshTask);
         super.onPause();
+    }
+
+    private void normalizeSelection() {
+        List<String> ids = NpcStatusPolicy.selectorNpcIds(registryStore.npcIds());
+        if (ids.isEmpty()) return;
+        if (!ids.contains(selectedNpcId)) selectedNpcId = ids.get(0);
     }
 
     private View buildContent() {
@@ -122,18 +142,25 @@ public final class NpcStatusActivity extends Activity {
         tabs.addView(codex, codexParams);
         root.addView(tabs);
 
+        HorizontalScrollView selectorScroll = new HorizontalScrollView(this);
+        selectorScroll.setHorizontalScrollBarEnabled(false);
         LinearLayout selector = new LinearLayout(this);
         selector.setOrientation(LinearLayout.HORIZONTAL);
         selector.setPadding(0, dp(8), 0, dp(8));
-        npc1Button = selectorButton("NPC1", true);
-        npc2Button = selectorButton("NPC2", false);
-        npc1Button.setOnClickListener(v -> selectNpc("npc1"));
-        npc2Button.setOnClickListener(v -> selectNpc("npc2"));
-        selector.addView(npc1Button, new LinearLayout.LayoutParams(0, dp(48), 1f));
-        LinearLayout.LayoutParams n2 = new LinearLayout.LayoutParams(0, dp(48), 1f);
-        n2.leftMargin = dp(8);
-        selector.addView(npc2Button, n2);
-        root.addView(selector);
+        selectorButtons.clear();
+        for (String npcId : NpcStatusPolicy.selectorNpcIds(registryStore.npcIds())) {
+            Button button = selectorButton(selectorLabel(npcId), npcId.equals(selectedNpcId));
+            button.setOnClickListener(v -> selectNpc(npcId));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, dp(48));
+            params.rightMargin = dp(8);
+            selector.addView(button, params);
+            selectorButtons.put(npcId, button);
+        }
+        selectorScroll.addView(selector, new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT));
+        root.addView(selectorScroll);
 
         ScrollView statusScroll = new ScrollView(this);
         statusScroll.setFillViewport(false);
@@ -155,9 +182,24 @@ public final class NpcStatusActivity extends Activity {
         stateValue = addStatusRow(statusCard, "動的状態");
         timeValue = addStatusRow(statusCard, "現在時刻");
         traceValue = addStatusRow(statusCard, "脳内ソース");
+        replyValue = addStatusRow(statusCard, "返信判断");
+        staminaValue = addStatusRow(statusCard, "AI STAMINA");
+
+        Button diagnose = new Button(this);
+        diagnose.setText("返信診断を見る");
+        diagnose.setAllCaps(false);
+        diagnose.setTextSize(12);
+        diagnose.setTextColor(Color.rgb(220, 234, 252));
+        diagnose.setBackgroundColor(Color.rgb(25, 50, 78));
+        LinearLayout.LayoutParams diagnoseParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
+        diagnoseParams.topMargin = dp(10);
+        statusCard.addView(diagnose, diagnoseParams);
+        diagnose.setOnClickListener(v -> showReplyDiagnostic());
+
         statusScroll.addView(statusCard);
         LinearLayout.LayoutParams scp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(248));
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(330));
         scp.topMargin = dp(2);
         root.addView(statusScroll, scp);
 
@@ -190,19 +232,30 @@ public final class NpcStatusActivity extends Activity {
         return root;
     }
 
+    private String selectorLabel(String npcId) {
+        CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(this, npcId));
+        String name = character.displayName();
+        if (character.isDead()) return npcId.toUpperCase(Locale.US) + " · 死亡";
+        if (name == null || name.trim().isEmpty() || "NPC".equals(name.trim())) {
+            return npcId.toUpperCase(Locale.US);
+        }
+        return name.trim();
+    }
+
     private void selectNpc(String npcId) {
-        selectedNpcId = npcId;
-        npc1Button.setBackgroundColor("npc1".equals(npcId)
-                ? Color.rgb(42, 91, 156) : Color.rgb(25, 39, 58));
-        npc2Button.setBackgroundColor("npc2".equals(npcId)
-                ? Color.rgb(42, 91, 156) : Color.rgb(25, 39, 58));
+        selectedNpcId = NpcId.of(npcId).value();
+        for (Map.Entry<String, Button> entry : selectorButtons.entrySet()) {
+            entry.getValue().setBackgroundColor(entry.getKey().equals(selectedNpcId)
+                    ? Color.rgb(42, 91, 156) : Color.rgb(25, 39, 58));
+        }
         refreshStatus();
     }
 
     private void refreshStatus() {
         if (worldRuntime == null || sphereView == null) return;
+        normalizeSelection();
         if (archiveStore != null && archiveStore.isDead(selectedNpcId)) {
-            nameValue.setText("死亡");
+            nameValue.setText(selectorLabel(selectedNpcId));
             activityValue.setText("死亡");
             locationValue.setText("—");
             goalValue.setText("—");
@@ -210,12 +263,14 @@ public final class NpcStatusActivity extends Activity {
             stateValue.setText("—");
             timeValue.setText("—");
             traceValue.setText("図鑑に保存済み");
+            replyValue.setText(NpcStatusPolicy.REPLY_NONE);
+            updateStamina();
             sphereView.setGraph(CognitiveGraphBuilder.buildFromSemanticSnapshot(null));
             return;
         }
 
         LifeState lifeState = worldRuntime.lifeState(selectedNpcId);
-        Context storageContext = storageContext(selectedNpcId);
+        Context storageContext = NpcContexts.storage(this, selectedNpcId);
         CharacterStateStore character = new CharacterStateStore(storageContext);
         DemoCognitionObserver.Snapshot cognition = DemoCognitionObserver.snapshot(this, selectedNpcId);
         boolean exact = CognitiveGraphBuilder.isValidSemanticSnapshot(cognition.cognitiveGraph);
@@ -240,14 +295,109 @@ public final class NpcStatusActivity extends Activity {
             traceValue.setText("待機中 · 実認知グラフなし");
         }
 
+        replyValue.setText(NpcStatusPolicy.replyState(
+                selectedNpcId,
+                latestTraceSenderId(selectedNpcId),
+                cognition.live));
+        updateStamina();
         sphereView.setGraph(exact
                 ? CognitiveGraphBuilder.buildFromSemanticSnapshot(cognition.cognitiveGraph)
                 : CognitiveGraphBuilder.buildFromSemanticSnapshot(null));
     }
 
-    private Context storageContext(String npcId) {
-        Context app = getApplicationContext();
-        return "npc2".equals(npcId) ? new NpcStorageContext(app, "npc2") : app;
+    private void updateStamina() {
+        NpcAiStaminaStore.Snapshot snapshot = staminaStore.snapshot(selectedNpcId);
+        staminaValue.setText(String.format(
+                Locale.JAPAN,
+                "%d%% · 概算 ¥%.2f / ¥%.2f · %,d tokens",
+                snapshot.remainingPercent,
+                snapshot.remainingJpy,
+                DungeonTokenCostPolicy.MAX_BUDGET_JPY,
+                snapshot.totalTokens));
+    }
+
+    private String latestTraceSenderId(String npcId) {
+        ConversationStore store = new ConversationStore(getApplicationContext());
+        String bestSender = "";
+        long bestTime = Long.MIN_VALUE;
+        String[] rooms = ("npc1".equals(npcId) || "npc2".equals(npcId))
+                ? new String[]{"direct_" + npcId, DemoRuntimeV032.ROOM_GROUP}
+                : new String[]{"direct_" + npcId};
+        for (String room : rooms) {
+            JSONArray messages = store.messages(room);
+            for (int i = 0; i < messages.length(); i++) {
+                JSONObject message = messages.optJSONObject(i);
+                if (message == null) continue;
+                String sender = message.optString("sender_id", "");
+                if (!belongsToNpc(sender, npcId)) continue;
+                JSONArray trace = message.optJSONArray("brain_trace");
+                if (trace == null || trace.length() == 0) continue;
+                long time = message.optLong("time_ms", 0L);
+                if (time >= bestTime) {
+                    bestTime = time;
+                    bestSender = sender;
+                }
+            }
+        }
+        return bestSender;
+    }
+
+    private static boolean belongsToNpc(String senderId, String npcId) {
+        String sender = senderId == null ? "" : senderId.trim();
+        return npcId.equals(sender)
+                || ("decision_" + npcId).equals(sender)
+                || ("runtime_decision_" + npcId).equals(sender);
+    }
+
+    private void showReplyDiagnostic() {
+        DemoCognitionObserver.Snapshot cognition = DemoCognitionObserver.snapshot(this, selectedNpcId);
+        StringBuilder body = new StringBuilder();
+        body.append("返信なしを避けたい場合は、この順で公開要約を確認します。\n")
+                .append("Global Workspace → 行動選択 → 価値判断 → 注意・重要度 → 意味記憶\n\n")
+                .append("activationは『今どれだけ注目しているか』で、正しさや返信確率ではありません。\n")
+                .append("Global Workspaceが無言を選び、価値判断で会話価値が低い・注意が別目標へ向く・意味記憶で距離を置く方針が強い場合、そこに合う話題や関係性を会話から変えるのが有効です。\n\n");
+
+        String[] order = {"global_workspace", "action_selection", "valuation", "salience", "semantic_memory"};
+        for (String stageId : order) {
+            JSONObject stage = findStage(cognition.stages, stageId);
+            String label = stage == null ? stageLabel(stageId) : stage.optString("stage_label", stageLabel(stageId));
+            body.append("■ ").append(label).append('\n');
+            if (stage == null) {
+                body.append("記録なし\n\n");
+                continue;
+            }
+            String summary = stage.optString("summary", "").trim();
+            body.append(summary.isEmpty() ? "公開要約なし" : summary);
+            body.append("\nconfidence: ")
+                    .append((int) Math.round(stage.optDouble("confidence", 0.0) * 100.0))
+                    .append("%");
+            String effect = stage.optString("personality_effect", "").trim();
+            if (!effect.isEmpty()) body.append("\n人格の影響: ").append(effect);
+            body.append("\n\n");
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("返信診断 · " + selectorLabel(selectedNpcId))
+                .setMessage(body.toString().trim())
+                .setPositiveButton("閉じる", null)
+                .show();
+    }
+
+    private static JSONObject findStage(JSONArray stages, String stageId) {
+        if (stages == null) return null;
+        for (int i = stages.length() - 1; i >= 0; i--) {
+            JSONObject stage = stages.optJSONObject(i);
+            if (stage != null && stageId.equals(stage.optString("stage_id", ""))) return stage;
+        }
+        return null;
+    }
+
+    private static String stageLabel(String stageId) {
+        if ("global_workspace".equals(stageId)) return "Global Workspace";
+        if ("action_selection".equals(stageId)) return "行動選択";
+        if ("valuation".equals(stageId)) return "価値判断";
+        if ("salience".equals(stageId)) return "注意・重要度";
+        if ("semantic_memory".equals(stageId)) return "意味記憶";
+        return stageId;
     }
 
     private TextView addStatusRow(LinearLayout parent, String label) {
@@ -333,6 +483,7 @@ public final class NpcStatusActivity extends Activity {
         button.setTextColor(Color.WHITE);
         button.setBackgroundColor(selected ? Color.rgb(42, 91, 156) : Color.rgb(25, 39, 58));
         button.setMinHeight(dp(48));
+        button.setMinWidth(dp(88));
         return button;
     }
 
@@ -387,7 +538,11 @@ public final class NpcStatusActivity extends Activity {
                         right = Math.max(right, cutout.getSafeInsetRight());
                     }
                 }
-                view.setPadding(dp(16) + left, dp(10) + top, dp(16) + right, dp(8) + bottom);
+                view.setPadding(
+                        Math.max(dp(16), left + dp(10)),
+                        Math.max(dp(10), top + dp(4)),
+                        Math.max(dp(16), right + dp(10)),
+                        Math.max(dp(8), bottom + dp(4)));
                 return insets;
             });
         }
