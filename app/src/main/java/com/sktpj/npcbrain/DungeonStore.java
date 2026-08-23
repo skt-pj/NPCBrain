@@ -34,6 +34,9 @@ final class DungeonStore {
     }
 
     static String key(String npcId) {
-        return "npc2".equals(npcId) ? "npc2_state" : "npc1_state";
+        String id = NpcId.of(npcId).value();
+        if ("npc1".equals(id)) return "npc1_state";
+        if ("npc2".equals(id)) return "npc2_state";
+        return id + "_state";
     }
 }
