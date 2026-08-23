@@ -18,6 +18,7 @@ import java.lang.ref.WeakReference;
 public final class NPCBrainApplication extends Application {
     private static final String TAB_TAG = "npcbrain_top_tabs_v0416";
     private static WeakReference<DemoActivityV032> demoActivityRef = new WeakReference<>(null);
+    private static volatile boolean demoRoomRefreshRequested;
 
     @Override
     public void onCreate() {
@@ -36,6 +37,10 @@ public final class NPCBrainApplication extends Application {
             @Override public void onActivityResumed(Activity activity) {
                 if (activity instanceof DemoActivityV032) {
                     demoActivityRef = new WeakReference<>((DemoActivityV032) activity);
+                    if (consumeDemoRoomRefreshRequest()) {
+                        activity.recreate();
+                        return;
+                    }
                 }
                 injectPrimaryTabs(activity);
             }
@@ -53,6 +58,16 @@ public final class NPCBrainApplication extends Application {
 
     static DemoActivityV032 currentDemoActivity() {
         return demoActivityRef.get();
+    }
+
+    static void requestDemoRoomRefresh() {
+        demoRoomRefreshRequested = true;
+    }
+
+    private static boolean consumeDemoRoomRefreshRequest() {
+        if (!demoRoomRefreshRequested) return false;
+        demoRoomRefreshRequested = false;
+        return true;
     }
 
     private void injectPrimaryTabs(Activity activity) {
