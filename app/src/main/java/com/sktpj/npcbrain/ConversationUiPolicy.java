@@ -9,6 +9,16 @@ final class ConversationUiPolicy {
                 && currentRoomId.equals(processingRoomId);
     }
 
+    static boolean canSubmitMessage(
+            boolean processing,
+            String processingRoomId,
+            boolean hasQueuedUserMessage
+    ) {
+        if (hasQueuedUserMessage) return false;
+        if (!processing) return true;
+        return processingRoomId == null || processingRoomId.trim().isEmpty();
+    }
+
     static boolean consumesSystemBack(String currentRoomId) {
         return currentRoomId != null;
     }

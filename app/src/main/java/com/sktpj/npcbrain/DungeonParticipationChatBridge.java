@@ -24,6 +24,7 @@ final class DungeonParticipationChatBridge {
     }
 
     static synchronized void install(DemoActivityV032 activity) {
+        ConversationSendQueueBridge.install(activity);
         if (activity == null || activity.isFinishing() || Boolean.TRUE.equals(INSTALLED.get(activity))) return;
         INSTALLED.put(activity, true);
         Handler handler = new Handler(Looper.getMainLooper());
