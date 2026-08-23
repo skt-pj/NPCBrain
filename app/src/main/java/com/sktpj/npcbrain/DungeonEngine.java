@@ -27,6 +27,15 @@ final class DungeonEngine {
     static DungeonState step(
             DungeonState state,
             DungeonPersonalityPolicy.Traits traits,
+            DungeonIntent intent,
+            DungeonPlan plan
+    ) {
+        return stepDetailed(state, traits, intent, plan).state;
+    }
+
+    static DungeonState step(
+            DungeonState state,
+            DungeonPersonalityPolicy.Traits traits,
             DungeonPersonalityPolicy.Direction direction
     ) {
         return stepDetailed(state, traits, direction).state;
@@ -37,8 +46,17 @@ final class DungeonEngine {
             DungeonPersonalityPolicy.Traits traits,
             DungeonIntent intent
     ) {
+        return stepDetailed(state, traits, intent, null);
+    }
+
+    static DungeonStepResult stepDetailed(
+            DungeonState state,
+            DungeonPersonalityPolicy.Traits traits,
+            DungeonIntent intent,
+            DungeonPlan plan
+    ) {
         DungeonPersonalityPolicy.Direction direction = DungeonPersonalityPolicy.choose(
-                state, traits, intent);
+                state, traits, intent, plan);
         return stepDetailed(state, traits, direction);
     }
 
