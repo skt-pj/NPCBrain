@@ -47,6 +47,16 @@ public class DungeonRosterPolicyTest {
     }
 
     @Test
+    public void laterRegisteredNpcCanEnterAnOpenSlot() {
+        assertEquals(
+                Arrays.asList("npc1", "npc4"),
+                DungeonRosterPolicy.toggle(
+                        Arrays.asList("npc1"),
+                        "npc4",
+                        Arrays.asList("npc1", "npc2", "npc3", "npc4", "npc5")));
+    }
+
+    @Test
     public void emptyRegistryProducesEmptyRoster() {
         assertEquals(
                 Collections.emptyList(),
