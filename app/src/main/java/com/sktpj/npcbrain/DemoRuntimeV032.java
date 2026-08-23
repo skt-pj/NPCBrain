@@ -274,6 +274,7 @@ final class DemoRuntimeV032 {
                 processSpontaneousGroupChain(
                         sourceEventId,
                         npcId,
+                        targetId,
                         message,
                         apiKey,
                         effort,
@@ -306,6 +307,7 @@ final class DemoRuntimeV032 {
     private void processSpontaneousGroupChain(
             String sourceEventId,
             String initialSenderId,
+            String initialTargetId,
             JSONObject initialMessage,
             String apiKey,
             String effort,
@@ -317,7 +319,10 @@ final class DemoRuntimeV032 {
 
         while (SpontaneousMessagePolicy.canContinueGroupChain(generatedMessages)) {
             List<String> activeNpcIds = npcRegistry.activeNpcIds();
-            String recipientId = SpontaneousMessagePolicy.nextNpc(senderId, activeNpcIds);
+            String recipientId = generatedMessages == 1
+                    ? SpontaneousMessagePolicy.firstRecipient(
+                            initialSenderId, initialTargetId, activeNpcIds)
+                    : SpontaneousMessagePolicy.nextNpc(senderId, activeNpcIds);
             if (recipientId.isEmpty() || !activeNpcIds.contains(recipientId)) return;
             WorldEvent receipt = worldRuntime.attachIncomingMessageEvent(ROOM_GROUP, currentMessage);
             if (receipt == null) return;
