@@ -56,15 +56,16 @@ final class DungeonMindStore {
     }
 
     private static final String PREFS = "npcbrain_dungeon_mind_v1";
+    private final Context appContext;
     private final SharedPreferences preferences;
 
     DungeonMindStore(Context context) {
-        preferences = context.getApplicationContext()
-                .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        appContext = context.getApplicationContext();
+        preferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
     synchronized void save(String npcId, Snapshot snapshot) {
-        if (snapshot == null) return;
+        if (snapshot == null || isDead(npcId)) return;
         JSONObject root = new JSONObject();
         try {
             root.put("intent", snapshot.intent == null
@@ -98,8 +99,19 @@ final class DungeonMindStore {
         }
     }
 
+    synchronized void clear(String npcId) {
+        preferences.edit().remove(key(npcId)).commit();
+    }
+
     static String key(String npcId) {
         return "npc2".equals(npcId) ? "npc2_mind" : "npc1_mind";
+    }
+
+    private boolean isDead(String npcId) {
+        Context characterContext = "npc2".equals(npcId)
+                ? new NpcStorageContext(appContext, "npc2")
+                : appContext;
+        return new CharacterStateStore(characterContext).isDead();
     }
 
     private static String safe(String value, String fallback) {
