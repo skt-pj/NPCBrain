@@ -1,0 +1,37 @@
+package com.sktpj.npcbrain;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+final class PrimaryNavigationPolicy {
+    static final String CONVERSATION = "conversation";
+    static final String STATUS = "status";
+    static final String DUNGEON = "dungeon";
+    static final String CODEX = "codex";
+    static final String MANAGER = "manager";
+
+    private static final List<String> IDS = Collections.unmodifiableList(Arrays.asList(
+            CONVERSATION, STATUS, DUNGEON, CODEX, MANAGER));
+    private static final List<String> LABELS = Collections.unmodifiableList(Arrays.asList(
+            "会話", "NPC状況", "ダンジョン", "図鑑", "NPC管理"));
+
+    private PrimaryNavigationPolicy() {}
+
+    static List<String> destinationIds() {
+        return IDS;
+    }
+
+    static List<String> labels() {
+        return LABELS;
+    }
+
+    static String labelFor(String id) {
+        int index = IDS.indexOf(id);
+        return index < 0 ? "" : LABELS.get(index);
+    }
+
+    static boolean isDestination(String id) {
+        return IDS.contains(id);
+    }
+}
