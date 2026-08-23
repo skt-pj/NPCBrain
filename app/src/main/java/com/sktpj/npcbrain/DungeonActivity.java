@@ -38,29 +38,34 @@ public final class DungeonActivity extends Activity {
         @Override
         public void run() {
             if (!running) return;
-            if (!paused) advanceTurn();
+            if (!paused && !objectiveComplete()) advanceTurn();
             scheduleNextTurn();
         }
     };
 
     private DungeonStore dungeonStore;
     private DungeonMindStore mindStore;
+    private DungeonObjectiveStore objectiveStore;
     private DungeonBrainRuntime brainRuntime;
     private SecureApiKeyStore apiKeyStore;
     private ModelSettingsStore modelSettingsStore;
 
     private String selectedNpcId = "npc1";
     private DungeonState state;
+    private DungeonObjective objective = DungeonObjective.none();
+    private DungeonPlan currentPlan;
     private DungeonIntent currentIntent;
     private DungeonMindStore.Snapshot mindSnapshot;
-    private DungeonCognitionGate.Signal lastSignal;
-    private int lastBrainTurn;
+    private DungeonProgressMonitor.Snapshot progressSnapshot;
+    private int lastBrainPlanTurn = -1;
 
     private DungeonBoardView boardView;
     private TextView titleStatusView;
     private TextView metricsView;
     private ProgressBar hpBar;
     private TextView brainBadgeView;
+    private TextView objectiveView;
+    private TextView planView;
     private TextView intentView;
     private TextView summaryView;
     private TextView actionView;
@@ -89,6 +94,7 @@ public final class DungeonActivity extends Activity {
         configureWindow();
         dungeonStore = new DungeonStore(this);
         mindStore = new DungeonMindStore(this);
+        objectiveStore = new DungeonObjectiveStore(this);
         brainRuntime = new DungeonBrainRuntime(this);
         apiKeyStore = new SecureApiKeyStore(this);
         modelSettingsStore = new ModelSettingsStore(this);
@@ -102,18 +108,6 @@ public final class DungeonActivity extends Activity {
         running = true;
         handler.removeCallbacks(turnTask);
         scheduleNextTurn();
-        if (state != null) {
-            String reason = currentIntent == null || !currentIntent.isBrain()
-                    ? DungeonCognitionGate.FLOOR_START
-                    : DungeonCognitionGate.reason(lastSignal,
-                    DungeonCognitionGate.snapshot(state), lastBrainTurn);
-            if (reason == null || reason.isEmpty()) {
-                if (state.turn - lastBrainTurn >= DungeonCognitionGate.PERIODIC_TURNS) {
-                    reason = DungeonCognitionGate.PERIODIC;
-                }
-            }
-            if (reason != null && !reason.isEmpty()) requestBrain(reason);
-        }
     }
 
     @Override
@@ -244,20 +238,40 @@ public final class DungeonActivity extends Activity {
         mindPanel.setPadding(dp(12), dp(9), dp(12), dp(10));
         mindPanel.setBackground(cardBackground(Color.rgb(12, 20, 31), Color.rgb(35, 55, 76), 14));
 
+        objectiveView = new TextView(this);
+        objectiveView.setTextColor(Color.rgb(232, 240, 250));
+        objectiveView.setTextSize(13);
+        objectiveView.setTypeface(Typeface.DEFAULT_BOLD);
+        mindPanel.addView(objectiveView);
+
+        planView = new TextView(this);
+        planView.setTextColor(Color.rgb(159, 186, 216));
+        planView.setTextSize(11);
+        planView.setMaxLines(2);
+        LinearLayout.LayoutParams planParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        planParams.topMargin = dp(3);
+        mindPanel.addView(planView, planParams);
+
         intentView = new TextView(this);
         intentView.setTextColor(Color.rgb(224, 237, 252));
-        intentView.setTextSize(14);
+        intentView.setTextSize(13);
         intentView.setTypeface(Typeface.DEFAULT_BOLD);
-        mindPanel.addView(intentView);
+        LinearLayout.LayoutParams intentParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        intentParams.topMargin = dp(4);
+        mindPanel.addView(intentView, intentParams);
 
         summaryView = new TextView(this);
-        summaryView.setTextColor(Color.rgb(159, 186, 216));
-        summaryView.setTextSize(11);
+        summaryView.setTextColor(Color.rgb(144, 170, 199));
+        summaryView.setTextSize(10);
         summaryView.setMaxLines(2);
         LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
-        summaryParams.topMargin = dp(3);
+        summaryParams.topMargin = dp(2);
         mindPanel.addView(summaryView, summaryParams);
 
         actionView = new TextView(this);
@@ -270,10 +284,24 @@ public final class DungeonActivity extends Activity {
         actionParams.topMargin = dp(4);
         mindPanel.addView(actionView, actionParams);
 
+        LinearLayout goalControls = new LinearLayout(this);
+        goalControls.setOrientation(LinearLayout.HORIZONTAL);
+        goalControls.setGravity(Gravity.CENTER);
+        goalControls.setPadding(0, dp(8), 0, 0);
+        Button objectiveButton = controlButton("目的設定");
+        objectiveButton.setOnClickListener(v -> showObjectiveDialog());
+        goalControls.addView(objectiveButton, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        Button mindButton = controlButton("脳内を見る");
+        mindButton.setOnClickListener(v -> showMindDialog());
+        LinearLayout.LayoutParams mindParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        mindParams.leftMargin = dp(7);
+        goalControls.addView(mindButton, mindParams);
+        mindPanel.addView(goalControls);
+
         LinearLayout controls = new LinearLayout(this);
         controls.setOrientation(LinearLayout.HORIZONTAL);
         controls.setGravity(Gravity.CENTER);
-        controls.setPadding(0, dp(8), 0, 0);
+        controls.setPadding(0, dp(7), 0, 0);
         pauseButton = controlButton("一時停止");
         pauseButton.setOnClickListener(v -> togglePause());
         controls.addView(pauseButton, new LinearLayout.LayoutParams(0, dp(48), 1f));
@@ -282,11 +310,6 @@ public final class DungeonActivity extends Activity {
         LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
         speedParams.leftMargin = dp(7);
         controls.addView(speedButton, speedParams);
-        Button mindButton = controlButton("脳内を見る");
-        mindButton.setOnClickListener(v -> showMindDialog());
-        LinearLayout.LayoutParams mindParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
-        mindParams.leftMargin = dp(7);
-        controls.addView(mindButton, mindParams);
         mindPanel.addView(controls);
         root.addView(mindPanel);
         return root;
@@ -300,7 +323,8 @@ public final class DungeonActivity extends Activity {
         npc1Button.setBackground(selectorBackground("npc1".equals(npcId)));
         npc2Button.setBackground(selectorBackground("npc2".equals(npcId)));
         loadSelectedNpc();
-        if (running) requestBrain(DungeonCognitionGate.FLOOR_START);
+        handler.removeCallbacks(turnTask);
+        scheduleNextTurn();
     }
 
     private void loadSelectedNpc() {
@@ -314,46 +338,80 @@ public final class DungeonActivity extends Activity {
         DungeonPerception.refreshExploration(state);
         dungeonStore.save(selectedNpcId, state);
 
+        objective = objectiveStore.load(selectedNpcId);
         mindSnapshot = mindStore.load(selectedNpcId);
+        DungeonPlan storedPlan = mindSnapshot == null ? null : mindSnapshot.plan;
+        currentPlan = storedPlan != null && storedPlan.matches(objective) ? storedPlan : null;
+
         if (mindSnapshot != null && mindSnapshot.intent != null
                 && mindSnapshot.intent.floor == state.floor) {
             currentIntent = mindSnapshot.intent;
             brainState = mindSnapshot.brainState;
             brainError = mindSnapshot.error;
-            lastBrainTurn = currentIntent.turn;
         } else {
             currentIntent = DungeonIntent.localFallback(state, currentTraits(), "初期評価");
             brainState = DungeonMindStore.STATE_LOCAL;
             brainError = "";
-            mindSnapshot = new DungeonMindStore.Snapshot(
-                    currentIntent, new JSONArray(), new JSONObject(),
-                    brainState, "", System.currentTimeMillis());
         }
-        lastSignal = DungeonCognitionGate.snapshot(state);
+
+        if (objective.isActive() && currentPlan == null) {
+            currentPlan = DungeonPlan.local(objective, currentTraits(), state, "保存計画なし");
+            brainState = DungeonMindStore.STATE_LOCAL;
+        }
+        if (!objective.isActive()) currentPlan = null;
+        if (currentPlan != null && DungeonPlan.SOURCE_BRAIN.equals(currentPlan.source)) {
+            lastBrainPlanTurn = currentPlan.createdTurn;
+        } else {
+            lastBrainPlanTurn = -1;
+        }
+        progressSnapshot = DungeonProgressMonitor.initial(state);
+        saveMindSnapshotPreservingTrace();
         render();
     }
 
     private void advanceTurn() {
-        if (state == null) return;
+        if (state == null || objectiveComplete()) return;
+        DungeonPersonalityPolicy.Traits traits = currentTraits();
+        if (objective.isActive() && (currentPlan == null || !currentPlan.matches(objective))) {
+            currentPlan = DungeonPlan.local(objective, traits, state, "計画補完");
+        }
+        currentIntent = DungeonIntent.localFallback(state, traits, "持続計画をローカル実行");
         int oldFloor = state.floor;
-        DungeonStepResult result = DungeonEngine.stepDetailed(state, currentTraits(), currentIntent);
+        DungeonStepResult result = DungeonEngine.stepDetailed(
+                state,
+                traits,
+                currentIntent,
+                currentPlan);
         state = result.state;
         DungeonPerception.refreshExploration(state);
         dungeonStore.save(selectedNpcId, state);
 
         if (state.floor != oldFloor) {
-            currentIntent = DungeonIntent.localFallback(state, currentTraits(), "新しい階を観察中");
-            brainState = DungeonMindStore.STATE_LOCAL;
-            brainError = "";
+            currentIntent = DungeonIntent.localFallback(state, traits, "新しい階をローカル探索");
+            if (boardView != null) boardView.clearEffects();
         }
 
-        DungeonCognitionGate.Signal signal = DungeonCognitionGate.snapshot(state);
-        String reason = DungeonCognitionGate.reason(lastSignal, signal, lastBrainTurn);
-        lastSignal = signal;
+        DungeonProgressMonitor.Result progress = DungeonProgressMonitor.observe(
+                progressSnapshot,
+                state,
+                lastBrainPlanTurn);
+        progressSnapshot = progress.snapshot;
+
         render();
         boardView.playCombatEvents(result.events);
         performCombatHaptics(result.events);
-        if (!reason.isEmpty()) requestBrain(reason);
+
+        if (objectiveComplete()) {
+            pendingTrigger = "";
+            persistCurrent();
+            handler.removeCallbacks(turnTask);
+            render();
+            return;
+        }
+        if (objective.isActive() && progress.shouldReplan) {
+            lastBrainPlanTurn = state.turn;
+            requestBrain(DungeonCognitionGate.PROGRESS_STALLED);
+        }
     }
 
     private void performCombatHaptics(List<DungeonCombatEvent> events) {
@@ -380,11 +438,12 @@ public final class DungeonActivity extends Activity {
     }
 
     private void requestBrain(String triggerReason) {
-        if (state == null || triggerReason == null || triggerReason.isEmpty()) return;
+        if (state == null
+                || !DungeonCognitionGate.isStrategyTrigger(triggerReason)
+                || !objective.isActive()
+                || objectiveComplete()) return;
         if (brainThinking) {
-            if (!DungeonCognitionGate.PERIODIC.equals(triggerReason)) {
-                pendingTrigger = DungeonCognitionGate.mergePending(pendingTrigger, triggerReason);
-            }
+            pendingTrigger = DungeonCognitionGate.mergePending(pendingTrigger, triggerReason);
             return;
         }
 
@@ -415,7 +474,11 @@ public final class DungeonActivity extends Activity {
         final String npcId = selectedNpcId;
         final int floor = captured.floor;
         final int turn = captured.turn;
+        final DungeonObjective requestedObjective = objective;
+        final DungeonPlan existingPlan = currentPlan;
+        final DungeonPersonalityPolicy.Traits requestedTraits = currentTraits();
         final String effort = modelSettingsStore.reasoningEffort();
+        lastBrainPlanTurn = state.turn;
         brainThinking = true;
         activeBrainNpcId = npcId;
         activeBrainFloor = floor;
@@ -433,6 +496,8 @@ public final class DungeonActivity extends Activity {
                         triggerReason,
                         apiKey,
                         effort,
+                        requestedObjective,
+                        existingPlan,
                         new DungeonBrainRuntime.Listener() {
                             @Override
                             public void onStageStarted(
@@ -442,7 +507,7 @@ public final class DungeonActivity extends Activity {
                                     int total
                             ) {
                                 runOnUiThread(() -> {
-                                    if (!npcId.equals(activeBrainNpcId) || floor != activeBrainFloor) return;
+                                    if (!npcId.equals(activeBrainNpcId)) return;
                                     markStageStarted(stageId, stageLabel, current, total);
                                     renderMindDialogIfOpen();
                                 });
@@ -460,7 +525,7 @@ public final class DungeonActivity extends Activity {
                                     String personalityEffect
                             ) {
                                 runOnUiThread(() -> {
-                                    if (!npcId.equals(activeBrainNpcId) || floor != activeBrainFloor) return;
+                                    if (!npcId.equals(activeBrainNpcId)) return;
                                     markStageCompleted(
                                             stageId, stageLabel, current, total,
                                             summary, confidence, salientFacts, personalityEffect,
@@ -469,22 +534,46 @@ public final class DungeonActivity extends Activity {
                                 });
                             }
                         });
-                runOnUiThread(() -> finishBrainSuccess(npcId, floor, turn, result));
+                runOnUiThread(() -> finishBrainSuccess(
+                        npcId,
+                        floor,
+                        turn,
+                        requestedObjective,
+                        requestedTraits,
+                        captured,
+                        result));
             } catch (Exception error) {
                 String message = error.getMessage() == null ? error.toString() : error.getMessage();
-                runOnUiThread(() -> finishBrainFailure(npcId, floor, message));
+                runOnUiThread(() -> finishBrainFailure(
+                        npcId,
+                        floor,
+                        requestedObjective,
+                        message));
             }
-        }, "npcbrain-v049-dungeon-brain").start();
+        }, "npcbrain-v0411-dungeon-plan").start();
     }
 
     private void finishBrainSuccess(
             String npcId,
-            int floor,
+            int requestedFloor,
             int requestedTurn,
+            DungeonObjective requestedObjective,
+            DungeonPersonalityPolicy.Traits requestedTraits,
+            DungeonState captured,
             DungeonBrainRuntime.Result result
     ) {
+        DungeonObjective storedObjective = objectiveStore.load(npcId);
+        boolean objectiveStillMatches = sameObjective(storedObjective, requestedObjective)
+                && storedObjective.isActive();
+        DungeonPlan plan = DungeonPlan.fromBrain(
+                requestedObjective,
+                requestedTraits,
+                captured,
+                result.intent,
+                result.publicSummary);
         DungeonMindStore.Snapshot snapshot = new DungeonMindStore.Snapshot(
                 result.intent,
+                plan,
                 result.trace,
                 result.cognitiveGraph,
                 DungeonMindStore.STATE_BRAIN,
@@ -494,30 +583,44 @@ public final class DungeonActivity extends Activity {
         boolean sameSelectedNpc = npcId.equals(selectedNpcId);
         boolean applies = sameSelectedNpc
                 && state != null
-                && state.floor == floor;
-        if (!sameSelectedNpc || applies) {
+                && objectiveStillMatches
+                && sameObjective(objective, requestedObjective)
+                && !objectiveComplete();
+        if (objectiveStillMatches && (!sameSelectedNpc || applies)) {
             mindStore.save(npcId, snapshot);
         }
         if (applies) {
             mindSnapshot = snapshot;
-            currentIntent = result.intent;
+            currentPlan = plan;
+            currentIntent = DungeonIntent.localFallback(
+                    state,
+                    currentTraits(),
+                    "Brain計画をローカル実行");
             brainState = DungeonMindStore.STATE_BRAIN;
             brainError = "";
-            lastBrainTurn = Math.max(requestedTurn, state.turn);
+            lastBrainPlanTurn = Math.max(requestedTurn, state.turn);
+            progressSnapshot = DungeonProgressMonitor.initial(state);
         }
-        completeBrainRequest(npcId, floor);
+        completeBrainRequest(npcId, requestedFloor);
     }
 
-    private void finishBrainFailure(String npcId, int floor, String error) {
+    private void finishBrainFailure(
+            String npcId,
+            int floor,
+            DungeonObjective requestedObjective,
+            String error
+    ) {
         boolean applies = npcId.equals(selectedNpcId)
                 && state != null
-                && state.floor == floor;
+                && sameObjective(objective, requestedObjective)
+                && objective.isActive()
+                && !objectiveComplete();
         if (applies) applyLocalFallback(error == null ? "Brain失敗" : compactError(error));
         completeBrainRequest(npcId, floor);
     }
 
     private void completeBrainRequest(String npcId, int floor) {
-        if (npcId.equals(activeBrainNpcId) && floor == activeBrainFloor) {
+        if (npcId.equals(activeBrainNpcId)) {
             brainThinking = false;
             activeBrainNpcId = "";
             activeBrainFloor = -1;
@@ -526,17 +629,26 @@ public final class DungeonActivity extends Activity {
         renderMindDialogIfOpen();
         String pending = pendingTrigger;
         pendingTrigger = "";
-        if (!pending.isEmpty() && running) requestBrain(pending);
+        if (!pending.isEmpty()
+                && running
+                && objective.isActive()
+                && !objectiveComplete()) {
+            requestBrain(pending);
+        }
     }
 
     private void applyLocalFallback(String reason) {
         if (state == null) return;
         currentIntent = DungeonIntent.localFallback(state, currentTraits(), reason);
+        if (objective.isActive() && (currentPlan == null || !currentPlan.matches(objective))) {
+            currentPlan = DungeonPlan.local(objective, currentTraits(), state, reason);
+        }
         brainState = DungeonMindStore.STATE_LOCAL;
         brainError = reason == null ? "" : reason;
-        lastBrainTurn = state.turn;
+        lastBrainPlanTurn = state.turn;
         mindSnapshot = new DungeonMindStore.Snapshot(
                 currentIntent,
+                currentPlan,
                 mindSnapshot == null ? new JSONArray() : mindSnapshot.trace,
                 mindSnapshot == null ? new JSONObject() : mindSnapshot.cognitiveGraph,
                 brainState,
@@ -544,6 +656,82 @@ public final class DungeonActivity extends Activity {
                 System.currentTimeMillis());
         mindStore.save(selectedNpcId, mindSnapshot);
         render();
+    }
+
+    private void showObjectiveDialog() {
+        String[] choices = {"最上階を目指す (10F)", "目的を解除"};
+        new AlertDialog.Builder(this)
+                .setTitle("ダンジョンの目的")
+                .setItems(choices, (dialog, which) -> {
+                    if (which == 0) setReachTopObjective();
+                    else clearObjective();
+                })
+                .setNegativeButton("キャンセル", null)
+                .show();
+    }
+
+    private void setReachTopObjective() {
+        if (state == null) return;
+        if (objective.isActive()
+                && DungeonObjective.REACH_TOP.equals(objective.type)
+                && objective.targetFloor == DungeonObjective.TOP_FLOOR) {
+            render();
+            return;
+        }
+        objective = DungeonObjective.reachTop(System.currentTimeMillis());
+        objectiveStore.save(selectedNpcId, objective);
+        currentPlan = DungeonPlan.local(objective, currentTraits(), state, "目的設定");
+        currentIntent = DungeonIntent.localFallback(state, currentTraits(), "目的設定");
+        brainState = DungeonMindStore.STATE_LOCAL;
+        brainError = "";
+        pendingTrigger = "";
+        lastBrainPlanTurn = -1;
+        progressSnapshot = DungeonProgressMonitor.initial(state);
+        saveMindSnapshotPreservingTrace();
+        render();
+        handler.removeCallbacks(turnTask);
+        scheduleNextTurn();
+        if (!objectiveComplete()) requestBrain(DungeonCognitionGate.OBJECTIVE_CHANGED);
+    }
+
+    private void clearObjective() {
+        if (!objective.isActive()) return;
+        objective = DungeonObjective.none();
+        objectiveStore.save(selectedNpcId, objective);
+        currentPlan = null;
+        currentIntent = DungeonIntent.localFallback(state, currentTraits(), "目的解除");
+        brainState = DungeonMindStore.STATE_LOCAL;
+        brainError = "";
+        pendingTrigger = "";
+        lastBrainPlanTurn = -1;
+        progressSnapshot = DungeonProgressMonitor.initial(state);
+        saveMindSnapshotPreservingTrace();
+        render();
+        handler.removeCallbacks(turnTask);
+        scheduleNextTurn();
+    }
+
+    private void saveMindSnapshotPreservingTrace() {
+        if (state == null) return;
+        mindSnapshot = new DungeonMindStore.Snapshot(
+                currentIntent,
+                currentPlan,
+                mindSnapshot == null ? new JSONArray() : mindSnapshot.trace,
+                mindSnapshot == null ? new JSONObject() : mindSnapshot.cognitiveGraph,
+                brainState,
+                brainError,
+                System.currentTimeMillis());
+        mindStore.save(selectedNpcId, mindSnapshot);
+    }
+
+    private boolean objectiveComplete() {
+        return state != null && objective != null && objective.isComplete(state.floor);
+    }
+
+    private static boolean sameObjective(DungeonObjective a, DungeonObjective b) {
+        DungeonObjective left = a == null ? DungeonObjective.none() : a;
+        DungeonObjective right = b == null ? DungeonObjective.none() : b;
+        return left.type.equals(right.type) && left.targetFloor == right.targetFloor;
     }
 
     private void togglePause() {
@@ -561,11 +749,14 @@ public final class DungeonActivity extends Activity {
 
     private void scheduleNextTurn() {
         handler.removeCallbacks(turnTask);
-        if (running) handler.postDelayed(turnTask, TURN_INTERVALS[speedIndex]);
+        if (running && !objectiveComplete()) {
+            handler.postDelayed(turnTask, TURN_INTERVALS[speedIndex]);
+        }
     }
 
     private void persistCurrent() {
         if (state != null) dungeonStore.save(selectedNpcId, state);
+        if (objective != null) objectiveStore.save(selectedNpcId, objective);
         if (mindSnapshot != null) mindStore.save(selectedNpcId, mindSnapshot);
     }
 
@@ -586,18 +777,39 @@ public final class DungeonActivity extends Activity {
                 + "   ·   階段 " + (DungeonPerception.stairsKnown(state) ? "発見" : "未発見"));
 
         renderBrainBadge();
+        if (objectiveComplete()) {
+            objectiveView.setText("目的: 達成 · " + objective.label());
+        } else {
+            objectiveView.setText("目的: " + objective.label());
+        }
+
+        if (isThinkingSelected()) {
+            planView.setText("計画: 10段階Brainで再計画中。移動はローカル実行を継続");
+        } else if (currentPlan != null) {
+            String sourceLabel = DungeonPlan.SOURCE_BRAIN.equals(currentPlan.source)
+                    ? "Brain計画" : "Local計画";
+            planView.setText("計画: " + currentPlan.summary + " · " + sourceLabel);
+        } else {
+            planView.setText("計画: 目的未設定。ローカル探索のみ");
+        }
+
         DungeonIntent intent = currentIntent == null
                 ? DungeonIntent.localFallback(state, currentTraits(), "待機") : currentIntent;
-        int confidence = (int) Math.round(intent.confidence * 100.0);
-        intentView.setText("戦術: " + DungeonIntent.modeLabel(intent.mode)
-                + (intent.isBrain() ? "  ·  Brain " + confidence + "%" : "  ·  Local"));
-        String summary = intent.summary;
-        if (isThinkingSelected()) {
-            summary = "10段階認知を更新中。直近の戦術で自律行動を継続します。";
+        String effectiveMode = DungeonPersonalityPolicy.effectiveMode(state, intent);
+        intentView.setText("戦術: " + DungeonIntent.modeLabel(effectiveMode) + " · LOCAL EXECUTION");
+
+        if (objectiveComplete()) {
+            summaryView.setText("10Fへ到達したため自動進行とダンジョンBrain再計画を停止しました。");
+        } else if (isThinkingSelected()) {
+            summaryView.setText("APIは目的変更/進行停滞時だけ使用します。通常turnは端末内で進みます。");
+        } else if (!brainError.isEmpty()) {
+            summaryView.setText("Brain: " + brainError + " · Local planで継続");
+        } else {
+            summaryView.setText("Brain再計画: 目的変更 または 48turn進展なし + 96turn cooldown");
         }
-        if (summary == null || summary.trim().isEmpty()) summary = "状況を評価しています。";
-        summaryView.setText(summary);
-        actionView.setText("直近: " + state.lastAction + (paused ? "   ·   PAUSED" : ""));
+        actionView.setText("直近: " + state.lastAction
+                + (paused ? "   ·   PAUSED" : "")
+                + (objectiveComplete() ? "   ·   GOAL COMPLETE" : ""));
         pauseButton.setText(paused ? "再開" : "一時停止");
         speedButton.setText("速度 " + SPEED_LABELS[speedIndex]);
 
@@ -605,24 +817,25 @@ public final class DungeonActivity extends Activity {
         boardView.setContentDescription(state.floor + "F、HP " + state.hp + "/" + state.maxHp
                 + "、可視敵 " + DungeonPerception.visibleEnemyIds(state).size()
                 + "、階段 " + (DungeonPerception.stairsKnown(state) ? "発見" : "未発見")
+                + "、目的 " + (objectiveComplete() ? "達成" : objective.label())
                 + "、Brain " + brainState);
     }
 
     private void renderBrainBadge() {
         if (isThinkingSelected()) {
-            brainBadgeView.setText("THINKING · 脳内更新");
+            brainBadgeView.setText("PLANNING · 10段階");
             brainBadgeView.setTextColor(Color.rgb(220, 239, 255));
             brainBadgeView.setBackground(cardBackground(
                     Color.rgb(35, 85, 132), Color.rgb(72, 139, 202), 12));
             return;
         }
-        if (DungeonMindStore.STATE_BRAIN.equals(brainState)) {
-            brainBadgeView.setText("BRAIN · ACTIVE");
+        if (currentPlan != null && DungeonPlan.SOURCE_BRAIN.equals(currentPlan.source)) {
+            brainBadgeView.setText("BRAIN PLAN · LOCAL EXEC");
             brainBadgeView.setTextColor(Color.rgb(217, 252, 231));
             brainBadgeView.setBackground(cardBackground(
                     Color.rgb(27, 90, 61), Color.rgb(65, 148, 104), 12));
         } else {
-            brainBadgeView.setText("LOCAL FALLBACK");
+            brainBadgeView.setText("LOCAL PLAN");
             brainBadgeView.setTextColor(Color.rgb(255, 226, 188));
             brainBadgeView.setBackground(cardBackground(
                     Color.rgb(92, 61, 28), Color.rgb(160, 111, 50), 12));
@@ -721,14 +934,13 @@ public final class DungeonActivity extends Activity {
         if (mindDialog == null || mindDialogContent == null) return;
         mindDialogContent.removeAllViews();
         TextView stateNote = new TextView(this);
-        String note;
+        String note = "目的: " + (objectiveComplete() ? "達成 · " : "") + objective.label();
         if (isThinkingSelected()) {
-            note = "10段階の公開用認知診断を更新中。逐語的なchain-of-thoughtではありません。";
-        } else if (DungeonMindStore.STATE_BRAIN.equals(brainState)) {
-            note = "直近のBrain intent: " + DungeonIntent.modeLabel(
-                    currentIntent == null ? DungeonIntent.HOLD : currentIntent.mode);
+            note += "\n10段階の公開用認知診断で持続計画を更新中。逐語的なchain-of-thoughtではありません。";
+        } else if (currentPlan != null) {
+            note += "\n計画: " + currentPlan.summary;
         } else {
-            note = "LOCAL FALLBACK: " + (brainError.isEmpty() ? "Brain未利用" : brainError);
+            note += "\n計画: 目的未設定。ローカル探索中。";
         }
         stateNote.setText(note);
         stateNote.setTextColor(Color.rgb(76, 82, 94));
@@ -815,7 +1027,14 @@ public final class DungeonActivity extends Activity {
     }
 
     private DungeonPersonalityPolicy.Traits currentTraits() {
-        CharacterStateStore character = currentCharacterStore();
+        return traitsForNpc(selectedNpcId);
+    }
+
+    private DungeonPersonalityPolicy.Traits traitsForNpc(String npcId) {
+        Context app = getApplicationContext();
+        Context context = "npc2".equals(npcId)
+                ? new NpcStorageContext(app, "npc2") : app;
+        CharacterStateStore character = new CharacterStateStore(context);
         return new DungeonPersonalityPolicy.Traits(
                 character.traitPercent(CharacterStateStore.extraversionKey()),
                 character.traitPercent(CharacterStateStore.neuroticismKey()),
