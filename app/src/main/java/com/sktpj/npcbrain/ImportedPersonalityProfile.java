@@ -10,6 +10,9 @@ final class ImportedPersonalityProfile {
     final int agreeableness;
     final int conscientiousness;
     final int openness;
+    final String relationshipToUser;
+    final String age;
+    final String background;
 
     ImportedPersonalityProfile(
             String name,
@@ -20,6 +23,25 @@ final class ImportedPersonalityProfile {
             int conscientiousness,
             int openness
     ) {
+        this(name, speechStyle, extraversion, neuroticism, agreeableness,
+                conscientiousness, openness,
+                CharacterStateStore.DEFAULT_RELATIONSHIP,
+                CharacterStateStore.DEFAULT_AGE,
+                CharacterStateStore.DEFAULT_BACKGROUND);
+    }
+
+    ImportedPersonalityProfile(
+            String name,
+            String speechStyle,
+            int extraversion,
+            int neuroticism,
+            int agreeableness,
+            int conscientiousness,
+            int openness,
+            String relationshipToUser,
+            String age,
+            String background
+    ) {
         this.name = name;
         this.speechStyle = speechStyle;
         this.extraversion = extraversion;
@@ -27,6 +49,9 @@ final class ImportedPersonalityProfile {
         this.agreeableness = agreeableness;
         this.conscientiousness = conscientiousness;
         this.openness = openness;
+        this.relationshipToUser = safe(relationshipToUser, CharacterStateStore.DEFAULT_RELATIONSHIP);
+        this.age = safe(age, CharacterStateStore.DEFAULT_AGE);
+        this.background = safe(background, CharacterStateStore.DEFAULT_BACKGROUND);
     }
 
     static ImportedPersonalityProfile fromJson(JSONObject root) {
@@ -49,7 +74,10 @@ final class ImportedPersonalityProfile {
                 trait(traits, "neuroticism"),
                 trait(traits, "agreeableness"),
                 trait(traits, "conscientiousness"),
-                trait(traits, "openness")
+                trait(traits, "openness"),
+                string(root, "relationship_to_user", CharacterStateStore.DEFAULT_RELATIONSHIP),
+                string(root, "age", CharacterStateStore.DEFAULT_AGE),
+                string(root, "background", CharacterStateStore.DEFAULT_BACKGROUND)
         );
     }
 
@@ -63,5 +91,14 @@ final class ImportedPersonalityProfile {
             throw new IllegalArgumentException("Personality JSON trait is invalid: " + key);
         }
         return Math.max(0, Math.min(100, (int) Math.round(number)));
+    }
+
+    private static String string(JSONObject root, String key, String fallback) {
+        Object value = root.opt(key);
+        return value instanceof String ? safe((String) value, fallback) : fallback;
+    }
+
+    private static String safe(String value, String fallback) {
+        return value == null || value.trim().isEmpty() ? fallback : value.trim();
     }
 }
