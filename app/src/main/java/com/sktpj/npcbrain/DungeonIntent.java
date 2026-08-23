@@ -81,18 +81,17 @@ final class DungeonIntent {
             return new DungeonIntent(HOLD, DungeonPersonalityPolicy.Direction.WAIT,
                     "", 1.0, "状態待機", SOURCE_LOCAL, 1, 0);
         }
-        String mode = EXPLORE;
+        boolean stairsKnown = DungeonPerception.stairsKnown(state);
+        String mode = stairsKnown ? SEEK_STAIRS : EXPLORE;
         int visibleEnemyDistance = DungeonPerception.nearestVisibleEnemyDistance(
                 state, state.playerX, state.playerY);
         double hpRate = state.maxHp <= 0 ? 0.0 : state.hp / (double) state.maxHp;
         if (hpRate <= 0.30 && visibleEnemyDistance < 999) {
             mode = EVADE;
-        } else if (visibleEnemyDistance == 1) {
-            double caution = traits == null ? 0.5
-                    : (traits.neuroticism + traits.agreeableness) / 200.0;
-            mode = hpRate <= 0.45 && caution >= 0.65 ? EVADE : ENGAGE;
-        } else if (DungeonPerception.stairsKnown(state)) {
-            mode = SEEK_STAIRS;
+        } else if (visibleEnemyDistance == 1 && traits != null) {
+            double boldness = traits.extraversion / 100.0;
+            double caution = (traits.neuroticism + traits.agreeableness) / 200.0;
+            if (boldness >= 0.65 && boldness > caution + 0.10) mode = ENGAGE;
         } else if (visibleEnemyDistance <= 3 && traits != null
                 && traits.extraversion > traits.neuroticism + 15) {
             mode = ENGAGE;
