@@ -60,6 +60,8 @@ public final class NPCBrainApplication extends Application {
             injectDemoTabs((DemoActivityV032) activity);
         } else if (activity instanceof NpcStatusActivity) {
             injectDungeonIntoStatus((NpcStatusActivity) activity);
+        } else if (activity instanceof DungeonActivity) {
+            DungeonGoalInputBridge.install((DungeonActivity) activity);
         }
     }
 
