@@ -117,20 +117,18 @@ public class DungeonProgressPolicyTest {
     }
 
     private static DungeonState frontierState(int hiddenTile) {
-        int width = 7;
+        int width = 12;
         int height = 7;
         int[][] tiles = filled(width, height, DungeonState.WALL);
         boolean[][] visited = new boolean[height][width];
-        tiles[2][2] = DungeonState.FLOOR;
-        tiles[2][3] = DungeonState.FLOOR;
-        tiles[2][4] = DungeonState.FLOOR;
-        visited[2][2] = true;
-        visited[2][3] = true;
-        visited[2][4] = true;
-
-        tiles[1][3] = hiddenTile;
-        tiles[3][3] = hiddenTile;
-        tiles[5][5] = DungeonState.STAIRS;
+        for (int x = 2; x <= 7; x++) {
+            tiles[2][x] = DungeonState.FLOOR;
+            visited[2][x] = true;
+        }
+        // x=8 is six cells from the player and therefore genuinely unobserved.
+        // Its hidden tile type must not change the known frontier route.
+        tiles[2][8] = hiddenTile;
+        tiles[5][10] = DungeonState.STAIRS;
         return new DungeonState(
                 1, 0, width, height, tiles, visited,
                 2, 2, 10, 10, 9L, "", new ArrayList<>());
