@@ -13,6 +13,7 @@ final class DungeonMindStore {
 
     static final class Snapshot {
         final DungeonIntent intent;
+        final DungeonPlan plan;
         final JSONArray trace;
         final JSONObject cognitiveGraph;
         final String brainState;
@@ -27,7 +28,20 @@ final class DungeonMindStore {
                 String error,
                 long updatedTimeMs
         ) {
+            this(intent, null, trace, cognitiveGraph, brainState, error, updatedTimeMs);
+        }
+
+        Snapshot(
+                DungeonIntent intent,
+                DungeonPlan plan,
+                JSONArray trace,
+                JSONObject cognitiveGraph,
+                String brainState,
+                String error,
+                long updatedTimeMs
+        ) {
             this.intent = intent;
+            this.plan = plan;
             this.trace = copyArray(trace);
             this.cognitiveGraph = copyObject(cognitiveGraph);
             this.brainState = safe(brainState, STATE_LOCAL);
@@ -36,6 +50,7 @@ final class DungeonMindStore {
         }
 
         String summary() {
+            if (plan != null && !plan.summary.isEmpty()) return plan.summary;
             return intent == null ? "" : intent.summary;
         }
     }
@@ -54,6 +69,7 @@ final class DungeonMindStore {
         try {
             root.put("intent", snapshot.intent == null
                     ? new JSONObject() : snapshot.intent.toJson());
+            if (snapshot.plan != null) root.put("plan", snapshot.plan.toJson());
             root.put("trace", snapshot.trace);
             root.put("cognitive_graph", snapshot.cognitiveGraph);
             root.put("brain_state", snapshot.brainState);
@@ -71,6 +87,7 @@ final class DungeonMindStore {
             JSONObject root = new JSONObject(raw);
             return new Snapshot(
                     DungeonIntent.fromJson(root.optJSONObject("intent")),
+                    DungeonPlan.fromJson(root.optJSONObject("plan")),
                     root.optJSONArray("trace"),
                     root.optJSONObject("cognitive_graph"),
                     root.optString("brain_state", STATE_LOCAL),

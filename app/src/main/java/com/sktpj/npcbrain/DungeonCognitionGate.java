@@ -14,6 +14,9 @@ final class DungeonCognitionGate {
     static final String TACTICAL_EXPIRED = "tactical_intent_expired";
     static final String PERIODIC = "periodic";
 
+    static final String OBJECTIVE_CHANGED = "objective_changed";
+    static final String PROGRESS_STALLED = "progress_stalled";
+
     static final class Signal {
         final int floor;
         final int turn;
@@ -68,20 +71,28 @@ final class DungeonCognitionGate {
         return "";
     }
 
+    static boolean isStrategyTrigger(String reason) {
+        return OBJECTIVE_CHANGED.equals(reason) || PROGRESS_STALLED.equals(reason);
+    }
+
     static String mergePending(String current, String incoming) {
-        if (incoming == null || incoming.isEmpty()) return current == null ? "" : current;
-        if (current == null || current.isEmpty()) return incoming;
-        return priority(incoming) < priority(current) ? incoming : current;
+        String safeCurrent = current == null ? "" : current;
+        if (incoming == null || incoming.isEmpty()) return safeCurrent;
+        if (PROGRESS_STALLED.equals(incoming)) return safeCurrent;
+        if (safeCurrent.isEmpty()) return incoming;
+        return priority(incoming) < priority(safeCurrent) ? incoming : safeCurrent;
     }
 
     private static int priority(String reason) {
-        if (FLOOR_START.equals(reason)) return 0;
-        if (HP_RISK.equals(reason)) return 1;
-        if (ENEMY_SPOTTED.equals(reason)) return 2;
-        if (STAIRS_SPOTTED.equals(reason)) return 3;
-        if (COMBAT_CHANGE.equals(reason)) return 4;
-        if (TACTICAL_EXPIRED.equals(reason)) return 5;
-        return 6;
+        if (OBJECTIVE_CHANGED.equals(reason)) return 0;
+        if (PROGRESS_STALLED.equals(reason)) return 1;
+        if (FLOOR_START.equals(reason)) return 2;
+        if (HP_RISK.equals(reason)) return 3;
+        if (ENEMY_SPOTTED.equals(reason)) return 4;
+        if (STAIRS_SPOTTED.equals(reason)) return 5;
+        if (COMBAT_CHANGE.equals(reason)) return 6;
+        if (TACTICAL_EXPIRED.equals(reason)) return 7;
+        return 8;
     }
 
     private static boolean containsNew(List<String> current, List<String> previous) {

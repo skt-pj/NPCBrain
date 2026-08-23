@@ -54,6 +54,27 @@ final class DungeonBrainRuntime {
             String reasoningEffort,
             Listener listener
     ) throws Exception {
+        return run(
+                npcId,
+                state,
+                triggerReason,
+                apiKey,
+                reasoningEffort,
+                DungeonObjective.none(),
+                null,
+                listener);
+    }
+
+    Result run(
+            String npcId,
+            DungeonState state,
+            String triggerReason,
+            String apiKey,
+            String reasoningEffort,
+            DungeonObjective objective,
+            DungeonPlan existingPlan,
+            Listener listener
+    ) throws Exception {
         if (state == null) throw new IllegalArgumentException("DungeonState is required");
         Context storageContext = storageContext(npcId);
         OpenAiClient client = new OpenAiClient(appContext, apiKey, reasoningEffort);
@@ -62,7 +83,11 @@ final class DungeonBrainRuntime {
                 new MemoryStore(storageContext),
                 new CharacterStateStore(storageContext));
         JSONArray trace = new JSONArray();
-        JSONObject runtimeJson = DungeonPerception.buildRuntimeJson(state, triggerReason);
+        JSONObject runtimeJson = DungeonPerception.buildRuntimeJson(
+                state,
+                triggerReason,
+                objective,
+                existingPlan);
 
         BrainEngine.Decision decision = engine.thinkDecision(
                 runtimeJson.toString(),
