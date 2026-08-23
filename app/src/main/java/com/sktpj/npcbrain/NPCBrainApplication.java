@@ -18,6 +18,7 @@ public final class NPCBrainApplication extends Application {
                 if (activity instanceof DemoActivityV032) {
                     demoActivityRef = new WeakReference<>((DemoActivityV032) activity);
                 }
+                AppWindowChrome.apply(activity);
                 PrimaryUiCoordinator.onCreated(activity, state);
             }
 
