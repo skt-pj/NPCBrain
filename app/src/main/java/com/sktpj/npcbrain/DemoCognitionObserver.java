@@ -59,11 +59,12 @@ final class DemoCognitionObserver {
     }
 
     private static Snapshot storedSnapshot(Context context, String npcId) {
-        ConversationStore store = new ConversationStore(context.getApplicationContext());
+        Context appContext = context.getApplicationContext();
+        ConversationStore store = new ConversationStore(appContext);
         JSONArray best = new JSONArray();
         JSONObject bestGraph = new JSONObject();
         long bestTime = 0L;
-        for (String roomId : roomsFor(npcId)) {
+        for (String roomId : roomsFor(appContext, npcId)) {
             JSONArray messages = store.messages(roomId);
             for (int i = 0; i < messages.length(); i++) {
                 JSONObject message = messages.optJSONObject(i);
@@ -81,7 +82,7 @@ final class DemoCognitionObserver {
         return new Snapshot(best, bestGraph, false, bestTime);
     }
 
-    private static List<String> roomsFor(String npcId) {
+    private static List<String> roomsFor(Context context, String npcId) {
         List<String> rooms = new ArrayList<>();
         String id;
         try {
@@ -90,7 +91,8 @@ final class DemoCognitionObserver {
             return rooms;
         }
         rooms.add("direct_" + id);
-        if ("npc1".equals(id) || "npc2".equals(id)) rooms.add(DemoRuntimeV032.ROOM_GROUP);
+        List<String> active = new NpcRegistryStore(context).activeNpcIds();
+        if (active.size() >= 2 && active.contains(id)) rooms.add(DemoRuntimeV032.ROOM_GROUP);
         return rooms;
     }
 
