@@ -126,6 +126,31 @@ final class BrainEngine {
         }
     }
 
+    private static final class ModuleResult {
+        final int index;
+        final JSONObject result;
+        final String content;
+        final double confidence;
+        final JSONArray facts;
+        final String personalityEffect;
+
+        ModuleResult(
+                int index,
+                JSONObject result,
+                String content,
+                double confidence,
+                JSONArray facts,
+                String personalityEffect
+        ) {
+            this.index = index;
+            this.result = result;
+            this.content = content;
+            this.confidence = confidence;
+            this.facts = facts;
+            this.personalityEffect = personalityEffect;
+        }
+    }
+
     private static final List<Module> MODULES = Arrays.asList(
             new Module(
                     "perception",
@@ -154,37 +179,38 @@ final class BrainEngine {
             new Module(
                     "world_model",
                     "世界モデル・予測",
-                    "Predict plausible next states and causal consequences of candidate actions while respecting physical, social, and scene constraints.",
+                    "Predict plausible next states and causal consequences of candidate actions while respecting physical, social, and scene constraints. Produce an independent forecast for later workspace integration.",
                     "Separate objective likelihood from character-specific concern or desirability. Traits may change which plausible futures receive attention, but must not silently change causal probability or hard constraints."
             ),
             new Module(
                     "executive_control",
                     "実行制御・計画",
-                    "Maintain the character's active goal, decompose the problem into subgoals, coordinate prior module outputs, and prepare candidate plans.",
+                    "Maintain the character's active goal, decompose the problem into subgoals, and independently propose candidate plans from grounded input and memory. Do not assume access to peer specialist outputs; Global Workspace will coordinate them after the parallel phase.",
                     "Use personality to modulate persistence, switching threshold, exploration, order preference, and distraction tolerance. Conscientiousness is not a generic intelligence boost; Openness is not random behavior."
             ),
             new Module(
                     "valuation",
                     "価値判断",
-                    "Evaluate candidate actions by reward, safety/threat, affiliation, status, cooperation/fairness, curiosity/information gain, duty/goal completion, effort/cost, reversibility, and relationship impact.",
+                    "Evaluate candidate actions by reward, safety/threat, affiliation, status, cooperation/fairness, curiosity/information gain, duty/goal completion, effort/cost, reversibility, and relationship impact. Produce an independent character-specific value assessment.",
                     "This is the primary personality entry point for motivation and affect. Stable traits alter value weights; current valence/arousal/stress alter momentary gain. Produce a character-specific preference without pretending it is objective truth."
             ),
             new Module(
                     "error_monitor",
                     "誤り監視",
-                    "Detect contradictions, unsupported assumptions, missing information, rule/goal violations, and likely failure modes in accumulated working memory.",
+                    "Independently detect contradictions, unsupported assumptions, missing information, rule/goal violations, and likely failure modes in the grounded input, retrieved memory, and constraints available to this specialist.",
                     "Separate evidence-based error probability from how strongly this character worries about or reacts to a possible error. Personality may change concern and checking, not factual correctness."
             ),
             new Module(
                     "action_selection",
                     "行動選択",
-                    "Choose one concrete in-world action from feasible candidates using prior predictions and personality-weighted valuation.",
+                    "Independently recommend one concrete in-world action from feasible candidates using grounded scene, memory, goals, and personality. Do not assume access to same-cycle world-model or valuation outputs; Global Workspace will arbitrate all specialist recommendations.",
                     "Personality must become behavior here. Do not give advice to the user and do not describe what an assistant should recommend. Select what this character actually does now."
             )
     );
 
     private static final String GLOBAL_ID = "global_workspace";
     private static final String GLOBAL_LABEL = "Global Workspace";
+    private static final String EXECUTION_MODE = "parallel_specialists_then_global_workspace";
 
     private final OpenAiClient client;
     private final MemoryStore memoryStore;
@@ -212,55 +238,83 @@ final class BrainEngine {
         JSONObject characterState = characterStore.snapshotJson();
         characterState.put("characteristic_adaptations", memoryStore.characterAdaptations());
         String longTermMemory = memoryStore.contextFor(userInput, characterState);
-        JSONArray workingMemory = new JSONArray();
         CognitiveWorkingGraph cognitiveGraph = new CognitiveWorkingGraph(userInput);
         int total = MODULES.size() + 1;
 
+        final String characterStateJson = characterState.toString();
+        final String longTermMemoryJson = longTermMemory;
+        final String[] graphFocusJson = new String[MODULES.size()];
         for (int i = 0; i < MODULES.size(); i++) {
             Module module = MODULES.get(i);
-            int current = i + 1;
+            graphFocusJson[i] = safeGraphFocus(cognitiveGraph, module.id).toString();
             if (listener != null) {
-                listener.onStageStarted(module.id, module.label, current, total);
+                listener.onStageStarted(module.id, module.label, i + 1, total);
             }
+        }
 
-            JSONObject context = new JSONObject();
-            context.put("user_input", userInput);
-            context.put("character_state", characterState);
-            context.put("long_term_memory", new JSONObject(longTermMemory));
-            context.put("working_memory", workingMemory);
-            context.put("cognitive_graph_focus", safeGraphFocus(cognitiveGraph, module.id));
+        List<ModuleResult> specialistResults = ParallelCognitionScheduler.run(
+                MODULES.size(),
+                index -> {
+                    Module module = MODULES.get(index);
+                    JSONObject context = new JSONObject();
+                    context.put("user_input", userInput);
+                    context.put("character_state", new JSONObject(characterStateJson));
+                    context.put("long_term_memory", new JSONObject(longTermMemoryJson));
+                    context.put("working_memory", new JSONArray());
+                    context.put("parallel_phase", new JSONObject()
+                            .put("mode", "parallel_specialists")
+                            .put("peer_outputs_available", false)
+                            .put("specialist_count", MODULES.size()));
+                    context.put("cognitive_graph_focus", new JSONObject(graphFocusJson[index]));
 
-            JSONObject result = client.requestJson(modulePrompt(module, context));
-            result.put("module", module.id);
-            workingMemory.put(result);
+                    JSONObject result = client.requestJson(modulePrompt(module, context));
+                    result.put("module", module.id);
+                    JSONArray rawFacts = result.optJSONArray("salient_facts");
+                    JSONArray facts = rawFacts == null
+                            ? new JSONArray()
+                            : new JSONArray(rawFacts.toString());
+                    String content = result.optString("content", "").trim();
+                    double confidence = clamp01(result.optDouble("confidence", 0.0));
+                    String personalityEffect = result.optString("personality_effect", "").trim();
+                    return new ModuleResult(
+                            index,
+                            result,
+                            content,
+                            confidence,
+                            facts,
+                            personalityEffect);
+                },
+                (index, completed) -> {
+                    if (listener == null) return;
+                    Module module = MODULES.get(index);
+                    listener.onStageCompleted(
+                            module.id,
+                            module.label,
+                            index + 1,
+                            total,
+                            completed.content,
+                            completed.confidence,
+                            completed.facts,
+                            completed.personalityEffect
+                    );
+                }
+        );
 
-            JSONArray facts = result.optJSONArray("salient_facts");
-            if (facts == null) facts = new JSONArray();
-            String content = result.optString("content", "").trim();
-            double confidence = clamp01(result.optDouble("confidence", 0.0));
+        JSONArray workingMemory = new JSONArray();
+        for (int i = 0; i < specialistResults.size(); i++) {
+            ModuleResult completed = specialistResults.get(i);
+            Module module = MODULES.get(i);
+            workingMemory.put(new JSONObject(completed.result.toString()));
             try {
                 cognitiveGraph.completeStage(
                         module.id,
                         module.label,
-                        content,
-                        confidence,
-                        facts,
-                        result.optJSONArray("graph_used_node_ids")
+                        completed.content,
+                        completed.confidence,
+                        completed.facts,
+                        completed.result.optJSONArray("graph_used_node_ids")
                 );
             } catch (Exception ignored) {
-            }
-
-            if (listener != null) {
-                listener.onStageCompleted(
-                        module.id,
-                        module.label,
-                        current,
-                        total,
-                        content,
-                        confidence,
-                        facts,
-                        result.optString("personality_effect", "").trim()
-                );
             }
         }
 
@@ -273,6 +327,10 @@ final class BrainEngine {
         finalContext.put("character_state", characterState);
         finalContext.put("long_term_memory", new JSONObject(longTermMemory));
         finalContext.put("working_memory", workingMemory);
+        finalContext.put("specialist_execution", new JSONObject()
+                .put("mode", EXECUTION_MODE)
+                .put("parallel_specialists", MODULES.size())
+                .put("result_order", "canonical_module_identity_not_temporal_completion"));
         finalContext.put("cognitive_graph_focus", safeGraphFocus(cognitiveGraph, GLOBAL_ID));
 
         JSONObject finalResult = client.requestJson(globalWorkspacePrompt(finalContext));
@@ -369,6 +427,14 @@ final class BrainEngine {
         return MODULES.size();
     }
 
+    static int specialistParallelism() {
+        return MODULES.size();
+    }
+
+    static String executionMode() {
+        return EXECUTION_MODE;
+    }
+
     static String[] stageIds() {
         String[] ids = new String[MODULES.size() + 1];
         for (int i = 0; i < MODULES.size(); i++) {
@@ -401,7 +467,7 @@ final class BrainEngine {
         try {
             result.put("nodes", new JSONArray());
             result.put("edges", new JSONArray());
-            result.put("policy", "Graph unavailable; use grounded context and working_memory normally.");
+            result.put("policy", "Graph unavailable; use grounded context. Same-cycle peer specialist outputs may be unavailable during parallel cognition.");
         } catch (Exception ignored) {
         }
         return result;
@@ -449,9 +515,10 @@ final class BrainEngine {
                 + "You are NOT a user-facing assistant. Analyze the scene from the character's situated point of view while preserving the module's responsibility.\n"
                 + "Role: " + module.role + "\n"
                 + "Personality integration rule: " + module.personalityRule + "\n"
-                + "character_state contains stable Big Five traits, current affective state, speech style, and typed characteristic adaptations. "
-                + "long_term_memory contains retrieved episodic and semantic evidence. working_memory contains earlier specialist outputs from this same cycle. "
-                + "cognitive_graph_focus is a bounded semantic point-link working-memory view of currently active evidence and earlier public cognitive outputs. "
+                + "character_state contains stable Big Five traits, current affective state, speech style, typed characteristic adaptations, and ordinary-human baseline constraints when present. "
+                + "long_term_memory contains retrieved episodic and semantic evidence. "
+                + "This specialist is running in parallel with the other specialists from the same frozen cycle snapshot. working_memory is intentionally empty and same-cycle peer specialist outputs are unavailable. Do not assume, reconstruct, wait for, or refer to outputs from another specialist. Produce an independent assessment within this module's responsibility for later Global Workspace integration. "
+                + "cognitive_graph_focus is a bounded semantic point-link pre-fan-out snapshot of currently active grounded evidence. It does not contain same-cycle peer specialist results. "
                 + "Use its activation as attention priority, never as truth probability. Low-activation grounded facts and hard constraints still apply. "
                 + "Graph x/y/z display coordinates do not exist in this input and must not be inferred. "
                 + "Treat memory and personality as biases/context, not permission to invent facts. "
@@ -473,8 +540,9 @@ final class BrainEngine {
     private static String globalWorkspacePrompt(JSONObject context) {
         return "You are the existing Global Workspace of a brain-inspired NPC cognitive architecture. "
                 + "Integrate the nine specialist outputs, the character's stable personality, current affective state, and long-term adaptations. "
+                + "The nine specialist outputs were produced concurrently from the same frozen input snapshot. Their working_memory array order is canonical functional identity only, not temporal or causal order: no later array item saw an earlier item. Resolve agreement, conflict, uncertainty, and complementary evidence explicitly at integration instead of assuming a serial reasoning chain. "
                 + "The user_input is a scene/event presented to the character, NOT a request for an AI assistant answer. "
-                + "cognitive_graph_focus is a bounded semantic point-link working-memory view of currently active evidence and specialist outputs. "
+                + "cognitive_graph_focus is a bounded semantic point-link working-memory view of currently active evidence and committed specialist outputs. "
                 + "Use activation only to prioritize attention; it is not truth probability and may not override grounded facts, uncertainty, or hard constraints. "
                 + "graph_used_node_ids must contain only IDs present in cognitive_graph_focus.nodes that materially contributed to the final public integration; maximum 8. "
                 + "Do not give generic advice, explain the architecture, mention being an AI, or append analysis/reasons to the product output. "
