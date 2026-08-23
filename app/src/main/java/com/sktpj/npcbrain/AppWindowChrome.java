@@ -13,12 +13,19 @@ final class AppWindowChrome {
     static void apply(Activity activity) {
         if (activity == null) return;
         Window window = activity.getWindow();
-        window.setNavigationBarColor(AppUiTheme.NAV_BACKGROUND);
-        if (Build.VERSION.SDK_INT >= 26) {
-            View decor = window.getDecorView();
-            int flags = decor.getSystemUiVisibility();
-            decor.setSystemUiVisibility(flags & ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        window.setStatusBarColor(AppUiTheme.APP_BACKGROUND);
+        window.setNavigationBarColor(AppUiTheme.APP_BACKGROUND);
+
+        View decor = window.getDecorView();
+        int flags = decor.getSystemUiVisibility();
+        if (Build.VERSION.SDK_INT >= 23) {
+            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
         }
+        if (Build.VERSION.SDK_INT >= 26) {
+            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        }
+        decor.setSystemUiVisibility(flags);
+
         if (activity instanceof NpcManagerActivity) {
             hideLegacyPeerBack(activity.findViewById(android.R.id.content));
         }
