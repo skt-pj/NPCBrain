@@ -10,6 +10,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -139,6 +140,10 @@ final class PrimaryUiCoordinator {
     }
 
     private static void styleAndWatchDemoView(View view, boolean insideSurface) {
+        if (view instanceof EditText) {
+            styleConversationInput((EditText) view);
+            return;
+        }
         boolean surface = insideSurface || view.getBackground() != null;
         if (!surface && view instanceof TextView && !(view instanceof Button)) {
             ((TextView) view).setTextColor(AppUiTheme.APP_MUTED);
@@ -155,6 +160,23 @@ final class PrimaryUiCoordinator {
         for (int i = 0; i < group.getChildCount(); i++) {
             styleAndWatchDemoView(group.getChildAt(i), false);
         }
+    }
+
+    private static void styleConversationInput(EditText input) {
+        float density = input.getResources().getDisplayMetrics().density;
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(AppUiTheme.APP_SURFACE);
+        background.setStroke(Math.max(1, Math.round(density)), AppUiTheme.APP_MUTED);
+        background.setCornerRadius(12f * density);
+        input.setBackground(background);
+        input.setTextColor(AppUiTheme.APP_TEXT);
+        input.setHintTextColor(AppUiTheme.APP_MUTED);
+        input.setMinHeight(Math.round(48f * density));
+        input.setPadding(
+                Math.round(14f * density),
+                Math.round(10f * density),
+                Math.round(14f * density),
+                Math.round(10f * density));
     }
 
     private static void hideLegacyNavigationRows(LinearLayout root) {
@@ -220,6 +242,8 @@ final class PrimaryUiCoordinator {
         Intent intent = new Intent(current, target);
         intent.addFlags(PrimaryNavigationPolicy.intentFlags());
         current.startActivity(intent);
+        // Deliberately scoped to the five primary destinations. Dialogs, child screens,
+        // IME and DungeonBoardView effects keep their own Android animations.
         current.overridePendingTransition(0, 0);
     }
 
@@ -322,18 +346,41 @@ final class PrimaryUiCoordinator {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private static List<String> conversationRooms(Activity activity) {
         Object runtime = field(activity, "demoRuntime");
         if (runtime == null) return Collections.emptyList();
         try {
             Method method = runtime.getClass().getDeclaredMethod("roomIds");
             method.setAccessible(true);
-            Object value = method.invoke(runtime);
-            if (value instanceof List) return new ArrayList<>((List<String>) value);
+            return normalizeRoomIds(method.invoke(runtime));
         } catch (Exception ignored) {
+            return Collections.emptyList();
         }
-        return Collections.emptyList();
+    }
+
+    static List<String> normalizeRoomIds(Object value) {
+        List<String> result = new ArrayList<>();
+        if (value instanceof String[]) {
+            for (String item : (String[]) value) addRoomId(result, item);
+            return result;
+        }
+        if (value instanceof Object[]) {
+            for (Object item : (Object[]) value) {
+                if (item instanceof String) addRoomId(result, (String) item);
+            }
+            return result;
+        }
+        if (value instanceof Iterable) {
+            for (Object item : (Iterable<?>) value) {
+                if (item instanceof String) addRoomId(result, (String) item);
+            }
+        }
+        return result;
+    }
+
+    private static void addRoomId(List<String> result, String raw) {
+        String roomId = raw == null ? "" : raw.trim();
+        if (!roomId.isEmpty() && !result.contains(roomId)) result.add(roomId);
     }
 
     private static List<String> archiveNpcIds(Activity activity) {

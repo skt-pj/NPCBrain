@@ -73,7 +73,7 @@ final class DemoRuntimeV032 {
         List<String> rooms = new ArrayList<>();
         List<String> active = npcRegistry.activeNpcIds();
         for (String npcId : active) rooms.add(directRoomForNpc(npcId));
-        if (active.contains("npc1") && active.contains("npc2")) rooms.add(ROOM_GROUP);
+        if (active.size() >= 2) rooms.add(ROOM_GROUP);
         return rooms.toArray(new String[0]);
     }
 
@@ -81,7 +81,15 @@ final class DemoRuntimeV032 {
         String npcId = npcIdFromDirectRoom(roomId);
         if (!npcId.isEmpty()) return displayName(npcId);
         if (ROOM_GROUP.equals(roomId)) {
-            return displayName("npc1") + "・" + displayName("npc2") + "・あなた";
+            List<String> active = npcRegistry.activeNpcIds();
+            if (active.isEmpty()) return "グループ";
+            StringBuilder title = new StringBuilder();
+            for (String id : active) {
+                if (title.length() > 0) title.append("・");
+                title.append(displayName(id));
+            }
+            if (title.length() > 0) title.append("・");
+            return title.append("あなた").toString();
         }
         return "トーク";
     }
@@ -89,7 +97,7 @@ final class DemoRuntimeV032 {
     String roomSubtitle(String roomId) {
         String npcId = npcIdFromDirectRoom(roomId);
         if (!npcId.isEmpty()) return "あなた + " + displayName(npcId);
-        if (ROOM_GROUP.equals(roomId)) return "3人グループ";
+        if (ROOM_GROUP.equals(roomId)) return (npcRegistry.activeNpcIds().size() + 1) + "人グループ";
         return "";
     }
 
@@ -205,7 +213,9 @@ final class DemoRuntimeV032 {
     ) throws Exception {
         String sourceEventId = source.eventId();
         String npcId = source.actorId();
-        if (!SpontaneousMessagePolicy.isTriggerEvent(source.eventType(), npcId)) {
+        List<String> activeNpcIds = npcRegistry.activeNpcIds();
+        if (!SpontaneousMessagePolicy.isTriggerEvent(source.eventType(), npcId)
+                || !activeNpcIds.contains(npcId)) {
             spontaneousStore.markDone(sourceEventId, "not_trigger");
             return;
         }
@@ -213,7 +223,7 @@ final class DemoRuntimeV032 {
         String name = displayName(npcId);
         if (listener != null) listener.onNpcStarted(npcId, name, 1, 1);
         LifeState lifeState = worldRuntime.lifeState(npcId);
-        String prompt = buildSpontaneousEventPrompt(source, npcId, name, lifeState);
+        String prompt = buildSpontaneousEventPrompt(source, npcId, name, lifeState, activeNpcIds);
         BrainRun run = runBrain(npcId, name, prompt, apiKey, effort, listener);
         BrainCommunicationDecision communication = run.decision.communication();
         long now = worldRuntime.now();
@@ -244,8 +254,8 @@ final class DemoRuntimeV032 {
         if (communication.valid()
                 && communication.isSend()
                 && !utterance.isEmpty()
-                && SpontaneousMessagePolicy.isAllowedTarget(npcId, targetId)) {
-            String roomId = SpontaneousMessagePolicy.routeRoom(npcId, targetId);
+                && SpontaneousMessagePolicy.isAllowedTarget(npcId, targetId, activeNpcIds)) {
+            String roomId = SpontaneousMessagePolicy.routeRoom(npcId, targetId, activeNpcIds);
             String messageId = SpontaneousMessagePolicy.initialMessageId(sourceEventId);
             JSONObject message = conversations.appendNpcMessageWithId(
                     messageId,
@@ -264,6 +274,7 @@ final class DemoRuntimeV032 {
                 processSpontaneousGroupChain(
                         sourceEventId,
                         npcId,
+                        targetId,
                         message,
                         apiKey,
                         effort,
@@ -296,6 +307,7 @@ final class DemoRuntimeV032 {
     private void processSpontaneousGroupChain(
             String sourceEventId,
             String initialSenderId,
+            String initialTargetId,
             JSONObject initialMessage,
             String apiKey,
             String effort,
@@ -306,8 +318,12 @@ final class DemoRuntimeV032 {
         JSONObject currentMessage = copy(initialMessage);
 
         while (SpontaneousMessagePolicy.canContinueGroupChain(generatedMessages)) {
-            String recipientId = SpontaneousMessagePolicy.otherNpc(senderId);
-            if (recipientId.isEmpty()) return;
+            List<String> activeNpcIds = npcRegistry.activeNpcIds();
+            String recipientId = generatedMessages == 1
+                    ? SpontaneousMessagePolicy.firstRecipient(
+                            initialSenderId, initialTargetId, activeNpcIds)
+                    : SpontaneousMessagePolicy.nextNpc(senderId, activeNpcIds);
+            if (recipientId.isEmpty() || !activeNpcIds.contains(recipientId)) return;
             WorldEvent receipt = worldRuntime.attachIncomingMessageEvent(ROOM_GROUP, currentMessage);
             if (receipt == null) return;
 
@@ -493,11 +509,12 @@ final class DemoRuntimeV032 {
             WorldEvent source,
             String npcId,
             String displayName,
-            LifeState lifeState
+            LifeState lifeState,
+            List<String> activeNpcIds
     ) {
         JSONObject runtimeContext = new JSONObject();
         JSONArray allowedTargets = new JSONArray();
-        for (String target : SpontaneousMessagePolicy.allowedTargets(npcId)) {
+        for (String target : SpontaneousMessagePolicy.allowedTargets(npcId, activeNpcIds)) {
             allowedTargets.put(target);
         }
         try {
@@ -525,7 +542,7 @@ final class DemoRuntimeV032 {
                 + "For defer or skip, npc_utterance must be empty.";
     }
 
-    private String[] npcParticipants(String roomId) {
+    String[] npcParticipants(String roomId) {
         String directNpcId = npcIdFromDirectRoom(roomId);
         if (!directNpcId.isEmpty()) {
             CharacterStateStore store = characterStore(directNpcId);
@@ -534,10 +551,8 @@ final class DemoRuntimeV032 {
                     : new String[0];
         }
         if (ROOM_GROUP.equals(roomId)) {
-            List<String> participants = new ArrayList<>();
-            if (npcRegistry.activeNpcIds().contains("npc1")) participants.add("npc1");
-            if (npcRegistry.activeNpcIds().contains("npc2")) participants.add("npc2");
-            return participants.toArray(new String[0]);
+            List<String> active = npcRegistry.activeNpcIds();
+            return active.toArray(new String[0]);
         }
         return new String[0];
     }

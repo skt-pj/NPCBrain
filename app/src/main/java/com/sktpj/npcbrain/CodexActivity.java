@@ -13,6 +13,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
 import android.widget.Button;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -135,16 +136,22 @@ public final class CodexActivity extends Activity {
         }
         if (!selectedExists) selectedNpcId = records.get(0).npcId;
 
+        HorizontalScrollView selectorScroll = new HorizontalScrollView(this);
+        selectorScroll.setHorizontalScrollBarEnabled(false);
         LinearLayout selector = new LinearLayout(this);
         selector.setOrientation(LinearLayout.HORIZONTAL);
+        selector.setPadding(0, 0, dp(4), 0);
         for (int i = 0; i < records.size(); i++) {
             NpcArchiveStore.Record record = records.get(i);
             Button button = archiveSelector(record);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(52), 1f);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(132), dp(52));
             if (i > 0) params.leftMargin = dp(8);
             selector.addView(button, params);
         }
-        archiveContent.addView(selector);
+        selectorScroll.addView(selector, new HorizontalScrollView.LayoutParams(
+                HorizontalScrollView.LayoutParams.WRAP_CONTENT,
+                HorizontalScrollView.LayoutParams.WRAP_CONTENT));
+        archiveContent.addView(selectorScroll);
 
         NpcArchiveStore.Record selected = archiveStore.load(selectedNpcId);
         if (selected != null) renderRecord(selected);

@@ -549,7 +549,7 @@ public final class DemoActivityV032 extends Activity {
         processingRoomId = null;
         liveDone = false;
         initializeLiveStages();
-        liveNpcId = "npc1";
+        liveNpcId = firstNpcId(null);
         liveNpcName = demoRuntime.displayName(liveNpcId);
         if (sendButton != null) sendButton.setEnabled(false);
         updateTypingStatus();
@@ -1173,8 +1173,18 @@ public final class DemoActivityV032 extends Activity {
     }
 
     private String firstNpcId(String roomId) {
-        if (DemoRuntimeV032.ROOM_NPC2.equals(roomId)) return "npc2";
-        return "npc1";
+        if (roomId != null && roomId.startsWith("direct_")) {
+            String raw = roomId.substring("direct_".length()).trim();
+            if (!raw.isEmpty()) {
+                try {
+                    String npcId = NpcId.of(raw).value();
+                    if (new NpcRegistryStore(this).activeNpcIds().contains(npcId)) return npcId;
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        java.util.List<String> active = new NpcRegistryStore(this).activeNpcIds();
+        return active.isEmpty() ? "npc1" : active.get(0);
     }
 
     private boolean hasApiKey() {

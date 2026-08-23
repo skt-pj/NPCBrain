@@ -5,6 +5,8 @@ import android.content.Context;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.List;
+
 final class WorldRuntimeV040 {
     private static final String DIRECT_PREFIX = "direct_";
 
@@ -163,13 +165,13 @@ final class WorldRuntimeV040 {
             return new Room(roomId, "direct_chat", "user", directNpcId);
         }
         if (DemoRuntimeV032.ROOM_GROUP.equals(roomId)) {
-            return new Room(
-                    roomId,
-                    "group_chat",
-                    "user",
-                    NpcId.NPC1.value(),
-                    NpcId.NPC2.value()
-            );
+            List<String> activeNpcIds = npcRegistry.activeNpcIds();
+            String[] members = new String[activeNpcIds.size() + 1];
+            members[0] = "user";
+            for (int i = 0; i < activeNpcIds.size(); i++) {
+                members[i + 1] = activeNpcIds.get(i);
+            }
+            return new Room(roomId, "group_chat", members);
         }
         return new Room(roomId, "unknown", "user");
     }
