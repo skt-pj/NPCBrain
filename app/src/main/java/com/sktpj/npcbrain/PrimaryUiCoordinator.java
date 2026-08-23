@@ -8,9 +8,11 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -68,6 +70,7 @@ final class PrimaryUiCoordinator {
         if (!(rootView instanceof LinearLayout)) return;
         LinearLayout root = (LinearLayout) rootView;
 
+        applyShellTheme(activity, root);
         hideLegacyNavigationRows(root);
         ensureContentSpacer(activity, root);
 
@@ -113,6 +116,45 @@ final class PrimaryUiCoordinator {
                 Gravity.BOTTOM);
         content.addView(shell, params);
         shell.requestApplyInsets();
+    }
+
+    private static void applyShellTheme(Activity activity, LinearLayout root) {
+        root.setBackgroundColor(AppUiTheme.APP_BACKGROUND);
+        if (activity instanceof DemoActivityV032) {
+            setTextColor(field(activity, "titleView"), AppUiTheme.APP_TEXT);
+            setTextColor(field(activity, "subtitleView"), AppUiTheme.APP_MUTED);
+            watchDemoTransparentContent(field(activity, "screenContainer"));
+        }
+    }
+
+    private static void setTextColor(Object candidate, int color) {
+        if (candidate instanceof TextView) {
+            ((TextView) candidate).setTextColor(color);
+        }
+    }
+
+    private static void watchDemoTransparentContent(Object candidate) {
+        if (!(candidate instanceof View)) return;
+        styleAndWatchDemoView((View) candidate, false);
+    }
+
+    private static void styleAndWatchDemoView(View view, boolean insideSurface) {
+        boolean surface = insideSurface || view.getBackground() != null;
+        if (!surface && view instanceof TextView && !(view instanceof Button)) {
+            ((TextView) view).setTextColor(AppUiTheme.APP_MUTED);
+        }
+        if (!(view instanceof ViewGroup) || surface) return;
+        ViewGroup group = (ViewGroup) view;
+        group.setOnHierarchyChangeListener(new ViewGroup.OnHierarchyChangeListener() {
+            @Override public void onChildViewAdded(View parent, View child) {
+                styleAndWatchDemoView(child, false);
+            }
+
+            @Override public void onChildViewRemoved(View parent, View child) {}
+        });
+        for (int i = 0; i < group.getChildCount(); i++) {
+            styleAndWatchDemoView(group.getChildAt(i), false);
+        }
     }
 
     private static void hideLegacyNavigationRows(LinearLayout root) {
@@ -168,6 +210,7 @@ final class PrimaryUiCoordinator {
         return drawable;
     }
 
+    @SuppressWarnings("deprecation")
     private static void navigate(Activity current, String destination) {
         if (!PrimaryNavigationPolicy.isDestination(destination)) return;
         if (destination.equals(destinationFor(current))) return;
@@ -175,8 +218,9 @@ final class PrimaryUiCoordinator {
         Class<? extends Activity> target = activityFor(destination);
         if (target == null) return;
         Intent intent = new Intent(current, target);
-        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.addFlags(PrimaryNavigationPolicy.intentFlags());
         current.startActivity(intent);
+        current.overridePendingTransition(0, 0);
     }
 
     private static Class<? extends Activity> activityFor(String destination) {

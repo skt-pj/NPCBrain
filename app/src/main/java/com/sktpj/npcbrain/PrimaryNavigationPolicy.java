@@ -1,5 +1,7 @@
 package com.sktpj.npcbrain;
 
+import android.content.Intent;
+
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -33,5 +35,11 @@ final class PrimaryNavigationPolicy {
 
     static boolean isDestination(String id) {
         return IDS.contains(id);
+    }
+
+    static int intentFlags() {
+        return Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                | Intent.FLAG_ACTIVITY_NO_ANIMATION;
     }
 }

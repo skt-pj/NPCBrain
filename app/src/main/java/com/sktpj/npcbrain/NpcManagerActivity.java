@@ -38,7 +38,7 @@ public final class NpcManagerActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(20), dp(18), dp(24));
-        root.setBackgroundColor(Color.rgb(247, 249, 252));
+        root.setBackgroundColor(AppUiTheme.APP_BACKGROUND);
         root.setFitsSystemWindows(true);
 
         LinearLayout header = new LinearLayout(this);
@@ -52,7 +52,7 @@ public final class NpcManagerActivity extends Activity {
 
         TextView title = new TextView(this);
         title.setText("NPC管理");
-        title.setTextColor(Color.rgb(23, 31, 44));
+        title.setTextColor(AppUiTheme.APP_TEXT);
         title.setTextSize(22);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
@@ -61,7 +61,7 @@ public final class NpcManagerActivity extends Activity {
 
         TextView note = new TextView(this);
         note.setText("関係・年齢・経歴は初回確定時だけ編集できます。名前や人格はあとから変更できます。");
-        note.setTextColor(Color.rgb(96, 108, 124));
+        note.setTextColor(AppUiTheme.APP_MUTED);
         note.setTextSize(13);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
