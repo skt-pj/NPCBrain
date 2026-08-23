@@ -6,6 +6,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
 
 final class DemoCognitionObserver {
     static final class Snapshot {
@@ -21,12 +23,6 @@ final class DemoCognitionObserver {
             this.timeMs = timeMs;
         }
     }
-
-    private static final String[] ROOMS = {
-            DemoRuntimeV032.ROOM_NPC1,
-            DemoRuntimeV032.ROOM_NPC2,
-            DemoRuntimeV032.ROOM_GROUP
-    };
 
     private DemoCognitionObserver() {
     }
@@ -67,7 +63,7 @@ final class DemoCognitionObserver {
         JSONArray best = new JSONArray();
         JSONObject bestGraph = new JSONObject();
         long bestTime = 0L;
-        for (String roomId : ROOMS) {
+        for (String roomId : roomsFor(npcId)) {
             JSONArray messages = store.messages(roomId);
             for (int i = 0; i < messages.length(); i++) {
                 JSONObject message = messages.optJSONObject(i);
@@ -83,6 +79,19 @@ final class DemoCognitionObserver {
             }
         }
         return new Snapshot(best, bestGraph, false, bestTime);
+    }
+
+    private static List<String> roomsFor(String npcId) {
+        List<String> rooms = new ArrayList<>();
+        String id;
+        try {
+            id = NpcId.of(npcId).value();
+        } catch (Exception ignored) {
+            return rooms;
+        }
+        rooms.add("direct_" + id);
+        if ("npc1".equals(id) || "npc2".equals(id)) rooms.add(DemoRuntimeV032.ROOM_GROUP);
+        return rooms;
     }
 
     static JSONObject graphFromTrace(JSONArray trace) {
