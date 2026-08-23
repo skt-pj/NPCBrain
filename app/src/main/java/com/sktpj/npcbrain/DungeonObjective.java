@@ -32,7 +32,7 @@ final class DungeonObjective {
             this.type = REACH_TOP;
             this.targetFloor = TOP_FLOOR;
             this.userText = "最上階を目指す";
-        } else if (isCustomType(type) || (CUSTOM.equals(type) && !normalized.isEmpty())) {
+        } else if (isCustomType(type)) {
             if (normalized.isEmpty()) {
                 this.type = NONE;
                 this.targetFloor = 0;
@@ -64,6 +64,16 @@ final class DungeonObjective {
         String normalized = normalizeUserText(userText);
         if (normalized.isEmpty()) return none();
         return new DungeonObjective(CUSTOM, inferExplicitTargetFloor(normalized), createdTimeMs, normalized);
+    }
+
+    static DungeonObjective customWithTarget(
+            String userText,
+            int targetFloor,
+            long createdTimeMs
+    ) {
+        String normalized = normalizeUserText(userText);
+        if (normalized.isEmpty()) return none();
+        return new DungeonObjective(CUSTOM, targetFloor, createdTimeMs, normalized);
     }
 
     static DungeonObjective fromUserText(String userText, long createdTimeMs) {
@@ -168,9 +178,10 @@ final class DungeonObjective {
     static boolean sameGoal(DungeonObjective a, DungeonObjective b) {
         DungeonObjective left = a == null ? none() : a;
         DungeonObjective right = b == null ? none() : b;
-        return left.type.equals(right.type)
-                && left.targetFloor == right.targetFloor
-                && left.rawUserText().equals(right.rawUserText());
+        if (!left.type.equals(right.type)) return false;
+        if (!left.rawUserText().equals(right.rawUserText())) return false;
+        if (left.isCustom() && right.isCustom()) return true;
+        return left.targetFloor == right.targetFloor;
     }
 
     private static int clampTargetFloor(int value) {
