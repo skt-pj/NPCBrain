@@ -196,8 +196,8 @@ final class DungeonPersonalityPolicy {
 
     static String effectiveMode(DungeonState state, DungeonIntent intent) {
         if (state == null) return DungeonIntent.HOLD;
-        String progressMode = DungeonPerception.stairsKnown(state)
-                ? DungeonIntent.SEEK_STAIRS : DungeonIntent.EXPLORE;
+        boolean stairsKnown = DungeonPerception.stairsKnown(state);
+        String progressMode = stairsKnown ? DungeonIntent.SEEK_STAIRS : DungeonIntent.EXPLORE;
         if (intent == null) return progressMode;
 
         int visibleEnemyDistance = DungeonPerception.nearestVisibleEnemyDistance(
@@ -214,6 +214,12 @@ final class DungeonPersonalityPolicy {
         if (DungeonIntent.HOLD.equals(intent.mode)) {
             boolean oneTurnHold = visibleEnemyDistance < 999 && intentAge <= 1;
             return oneTurnHold ? DungeonIntent.HOLD : progressMode;
+        }
+        if (DungeonIntent.ENGAGE.equals(intent.mode) && visibleEnemyDistance >= 999) {
+            return progressMode;
+        }
+        if (DungeonIntent.SEEK_STAIRS.equals(intent.mode) && !stairsKnown) {
+            return DungeonIntent.EXPLORE;
         }
         return intent.mode;
     }
@@ -320,7 +326,9 @@ final class DungeonPersonalityPolicy {
         for (Direction direction : orderedDirections()) {
             int nx = x + direction.dx;
             int ny = y + direction.dy;
-            if (state.inside(nx, ny) && !state.visited[ny][nx]) return true;
+            if (state.inside(nx, ny)
+                    && !state.visited[ny][nx]
+                    && !DungeonPerception.isVisible(state, nx, ny)) return true;
         }
         return false;
     }
@@ -347,7 +355,9 @@ final class DungeonPersonalityPolicy {
         for (Direction direction : orderedDirections()) {
             int nx = x + direction.dx;
             int ny = y + direction.dy;
-            if (state.inside(nx, ny) && !state.visited[ny][nx]) count++;
+            if (state.inside(nx, ny)
+                    && !state.visited[ny][nx]
+                    && !DungeonPerception.isVisible(state, nx, ny)) count++;
         }
         return count;
     }
