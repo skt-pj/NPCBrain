@@ -5,10 +5,14 @@ import android.content.Context;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.List;
+
 final class DemoRuntimeV032 {
     static final String ROOM_NPC1 = "direct_npc1";
     static final String ROOM_NPC2 = "direct_npc2";
     static final String ROOM_GROUP = "group_user_npc1_npc2";
+    private static final String DIRECT_PREFIX = "direct_";
 
     interface Listener {
         void onNpcStarted(String npcId, String displayName, int current, int total);
@@ -54,22 +58,28 @@ final class DemoRuntimeV032 {
     private final ConversationStore conversations;
     private final WorldRuntimeV040 worldRuntime;
     private final SpontaneousMessageStore spontaneousStore;
+    private final NpcRegistryStore npcRegistry;
 
     DemoRuntimeV032(Context context, ConversationStore conversations) {
         appContext = context.getApplicationContext();
         this.conversations = conversations;
+        npcRegistry = new NpcRegistryStore(appContext);
         worldRuntime = new WorldRuntimeV040(appContext);
         spontaneousStore = new SpontaneousMessageStore(appContext);
         spontaneousStore.initializeBaseline(worldRuntime.events());
     }
 
     String[] roomIds() {
-        return new String[]{ROOM_NPC1, ROOM_NPC2, ROOM_GROUP};
+        List<String> rooms = new ArrayList<>();
+        List<String> active = npcRegistry.activeNpcIds();
+        for (String npcId : active) rooms.add(directRoomForNpc(npcId));
+        if (active.contains("npc1") && active.contains("npc2")) rooms.add(ROOM_GROUP);
+        return rooms.toArray(new String[0]);
     }
 
     String roomTitle(String roomId) {
-        if (ROOM_NPC1.equals(roomId)) return displayName("npc1");
-        if (ROOM_NPC2.equals(roomId)) return displayName("npc2");
+        String npcId = npcIdFromDirectRoom(roomId);
+        if (!npcId.isEmpty()) return displayName(npcId);
         if (ROOM_GROUP.equals(roomId)) {
             return displayName("npc1") + "・" + displayName("npc2") + "・あなた";
         }
@@ -77,16 +87,18 @@ final class DemoRuntimeV032 {
     }
 
     String roomSubtitle(String roomId) {
-        if (ROOM_NPC1.equals(roomId)) return "あなた + " + displayName("npc1");
-        if (ROOM_NPC2.equals(roomId)) return "あなた + " + displayName("npc2");
+        String npcId = npcIdFromDirectRoom(roomId);
+        if (!npcId.isEmpty()) return "あなた + " + displayName(npcId);
         if (ROOM_GROUP.equals(roomId)) return "3人グループ";
         return "";
     }
 
     String displayName(String npcId) {
-        String stored = characterStore(npcId).displayName();
+        String id = NpcId.of(npcId).value();
+        String stored = characterStore(id).displayName();
         if (stored == null || stored.trim().isEmpty() || "NPC".equals(stored.trim())) {
-            return "npc2".equals(npcId) ? "NPC2" : "NPC1";
+            if (id.matches("npc\\d+")) return id.toUpperCase(java.util.Locale.US);
+            return id;
         }
         return stored.trim();
     }
@@ -514,19 +526,40 @@ final class DemoRuntimeV032 {
     }
 
     private String[] npcParticipants(String roomId) {
-        if (ROOM_NPC1.equals(roomId)) return new String[]{"npc1"};
-        if (ROOM_NPC2.equals(roomId)) return new String[]{"npc2"};
-        if (ROOM_GROUP.equals(roomId)) return new String[]{"npc1", "npc2"};
+        String directNpcId = npcIdFromDirectRoom(roomId);
+        if (!directNpcId.isEmpty()) {
+            CharacterStateStore store = characterStore(directNpcId);
+            return npcRegistry.contains(directNpcId) && !store.isDead()
+                    ? new String[]{directNpcId}
+                    : new String[0];
+        }
+        if (ROOM_GROUP.equals(roomId)) {
+            List<String> participants = new ArrayList<>();
+            if (npcRegistry.activeNpcIds().contains("npc1")) participants.add("npc1");
+            if (npcRegistry.activeNpcIds().contains("npc2")) participants.add("npc2");
+            return participants.toArray(new String[0]);
+        }
         return new String[0];
     }
 
     private String directRoomForNpc(String npcId) {
-        return "npc2".equals(npcId) ? ROOM_NPC2 : ROOM_NPC1;
+        return DIRECT_PREFIX + NpcId.of(npcId).value();
+    }
+
+    private String npcIdFromDirectRoom(String roomId) {
+        if (roomId == null || !roomId.startsWith(DIRECT_PREFIX)) return "";
+        String raw = roomId.substring(DIRECT_PREFIX.length()).trim();
+        if (raw.isEmpty()) return "";
+        try {
+            String id = NpcId.of(raw).value();
+            return npcRegistry.contains(id) ? id : "";
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     private Context storageContext(String npcId) {
-        if ("npc2".equals(npcId)) return new NpcStorageContext(appContext, "npc2");
-        return appContext;
+        return NpcContexts.storage(appContext, npcId);
     }
 
     private static String extractQuotedUtterance(String result) {
