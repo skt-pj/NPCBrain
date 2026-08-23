@@ -19,6 +19,16 @@ public final class ConversationUiPolicyTest {
     }
 
     @Test
+    public void chatCanSubmitDuringSpontaneousButNotUserProcessing() {
+        assertTrue(ConversationUiPolicy.canSubmitMessage(false, null, false));
+        assertTrue(ConversationUiPolicy.canSubmitMessage(true, null, false));
+        assertTrue(ConversationUiPolicy.canSubmitMessage(true, "", false));
+        assertFalse(ConversationUiPolicy.canSubmitMessage(true, "room_a", false));
+        assertFalse(ConversationUiPolicy.canSubmitMessage(false, null, true));
+        assertFalse(ConversationUiPolicy.canSubmitMessage(true, null, true));
+    }
+
+    @Test
     public void chatConsumesSystemBackButRoomListDoesNot() {
         assertTrue(ConversationUiPolicy.consumesSystemBack("room_a"));
         assertFalse(ConversationUiPolicy.consumesSystemBack(null));
