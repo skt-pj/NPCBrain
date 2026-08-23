@@ -5,7 +5,6 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
-import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.FrameLayout;
@@ -136,7 +135,6 @@ final class DungeonGameBoyFilterBridge {
                 sourceBitmap = null;
                 sourceCanvas = null;
             }
-            if (!filteredBitmap.isRecycled()) filteredBitmap.recycle();
         }
     }
 }
