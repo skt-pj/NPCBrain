@@ -8,8 +8,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
-import android.view.ViewParent;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -95,8 +93,7 @@ final class PrimaryUiCoordinator {
                 dp(activity, AppUiTheme.NAV_HEIGHT_DP)));
 
         String selected = destinationFor(activity);
-        List<String> ids = PrimaryNavigationPolicy.destinationIds();
-        for (String id : ids) {
+        for (String id : PrimaryNavigationPolicy.destinationIds()) {
             Button button = navigationButton(activity, id, id.equals(selected));
             button.setOnClickListener(v -> navigate(activity, id));
             row.addView(button, new LinearLayout.LayoutParams(
@@ -237,10 +234,12 @@ final class PrimaryUiCoordinator {
             String current = stringField(activity, "currentRoomId");
             if (!desired.isEmpty() && !desired.equals(current)) {
                 invoke(activity, "openRoom", new Class<?>[]{String.class}, desired);
-            } else if (desired.isEmpty() && current != null && !current.isEmpty() && !rooms.contains(current)) {
+            } else if (desired.isEmpty() && !current.isEmpty() && rooms.contains(current)) {
+                desired = current;
+            } else if (desired.isEmpty() && !current.isEmpty()) {
                 invoke(activity, "showRoomList", new Class<?>[0]);
             }
-            store.saveConversationRoomId(desired.isEmpty() ? current : desired);
+            store.saveConversationRoomId(desired);
             return;
         }
         if (activity instanceof NpcStatusActivity) {
