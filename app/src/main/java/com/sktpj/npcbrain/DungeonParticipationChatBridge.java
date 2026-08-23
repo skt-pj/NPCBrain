@@ -51,8 +51,7 @@ final class DungeonParticipationChatBridge {
         ConversationStore conversations = new ConversationStore(context);
         NpcRegistryStore registry = new NpcRegistryStore(context);
         for (String npcId : registry.activeNpcIds()) {
-            boolean legacyGroupMember = "npc1".equals(npcId) || "npc2".equals(npcId);
-            processNpc(context, conversations, npcId, "direct_" + npcId, legacyGroupMember);
+            processNpc(context, conversations, npcId, "direct_" + npcId);
         }
     }
 
@@ -60,17 +59,14 @@ final class DungeonParticipationChatBridge {
             Context context,
             ConversationStore conversations,
             String npcId,
-            String directRoom,
-            boolean includeLegacyGroup
+            String directRoom
     ) {
         SharedPreferences checkpoint = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         String initKey = npcId + "_initialized";
         String timeKey = npcId + "_last_time";
         List<Evidence> evidence = new ArrayList<>();
         collect(conversations.messages(directRoom), npcId, evidence);
-        if (includeLegacyGroup) {
-            collect(conversations.messages(DemoRuntimeV032.ROOM_GROUP), npcId, evidence);
-        }
+        collect(conversations.messages(DemoRuntimeV032.ROOM_GROUP), npcId, evidence);
         evidence.sort(Comparator.comparingLong(item -> item.timeMs));
         long newest = evidence.isEmpty() ? 0L : evidence.get(evidence.size() - 1).timeMs;
 
