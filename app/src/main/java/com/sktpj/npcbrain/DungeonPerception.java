@@ -109,6 +109,7 @@ final class DungeonPerception {
             objectiveJson.put("active", goal.isActive());
             objectiveJson.put("type", goal.kind());
             objectiveJson.put("user_text", goal.rawUserText());
+            objectiveJson.put("target_floor", goal.targetFloor);
             objectiveJson.put("explicit_target_floor", goal.targetFloor);
             objectiveJson.put("current_floor", state.floor);
             objectiveJson.put("completed", goal.isComplete(state.floor));
