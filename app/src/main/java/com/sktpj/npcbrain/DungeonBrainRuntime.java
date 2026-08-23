@@ -155,7 +155,8 @@ final class DungeonBrainRuntime {
         if (intent == null) {
             throw new IllegalStateException("Dungeon Brain returned invalid environment_action");
         }
-        return new Result(intent, trace, decision.cognitiveGraph(), summary);
+        String encodedPlan = DungeonPlan.encodeBrainPayload(decision.dungeonPlan(), summary);
+        return new Result(intent, trace, decision.cognitiveGraph(), encodedPlan);
     }
 
     private Context storageContext(String npcId) {
