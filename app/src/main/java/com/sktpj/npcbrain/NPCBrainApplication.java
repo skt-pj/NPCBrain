@@ -72,6 +72,7 @@ public final class NPCBrainApplication extends Application {
 
     private void installRuntimeBridges(Activity activity) {
         if (activity instanceof DemoActivityV032) {
+            DynamicConversationUiBridge.install(activity);
             DungeonParticipationChatBridge.install((DemoActivityV032) activity);
             return;
         }
