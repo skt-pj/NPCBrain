@@ -22,10 +22,52 @@ import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 final class OpenAiClient {
+    interface UsageListener {
+        void onUsage(Usage usage);
+    }
+
+    interface OutputLimitPolicy {
+        int maxOutputTokens(int logicalRequestOrdinal);
+    }
+
+    static final class Usage {
+        final long inputTokens;
+        final long cachedInputTokens;
+        final long outputTokens;
+        final long totalTokens;
+
+        Usage(long inputTokens, long cachedInputTokens, long outputTokens, long totalTokens) {
+            this.inputTokens = Math.max(0L, inputTokens);
+            this.cachedInputTokens = Math.max(0L, Math.min(this.inputTokens, cachedInputTokens));
+            this.outputTokens = Math.max(0L, outputTokens);
+            long fallbackTotal = safeAdd(this.inputTokens, this.outputTokens);
+            this.totalTokens = totalTokens > 0L ? totalTokens : fallbackTotal;
+        }
+
+        static Usage fromResponse(JSONObject response) {
+            JSONObject usage = response == null ? null : response.optJSONObject("usage");
+            if (usage == null) return new Usage(0L, 0L, 0L, 0L);
+            long input = usage.optLong("input_tokens", 0L);
+            JSONObject inputDetails = usage.optJSONObject("input_tokens_details");
+            long cached = inputDetails == null ? 0L : inputDetails.optLong("cached_tokens", 0L);
+            long output = usage.optLong("output_tokens", 0L);
+            long total = usage.optLong("total_tokens", 0L);
+            return new Usage(input, cached, output, total);
+        }
+
+        private static long safeAdd(long a, long b) {
+            long left = Math.max(0L, a);
+            long right = Math.max(0L, b);
+            return Long.MAX_VALUE - left < right ? Long.MAX_VALUE : left + right;
+        }
+    }
+
     static final String MODEL = "gpt-5.6-luna";
     static final String DEFAULT_REASONING_EFFORT = "max";
+    static final int DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
     private static final URL RESPONSES_URL;
     private static final int CONNECTION_RETRY_PASSES = 2;
@@ -43,15 +85,30 @@ final class OpenAiClient {
     private final Context appContext;
     private final String apiKey;
     private final String reasoningEffort;
+    private final UsageListener usageListener;
+    private final OutputLimitPolicy outputLimitPolicy;
+    private final AtomicInteger logicalRequestOrdinal = new AtomicInteger();
 
     OpenAiClient(Context context, String apiKey) {
         this(context, apiKey, DEFAULT_REASONING_EFFORT);
     }
 
     OpenAiClient(Context context, String apiKey, String reasoningEffort) {
+        this(context, apiKey, reasoningEffort, null, null);
+    }
+
+    OpenAiClient(
+            Context context,
+            String apiKey,
+            String reasoningEffort,
+            UsageListener usageListener,
+            OutputLimitPolicy outputLimitPolicy
+    ) {
         this.appContext = context.getApplicationContext();
         this.apiKey = apiKey;
         this.reasoningEffort = ModelSettingsStore.normalizeReasoningEffort(reasoningEffort);
+        this.usageListener = usageListener;
+        this.outputLimitPolicy = outputLimitPolicy;
     }
 
     String reasoningEffort() {
@@ -59,10 +116,27 @@ final class OpenAiClient {
     }
 
     JSONObject requestJson(String prompt) throws Exception {
+        int ordinal = logicalRequestOrdinal.incrementAndGet();
+        int requestedLimit = outputLimitPolicy == null
+                ? DEFAULT_MAX_OUTPUT_TOKENS
+                : outputLimitPolicy.maxOutputTokens(ordinal);
+        return requestJsonInternal(prompt, normalizeMaxOutputTokens(requestedLimit));
+    }
+
+    JSONObject requestJson(String prompt, int maxOutputTokens) throws Exception {
+        logicalRequestOrdinal.incrementAndGet();
+        return requestJsonInternal(prompt, normalizeMaxOutputTokens(maxOutputTokens));
+    }
+
+    static int normalizeMaxOutputTokens(int value) {
+        return Math.max(1, Math.min(DEFAULT_MAX_OUTPUT_TOKENS, value));
+    }
+
+    private JSONObject requestJsonInternal(String prompt, int maxOutputTokens) throws Exception {
         JSONObject body = new JSONObject();
         body.put("model", MODEL);
         body.put("reasoning", new JSONObject().put("effort", reasoningEffort));
-        body.put("max_output_tokens", 8192);
+        body.put("max_output_tokens", maxOutputTokens);
         body.put("input", prompt);
 
         byte[] request = body.toString().getBytes(StandardCharsets.UTF_8);
@@ -93,9 +167,6 @@ final class OpenAiClient {
                 }
             }
 
-            // Use Android's ordinary selected route. A successful default request also
-            // records the current active Network so the following nine cognitive calls
-            // can reuse the same route instead of rediscovering it each time.
             try {
                 JSONObject result = executeRequest(null, request);
                 rememberActiveNetwork();
@@ -107,9 +178,6 @@ final class OpenAiClient {
                 }
             }
 
-            // Only connection-establishment failures are retried on alternate routes.
-            // Read timeouts / generic I/O failures are not automatically replayed because
-            // the POST may already have reached OpenAI and blind replay could duplicate work.
             for (Network network : candidateNetworks()) {
                 if (network == null || network.equals(preferred)) continue;
                 try {
@@ -159,6 +227,7 @@ final class OpenAiClient {
             }
 
             JSONObject response = new JSONObject(responseText);
+            notifyUsage(Usage.fromResponse(response));
             String outputText = extractOutputText(response);
             if (outputText.isEmpty()) {
                 throw new IllegalStateException("OpenAI API returned no output_text");
@@ -170,6 +239,14 @@ final class OpenAiClient {
             }
         } finally {
             if (connection != null) connection.disconnect();
+        }
+    }
+
+    private void notifyUsage(Usage usage) {
+        if (usageListener == null || usage == null) return;
+        try {
+            usageListener.onUsage(usage);
+        } catch (RuntimeException ignored) {
         }
     }
 
@@ -209,10 +286,6 @@ final class OpenAiClient {
         if (manager == null) return result;
 
         Network active = manager.getActiveNetwork();
-
-        // Prefer validated non-default alternatives first. Active/default has already been
-        // attempted through normal routing, but it is still appended later as an explicit
-        // Network because explicit binding can recover from some process/proxy route issues.
         for (Network network : manager.getAllNetworks()) {
             if (network == null || network.equals(active)) continue;
             if (!hasInternetCapability(manager, network)) continue;

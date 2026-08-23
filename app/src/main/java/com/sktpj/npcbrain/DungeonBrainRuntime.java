@@ -6,6 +6,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 final class DungeonBrainRuntime {
+    static final int SPECIALIST_MAX_OUTPUT_TOKENS = 256;
+    static final int GLOBAL_MAX_OUTPUT_TOKENS = 768;
+
     interface Listener {
         void onStageStarted(String stageId, String stageLabel, int current, int total);
 
@@ -76,8 +79,18 @@ final class DungeonBrainRuntime {
             Listener listener
     ) throws Exception {
         if (state == null) throw new IllegalArgumentException("DungeonState is required");
-        Context storageContext = storageContext(npcId);
-        OpenAiClient client = new OpenAiClient(appContext, apiKey, reasoningEffort);
+        DungeonAiStaminaStore staminaStore = new DungeonAiStaminaStore(appContext);
+        if (staminaStore.snapshot(npcId).exhausted()) {
+            throw new IllegalStateException("AI STAMINA exhausted");
+        }
+
+        Context storageContext = NpcContexts.storage(appContext, npcId);
+        OpenAiClient client = new OpenAiClient(
+                appContext,
+                apiKey,
+                reasoningEffort,
+                usage -> staminaStore.recordUsage(npcId, usage),
+                DungeonBrainRuntime::outputLimitForOrdinal);
         BrainEngine engine = new BrainEngine(
                 client,
                 new MemoryStore(storageContext),
@@ -159,9 +172,9 @@ final class DungeonBrainRuntime {
         return new Result(intent, trace, decision.cognitiveGraph(), encodedPlan);
     }
 
-    private Context storageContext(String npcId) {
-        return "npc2".equals(npcId)
-                ? new NpcStorageContext(appContext, "npc2")
-                : appContext;
+    static int outputLimitForOrdinal(int logicalRequestOrdinal) {
+        return logicalRequestOrdinal <= BrainEngine.moduleCount()
+                ? SPECIALIST_MAX_OUTPUT_TOKENS
+                : GLOBAL_MAX_OUTPUT_TOKENS;
     }
 }
