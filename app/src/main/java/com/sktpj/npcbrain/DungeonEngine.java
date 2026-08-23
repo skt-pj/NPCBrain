@@ -72,15 +72,11 @@ final class DungeonEngine {
             return new DungeonStepResult(generated, events);
         }
         if (state.hp <= 0) {
-            DungeonState restarted = DungeonGenerator.generate(
-                    DungeonGenerator.nextFloorSeed(state.seed, 1),
-                    1,
-                    state.maxHp,
-                    state.maxHp,
-                    state.turn + 1);
-            DungeonPerception.refreshExploration(restarted);
-            restarted.lastAction = "倒れたため1Fから再開";
-            return new DungeonStepResult(restarted, events);
+            state.hp = 0;
+            if (state.lastAction == null || !state.lastAction.contains("死亡")) {
+                state.lastAction = "死亡";
+            }
+            return new DungeonStepResult(state, events);
         }
 
         int floorBefore = state.floor;
@@ -115,7 +111,7 @@ final class DungeonEngine {
         DungeonPerception.refreshExploration(state);
         StringBuilder action = new StringBuilder(playerAction);
         if (damageTaken > 0) action.append(" / ").append(damageTaken).append("ダメージ");
-        if (state.hp <= 0) action.append(" / 倒れた");
+        if (state.hp <= 0) action.append(" / 死亡");
         state.lastAction = action.toString();
         return new DungeonStepResult(state, events);
     }
