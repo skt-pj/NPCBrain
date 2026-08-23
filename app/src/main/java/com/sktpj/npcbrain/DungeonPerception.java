@@ -73,13 +73,28 @@ final class DungeonPerception {
     }
 
     static JSONObject buildRuntimeJson(DungeonState state, String triggerReason) {
+        return buildRuntimeJson(
+                state,
+                triggerReason,
+                DungeonObjective.none(),
+                null);
+    }
+
+    static JSONObject buildRuntimeJson(
+            DungeonState state,
+            String triggerReason,
+            DungeonObjective objective,
+            DungeonPlan existingPlan
+    ) {
         JSONObject root = new JSONObject();
         try {
             root.put("mode", "dungeon_turn");
-            root.put("trigger_reason", triggerReason == null ? "periodic" : triggerReason);
+            root.put("planning_mode", "strategic_replan");
+            root.put("trigger_reason", triggerReason == null ? "objective_changed" : triggerReason);
             if (state == null) return root;
 
             refreshExploration(state);
+            DungeonObjective goal = objective == null ? DungeonObjective.none() : objective;
             root.put("floor", state.floor);
             root.put("turn", state.turn);
             root.put("hp", state.hp);
@@ -90,6 +105,19 @@ final class DungeonPerception {
             root.put("alive_enemy_count", state.aliveEnemyCount());
             root.put("visibility_radius", VISIBLE_RADIUS);
 
+            JSONObject objectiveJson = new JSONObject();
+            objectiveJson.put("type", goal.type);
+            objectiveJson.put("target_floor", goal.targetFloor);
+            objectiveJson.put("current_floor", state.floor);
+            objectiveJson.put("completed", goal.isComplete(state.floor));
+            objectiveJson.put("instruction", goal.isActive()
+                    ? "Reach the top floor while staying alive. Decide a durable strategy, not a move-by-move script."
+                    : "No long-term dungeon objective is active.");
+            root.put("objective", objectiveJson);
+            if (existingPlan != null && existingPlan.matches(goal)) {
+                root.put("existing_plan", existingPlan.toJson());
+            }
+
             JSONObject stairs = new JSONObject();
             boolean known = stairsKnown(state);
             stairs.put("known", known);
@@ -97,6 +125,7 @@ final class DungeonPerception {
                 stairs.put("x", state.stairsX());
                 stairs.put("y", state.stairsY());
                 stairs.put("distance", knownStairDistance(state, state.playerX, state.playerY));
+                stairs.put("known_path_distance", DungeonProgressMonitor.knownStairPathDistance(state));
             }
             root.put("stairs", stairs);
             root.put("visible_enemies", visibleEnemiesJson(state));
@@ -105,7 +134,7 @@ final class DungeonPerception {
             root.put("grounded_progress", groundedProgressJson(state));
             root.put("explored_cell_count", exploredCellCount(state));
             root.put("runtime_contract",
-                    "Use only visible_enemies, visible_cells, explored state, known stairs, grounded_progress and candidate_actions. Never infer hidden map, hidden enemies or undiscovered stairs. The long-term goal is to clear the floor: seek known stairs or continue exploration. Evade and hold are short tactical responses, not indefinite goals; once the immediate visible threat is no longer close, resume grounded_progress. Choose one feasible candidate action. Personality may change attention/value/action preference but may not change observed facts or game rules.");
+                    "Use only the explicit objective, visible_enemies, visible_cells, explored state, known stairs, grounded_progress, existing_plan and candidate_actions. Never infer hidden map, hidden enemies or undiscovered stairs. Think at strategy level for the persistent objective; routine movement, exploration, combat and floor transitions will be executed locally without another API call. Evade and hold are short tactical responses, not indefinite goals. Choose one feasible environment_action that reflects the strategy. Personality may change attention/value/action preference but may not change observed facts or game rules.");
         } catch (Exception ignored) {
         }
         return root;
