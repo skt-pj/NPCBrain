@@ -46,6 +46,20 @@ final class SpontaneousMessagePolicy {
         return DemoRuntimeV032.ROOM_GROUP;
     }
 
+    static String firstRecipient(String actorId, String targetId, List<String> activeNpcIds) {
+        String actor = normalizedNpc(actorId);
+        String target = normalizedNpc(targetId);
+        List<String> active = normalizedActive(activeNpcIds);
+        if (!actor.isEmpty()
+                && !target.isEmpty()
+                && !actor.equals(target)
+                && active.contains(actor)
+                && active.contains(target)) {
+            return target;
+        }
+        return nextNpc(actor, active);
+    }
+
     static String nextNpc(String npcId, List<String> activeNpcIds) {
         String current = normalizedNpc(npcId);
         List<String> active = normalizedActive(activeNpcIds);
