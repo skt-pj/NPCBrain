@@ -18,10 +18,17 @@ public class DungeonRosterPolicyTest {
     }
 
     @Test
-    public void initialUsesFirstThreeActiveRegistryNpcs() {
+    public void initialPreservesLegacyNpc1Npc2WithoutAutoAddingNewNpc() {
         assertEquals(
-                Arrays.asList("npc1", "npc2", "npc3"),
+                Arrays.asList("npc1", "npc2"),
                 DungeonRosterPolicy.initial(Arrays.asList("npc1", "npc2", "npc3", "npc4")));
+    }
+
+    @Test
+    public void initialFallsBackToFirstAvailableWhenLegacyNpcsAreGone() {
+        assertEquals(
+                Collections.singletonList("npc4"),
+                DungeonRosterPolicy.initial(Arrays.asList("npc4", "npc5")));
     }
 
     @Test
