@@ -1,0 +1,70 @@
+name: v0.4.26 runtime patch
+on:
+  push:
+    branches:
+      - feature/v0.4.26-reply-timer-function-calling
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v0.4.26-reply-timer-function-calling
+      - name: Patch DemoRuntimeV032
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('app/src/main/java/com/sktpj/npcbrain/DemoRuntimeV032.java')
+          s = p.read_text()
+
+          old = '''    private static final class BrainRun {\n        final BrainEngine.Decision decision;\n        final JSONArray trace;\n\n        BrainRun(BrainEngine.Decision decision, JSONArray trace) {\n            this.decision = decision;\n            this.trace = trace;\n        }\n    }'''
+          new = '''    private static final class BrainRun {\n        final BrainEngine.Decision decision;\n        final JSONArray trace;\n        final ReplyTimerTask scheduledReplyTimer;\n\n        BrainRun(BrainEngine.Decision decision, JSONArray trace, ReplyTimerTask scheduledReplyTimer) {\n            this.decision = decision;\n            this.trace = trace;\n            this.scheduledReplyTimer = scheduledReplyTimer;\n        }\n    }'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''            BrainRun run = runBrain(npcId, name, prompt, apiKey, effort, listener);\n            String utterance = run.decision.utterance();'''
+          new = '''            BrainRun run = runBrain(npcId, name, prompt, apiKey, effort, listener);\n            if (run.scheduledReplyTimer != null) {\n                conversations.appendNpcRuntimeDecision(\n                        ReplyTimerPolicy.decisionMessageId(run.scheduledReplyTimer, "scheduled"),\n                        roomId,\n                        npcId,\n                        name,\n                        BrainCommunicationDecision.DEFER,\n                        run.scheduledReplyTimer.reason,\n                        worldRuntime.now(),\n                        worldRuntime.messageCauseForNpc(npcId, causeEventId),\n                        run.trace\n                );\n                if (listener != null) listener.onNpcFinished(npcId, name, false);\n                continue;\n            }\n            String utterance = run.decision.utterance();'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''        String directRoom = directRoomForNpc(npcId);\n\n        if (communication.valid()'''
+          new = '''        String directRoom = directRoomForNpc(npcId);\n\n        if (run.scheduledReplyTimer != null) {\n            conversations.appendNpcRuntimeDecision(\n                    ReplyTimerPolicy.decisionMessageId(run.scheduledReplyTimer, "scheduled"),\n                    directRoom,\n                    npcId,\n                    name,\n                    BrainCommunicationDecision.DEFER,\n                    run.scheduledReplyTimer.reason,\n                    now,\n                    outputCauseEventId,\n                    run.trace\n            );\n            spontaneousStore.markDeferred(sourceEventId, run.scheduledReplyTimer.wakeAtMs);\n            if (listener != null) listener.onNpcFinished(npcId, name, false);\n            return;\n        }\n\n        if (communication.valid()'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''            BrainRun run = runBrain(recipientId, recipientName, prompt, apiKey, effort, listener);\n            String cause = worldRuntime.messageCauseForNpc(recipientId, receipt.eventId());\n            String utterance = run.decision.utterance().trim();'''
+          new = '''            BrainRun run = runBrain(recipientId, recipientName, prompt, apiKey, effort, listener);\n            String cause = worldRuntime.messageCauseForNpc(recipientId, receipt.eventId());\n            if (run.scheduledReplyTimer != null) {\n                conversations.appendNpcRuntimeDecision(\n                        ReplyTimerPolicy.decisionMessageId(run.scheduledReplyTimer, "group_scheduled"),\n                        ROOM_GROUP,\n                        recipientId,\n                        recipientName,\n                        BrainCommunicationDecision.DEFER,\n                        run.scheduledReplyTimer.reason,\n                        worldRuntime.now(),\n                        cause,\n                        run.trace\n                );\n                if (listener != null) listener.onNpcFinished(recipientId, recipientName, false);\n                return;\n            }\n            String utterance = run.decision.utterance().trim();'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          marker = '''    private BrainRun runBrain(\n'''
+          assert marker in s
+          method = '''    void processReplyTimer(\n            ReplyTimerTask requestedTask,\n            String apiKey,\n            String reasoningEffort,\n            Listener listener\n    ) throws Exception {\n        if (requestedTask == null || !requestedTask.isValid()) return;\n        ReplyTimerStore timerStore = new ReplyTimerStore(appContext);\n        ReplyTimerTask task = timerStore.get(requestedTask.sourceKey);\n        if (task == null || !ReplyTimerPolicy.isDue(task, System.currentTimeMillis())) return;\n\n        worldRuntime.syncAllNow();\n        if (!npcRegistry.activeNpcIds().contains(task.npcId) || characterStore(task.npcId).isDead()) {\n            timerStore.complete(task.sourceKey);\n            return;\n        }\n        final String effort = ModelSettingsStore.normalizeReasoningEffort(reasoningEffort);\n\n        if (ReplyTimerBinding.MODE_CONVERSATION.equals(task.mode)) {\n            JSONObject sourceMessage = conversations.messageById(task.roomId, task.sourceMessageId);\n            if (sourceMessage == null || sourceMessage.length() == 0) sourceMessage = copy(task.sourceMessage);\n            if (sourceMessage == null || sourceMessage.length() == 0) {\n                timerStore.complete(task.sourceKey);\n                return;\n            }\n            WorldEvent causeEvent = worldRuntime.eventById(task.sourceEventId);\n            String name = displayName(task.npcId);\n            if (listener != null) listener.onNpcStarted(task.npcId, name, 1, 1);\n            String prompt = buildChatEventPrompt(\n                    task.roomId, task.npcId, name, sourceMessage,\n                    worldRuntime.lifeState(task.npcId), causeEvent);\n            BrainRun run = runBrain(task.npcId, name, prompt, apiKey, effort, listener);\n            String outputCauseEventId = worldRuntime.messageCauseForNpc(task.npcId, task.sourceEventId);\n            if (run.scheduledReplyTimer != null) {\n                conversations.appendNpcRuntimeDecision(\n                        ReplyTimerPolicy.decisionMessageId(run.scheduledReplyTimer, "rescheduled"),\n                        task.roomId, task.npcId, name, BrainCommunicationDecision.DEFER,\n                        run.scheduledReplyTimer.reason, worldRuntime.now(), outputCauseEventId, run.trace);\n                if (listener != null) listener.onNpcFinished(task.npcId, name, false);\n                return;\n            }\n\n            String utterance = run.decision.utterance().trim();\n            if (utterance.isEmpty()) utterance = extractQuotedUtterance(run.decision.displayOutput());\n            boolean sent = !utterance.trim().isEmpty();\n            if (sent) {\n                conversations.appendNpcMessageWithId(\n                        ReplyTimerPolicy.delayedReplyMessageId(task),\n                        task.roomId, task.npcId, name, utterance, run.decision.action(),\n                        worldRuntime.now(), outputCauseEventId, run.trace);\n            } else {\n                conversations.appendNpcRuntimeDecision(\n                        ReplyTimerPolicy.decisionMessageId(task, "final_silent"),\n                        task.roomId, task.npcId, name, BrainCommunicationDecision.SKIP,\n                        run.decision.action(), worldRuntime.now(), outputCauseEventId, run.trace);\n            }\n            timerStore.complete(task.sourceKey);\n            if (listener != null) listener.onNpcFinished(task.npcId, name, sent);\n            return;\n        }\n\n        if (ReplyTimerBinding.MODE_SPONTANEOUS.equals(task.mode)) {\n            WorldEvent source = worldRuntime.eventById(task.sourceEventId);\n            if (source == null) source = WorldEvent.fromJson(task.sourceEvent);\n            if (source == null) {\n                timerStore.complete(task.sourceKey);\n                return;\n            }\n            processSpontaneousEvent(source, apiKey, effort, listener);\n            ReplyTimerTask after = timerStore.get(task.sourceKey);\n            if (after != null && after.wakeAtMs > task.wakeAtMs) return;\n            timerStore.complete(task.sourceKey);\n        }\n    }\n\n'''
+          s = s.replace(marker, method + marker, 1)
+
+          old = '''    private BrainRun runBrain(\n            String npcId,\n            String name,\n            String prompt,\n            String apiKey,\n            String effort,\n            Listener listener\n    ) throws Exception {\n        BrainEngine engine = new BrainEngine('''
+          new = '''    private BrainRun runBrain(\n            String npcId,\n            String name,\n            String prompt,\n            String apiKey,\n            String effort,\n            Listener listener\n    ) throws Exception {\n        ReplyTimerRuntimeContext.Prepared prepared = ReplyTimerRuntimeContext.prepare(npcId, prompt);\n        ReplyTimerToolSession timerSession = prepared.binding == null\n                ? null\n                : new ReplyTimerToolSession(appContext, prepared.binding);\n        BrainEngine engine = new BrainEngine('''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''        BrainEngine.Decision decision = engine.thinkDecision(prompt, new BrainEngine.ProgressListener() {'''
+          new = '''        BrainEngine.Decision decision;\n        if (timerSession != null) OpenAiClient.setFunctionToolForCurrentThread(timerSession);\n        try {\n            decision = engine.thinkDecision(prepared.prompt, new BrainEngine.ProgressListener() {'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''        });\n        return new BrainRun(decision, trace);\n    }'''
+          new = '''            });\n        } finally {\n            OpenAiClient.clearFunctionToolForCurrentThread();\n        }\n        return new BrainRun(\n                decision,\n                trace,\n                timerSession == null ? null : timerSession.scheduledTask());\n    }'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          p.write_text(s)
+      - name: Commit runtime patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/sktpj/npcbrain/DemoRuntimeV032.java
+          git commit -m "Wire optional reply timer into conversation runtime [skip ci]"
+          git push
