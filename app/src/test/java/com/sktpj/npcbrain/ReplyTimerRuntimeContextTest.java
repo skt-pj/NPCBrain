@@ -63,6 +63,9 @@ public class ReplyTimerRuntimeContextTest {
         assertTrue(runtimeDecision.getBoolean("required_once_per_global_workspace_cycle"));
         assertEquals(ReplyTimerToolSession.OP_NONE,
                 runtimeDecision.getString("no_state_write_operation"));
+        assertEquals(ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER,
+                runtimeDecision.getString("combined_participation_and_reply_timer_operation"));
+        assertTrue(runtimeDecision.getString("instruction").contains("recorded immediately"));
 
         JSONObject reassessment = enriched.getJSONObject("conversation_reassessment_policy");
         assertTrue(reassessment.getBoolean("direct_question_salience"));
@@ -75,6 +78,8 @@ public class ReplyTimerRuntimeContextTest {
         assertEquals(ReplyTimerToolSession.TOOL_NAME, participation.getString("structured_tool"));
         assertEquals(ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION,
                 participation.getString("operation"));
+        assertEquals(ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER,
+                participation.getString("combined_with_reply_timer_operation"));
         assertTrue(participation.getBoolean("independent_of_visible_utterance"));
         assertTrue(participation.getString("instruction").contains("Do not wait for numeric thresholds"));
     }
