@@ -58,6 +58,12 @@ public class ReplyTimerRuntimeContextTest {
         assertTrue(grounding.getLong("now_ms") >= now);
         assertTrue(grounding.has("current_activity_ends_at_ms"));
 
+        JSONObject runtimeDecision = enriched.getJSONObject("runtime_decision_contract");
+        assertEquals(ReplyTimerToolSession.TOOL_NAME, runtimeDecision.getString("tool"));
+        assertTrue(runtimeDecision.getBoolean("required_once_per_global_workspace_cycle"));
+        assertEquals(ReplyTimerToolSession.OP_NONE,
+                runtimeDecision.getString("no_state_write_operation"));
+
         JSONObject reassessment = enriched.getJSONObject("conversation_reassessment_policy");
         assertTrue(reassessment.getBoolean("direct_question_salience"));
         assertTrue(reassessment.getBoolean("repeated_unresolved_question_recheck"));
@@ -69,6 +75,7 @@ public class ReplyTimerRuntimeContextTest {
         assertEquals(ReplyTimerToolSession.TOOL_NAME, participation.getString("structured_tool"));
         assertEquals(ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION,
                 participation.getString("operation"));
+        assertTrue(participation.getBoolean("independent_of_visible_utterance"));
         assertTrue(participation.getString("instruction").contains("Do not wait for numeric thresholds"));
     }
 
@@ -81,6 +88,7 @@ public class ReplyTimerRuntimeContextTest {
         ReplyTimerRuntimeContext.Prepared prepared = ReplyTimerRuntimeContext.prepare("npc1", prompt);
         assertNull(prepared.binding);
         assertFalse(prepared.prompt.contains("reply_timer_grounding"));
+        assertFalse(prepared.prompt.contains("runtime_decision_contract"));
         assertFalse(prepared.prompt.contains("conversation_reassessment_policy"));
     }
 }
