@@ -33,6 +33,24 @@ final class OpenAiClient {
         int maxOutputTokens(int logicalRequestOrdinal);
     }
 
+    interface FunctionTool {
+        String name();
+        JSONObject definition();
+        JSONObject invoke(JSONObject arguments);
+    }
+
+    private static final class FunctionCall {
+        final String callId;
+        final String name;
+        final JSONObject arguments;
+
+        FunctionCall(String callId, String name, JSONObject arguments) {
+            this.callId = callId == null ? "" : callId.trim();
+            this.name = name == null ? "" : name.trim();
+            this.arguments = arguments == null ? new JSONObject() : arguments;
+        }
+    }
+
     static final class Usage {
         final long inputTokens;
         final long cachedInputTokens;
@@ -72,6 +90,7 @@ final class OpenAiClient {
     private static final URL RESPONSES_URL;
     private static final int CONNECTION_RETRY_PASSES = 2;
     private static final long CONNECTION_RETRY_DELAY_MS = 450L;
+    private static final ThreadLocal<FunctionTool> FUNCTION_TOOL = new ThreadLocal<>();
     private static volatile Network lastKnownGoodNetwork;
 
     static {
@@ -111,6 +130,15 @@ final class OpenAiClient {
         this.outputLimitPolicy = outputLimitPolicy;
     }
 
+    static void setFunctionToolForCurrentThread(FunctionTool tool) {
+        if (tool == null) FUNCTION_TOOL.remove();
+        else FUNCTION_TOOL.set(tool);
+    }
+
+    static void clearFunctionToolForCurrentThread() {
+        FUNCTION_TOOL.remove();
+    }
+
     String reasoningEffort() {
         return reasoningEffort;
     }
@@ -132,12 +160,22 @@ final class OpenAiClient {
         return Math.max(1, Math.min(DEFAULT_MAX_OUTPUT_TOKENS, value));
     }
 
+    static boolean isGlobalWorkspacePrompt(String prompt) {
+        return prompt != null && prompt.startsWith("You are the existing Global Workspace");
+    }
+
     private JSONObject requestJsonInternal(String prompt, int maxOutputTokens) throws Exception {
+        FunctionTool tool = isGlobalWorkspacePrompt(prompt) ? FUNCTION_TOOL.get() : null;
         JSONObject body = new JSONObject();
         body.put("model", MODEL);
         body.put("reasoning", new JSONObject().put("effort", reasoningEffort));
         body.put("max_output_tokens", maxOutputTokens);
         body.put("input", prompt);
+        if (tool != null) {
+            body.put("tools", new JSONArray().put(tool.definition()));
+            body.put("tool_choice", "auto");
+            body.put("parallel_tool_calls", false);
+        }
 
         byte[] request = body.toString().getBytes(StandardCharsets.UTF_8);
         IOException firstFailure = null;
@@ -156,7 +194,8 @@ final class OpenAiClient {
             Network preferred = validCachedNetwork();
             if (preferred != null) {
                 try {
-                    JSONObject result = executeRequest(preferred, request, attributedNpcId);
+                    JSONObject result = executeRequest(
+                            preferred, request, attributedNpcId, tool, maxOutputTokens);
                     rememberNetwork(preferred);
                     return result;
                 } catch (IOException error) {
@@ -169,7 +208,8 @@ final class OpenAiClient {
             }
 
             try {
-                JSONObject result = executeRequest(null, request, attributedNpcId);
+                JSONObject result = executeRequest(
+                        null, request, attributedNpcId, tool, maxOutputTokens);
                 rememberActiveNetwork();
                 return result;
             } catch (IOException error) {
@@ -182,7 +222,8 @@ final class OpenAiClient {
             for (Network network : candidateNetworks()) {
                 if (network == null || network.equals(preferred)) continue;
                 try {
-                    JSONObject result = executeRequest(network, request, attributedNpcId);
+                    JSONObject result = executeRequest(
+                            network, request, attributedNpcId, tool, maxOutputTokens);
                     rememberNetwork(network);
                     return result;
                 } catch (IOException error) {
@@ -199,7 +240,42 @@ final class OpenAiClient {
                 : firstFailure);
     }
 
-    private JSONObject executeRequest(Network network, byte[] request, String attributedNpcId) throws Exception {
+    private JSONObject executeRequest(
+            Network network,
+            byte[] request,
+            String attributedNpcId,
+            FunctionTool tool,
+            int maxOutputTokens
+    ) throws Exception {
+        JSONObject response = executeResponse(network, request, attributedNpcId);
+        if (tool != null) {
+            FunctionCall call = extractFunctionCall(response, tool.name());
+            if (call != null) {
+                JSONObject toolOutput = tool.invoke(call.arguments);
+                JSONObject continuation = new JSONObject();
+                continuation.put("model", MODEL);
+                continuation.put("reasoning", new JSONObject().put("effort", reasoningEffort));
+                continuation.put("max_output_tokens", maxOutputTokens);
+                continuation.put("previous_response_id", response.optString("id", ""));
+                continuation.put("input", new JSONArray().put(new JSONObject()
+                        .put("type", "function_call_output")
+                        .put("call_id", call.callId)
+                        .put("output", toolOutput.toString())));
+                JSONObject finalResponse = executeResponse(
+                        network,
+                        continuation.toString().getBytes(StandardCharsets.UTF_8),
+                        attributedNpcId);
+                return parseJsonOutput(finalResponse);
+            }
+        }
+        return parseJsonOutput(response);
+    }
+
+    private JSONObject executeResponse(
+            Network network,
+            byte[] request,
+            String attributedNpcId
+    ) throws Exception {
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) (network == null
@@ -229,18 +305,48 @@ final class OpenAiClient {
 
             JSONObject response = new JSONObject(responseText);
             notifyUsage(Usage.fromResponse(response), attributedNpcId);
-            String outputText = extractOutputText(response);
-            if (outputText.isEmpty()) {
-                throw new IllegalStateException("OpenAI API returned no output_text");
-            }
-            try {
-                return new JSONObject(stripCodeFence(outputText));
-            } catch (Exception error) {
-                throw new IllegalStateException("Model output was not valid JSON: " + outputText, error);
-            }
+            return response;
         } finally {
             if (connection != null) connection.disconnect();
         }
+    }
+
+    private static JSONObject parseJsonOutput(JSONObject response) {
+        String outputText = extractOutputText(response);
+        if (outputText.isEmpty()) {
+            throw new IllegalStateException("OpenAI API returned no output_text");
+        }
+        try {
+            return new JSONObject(stripCodeFence(outputText));
+        } catch (Exception error) {
+            throw new IllegalStateException("Model output was not valid JSON: " + outputText, error);
+        }
+    }
+
+    static JSONObject extractFunctionArgumentsForTest(JSONObject response, String functionName) {
+        FunctionCall call = extractFunctionCall(response, functionName);
+        return call == null ? null : call.arguments;
+    }
+
+    private static FunctionCall extractFunctionCall(JSONObject response, String functionName) {
+        JSONArray output = response == null ? null : response.optJSONArray("output");
+        if (output == null) return null;
+        String expected = functionName == null ? "" : functionName.trim();
+        for (int i = 0; i < output.length(); i++) {
+            JSONObject item = output.optJSONObject(i);
+            if (item == null || !"function_call".equals(item.optString("type", ""))) continue;
+            String name = item.optString("name", "").trim();
+            if (!expected.isEmpty() && !expected.equals(name)) continue;
+            String callId = item.optString("call_id", "").trim();
+            if (callId.isEmpty() || name.isEmpty()) continue;
+            try {
+                JSONObject arguments = new JSONObject(item.optString("arguments", "{}"));
+                return new FunctionCall(callId, name, arguments);
+            } catch (Exception ignored) {
+                return new FunctionCall(callId, name, new JSONObject());
+            }
+        }
+        return null;
     }
 
     private void notifyUsage(Usage usage, String attributedNpcId) {
