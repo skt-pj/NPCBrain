@@ -16,6 +16,7 @@ public final class NPCBrainApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        new ReplyTimerStore(this).rearmAll();
         innerLifeRuntime = new NpcInnerLifeRuntime(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityCreated(Activity activity, Bundle state) {
