@@ -94,11 +94,16 @@ final class CharacterStateStore {
             root.put("age", age());
             root.put("background", background());
 
-            traits.put(EXTRAVERSION, traitPercent(EXTRAVERSION) / 100.0);
-            traits.put(NEUROTICISM, traitPercent(NEUROTICISM) / 100.0);
-            traits.put(AGREEABLENESS, traitPercent(AGREEABLENESS) / 100.0);
-            traits.put(CONSCIENTIOUSNESS, traitPercent(CONSCIENTIOUSNESS) / 100.0);
-            traits.put(OPENNESS, traitPercent(OPENNESS) / 100.0);
+            double extraversion = traitPercent(EXTRAVERSION) / 100.0;
+            double neuroticism = traitPercent(NEUROTICISM) / 100.0;
+            double agreeableness = traitPercent(AGREEABLENESS) / 100.0;
+            double conscientiousness = traitPercent(CONSCIENTIOUSNESS) / 100.0;
+            double openness = traitPercent(OPENNESS) / 100.0;
+            traits.put(EXTRAVERSION, extraversion);
+            traits.put(NEUROTICISM, neuroticism);
+            traits.put(AGREEABLENESS, agreeableness);
+            traits.put(CONSCIENTIOUSNESS, conscientiousness);
+            traits.put(OPENNESS, openness);
             root.put("traits", traits);
 
             dynamic.put("valence", clampSigned(preferences.getFloat(VALENCE, 0.0f)));
@@ -109,6 +114,12 @@ final class CharacterStateStore {
             root.put("human_baseline", HumanBaseline.toJson());
             root.put("dungeon_participation",
                     new DungeonParticipationStore(storageContext).load().toJson());
+            root.put("inner_life",
+                    new NpcInnerLifeStore(storageContext).snapshotForBrain(
+                            System.currentTimeMillis(),
+                            extraversion,
+                            neuroticism,
+                            openness));
         } catch (Exception ignored) {
         }
         return root;
