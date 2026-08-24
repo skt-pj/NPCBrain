@@ -63,7 +63,7 @@ final class ReplyTimerToolSession implements OpenAiClient.FunctionTool {
             properties.put("personal_reason", new JSONObject()
                     .put("type", "string")
                     .put("description", "Optional concise public paraphrase of the character's reason; empty is valid."));
-            JSONObject required = new JSONArray()
+            JSONArray required = new JSONArray()
                     .put("operation")
                     .put("wake_at_ms")
                     .put("reason")
