@@ -171,6 +171,27 @@ final class NpcInnerLifeState {
         );
     }
 
+    NpcInnerLifeState withAmbientFallback(long nowMs) {
+        long now = Math.max(updatedAtMs, nowMs);
+        return new NpcInnerLifeState(
+                initializedAtMs,
+                now,
+                now,
+                lastReflectionAtMs,
+                now,
+                energy,
+                hunger,
+                socialNeed,
+                boredom,
+                curiosity,
+                safetyConcern,
+                mood,
+                focus,
+                intention,
+                aiThoughtCount
+        );
+    }
+
     JSONObject toJson() {
         JSONObject json = new JSONObject();
         try {
