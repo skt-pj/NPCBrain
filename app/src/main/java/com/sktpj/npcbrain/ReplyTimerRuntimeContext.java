@@ -79,8 +79,10 @@ final class ReplyTimerRuntimeContext {
             policy.put("tool", ReplyTimerToolSession.TOOL_NAME);
             policy.put("required_once_per_global_workspace_cycle", true);
             policy.put("no_state_write_operation", ReplyTimerToolSession.OP_NONE);
+            policy.put("combined_participation_and_reply_timer_operation",
+                    ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER);
             policy.put("instruction",
-                    "Invoke the runtime decision tool exactly once before the final Global Workspace JSON. Choose none when no runtime state write is appropriate. Tool invocation is independent of whether npc_utterance is empty, a reply is deferred, or the character speaks.");
+                    "Invoke the runtime decision tool exactly once before the final Global Workspace JSON. Choose none when no runtime state write is appropriate. If the NPC decides dungeon participation now but a grounded temporary condition delays the conversational reply, use the combined participation-and-reply-timer operation so the stance is recorded immediately while reply delivery is deferred. Tool invocation is independent of whether npc_utterance is empty, a reply is deferred, or the character speaks.");
         } catch (Exception ignored) {
         }
         return policy;
@@ -105,9 +107,11 @@ final class ReplyTimerRuntimeContext {
             policy.put("decision_owner", "global_workspace");
             policy.put("structured_tool", ReplyTimerToolSession.TOOL_NAME);
             policy.put("operation", ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION);
+            policy.put("combined_with_reply_timer_operation",
+                    ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER);
             policy.put("independent_of_visible_utterance", true);
             policy.put("instruction",
-                    "When the current message concerns whether this NPC will join, refuse, hesitate about, reconsider or withdraw from the dungeon, Global Workspace must record that integrated decision with the runtime tool. Consider fear, personality, current affect, memory, relationship and grounded danger together. Do not wait for numeric thresholds, do not require an explicit reason sentence, and do not infer the decision later from emitted wording. Record the decision even when the NPC ultimately stays silent or schedules a later conversational reply.");
+                    "When the current message concerns whether this NPC will join, refuse, hesitate about, reconsider or withdraw from the dungeon, Global Workspace must record that integrated decision with the runtime tool. Consider fear, personality, current affect, memory, relationship and grounded danger together. Do not wait for numeric thresholds, do not require an explicit reason sentence, and do not infer the decision later from emitted wording. Record the decision even when the NPC ultimately stays silent. If the conversational reply itself is deferred, use the combined operation so participation is recorded immediately rather than waiting for the timer.");
         } catch (Exception ignored) {
         }
         return policy;
