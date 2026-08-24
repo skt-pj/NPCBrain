@@ -55,16 +55,9 @@ final class DungeonConsentBridge {
         DungeonParticipationStore participationStore = DungeonParticipationStore.forNpc(activity, npcId);
         DungeonParticipationState participation = participationStore.load();
         DungeonObjective objective = new DungeonObjectiveStore(activity).load(npcId);
-        DungeonState dungeonState = dungeonState(activity);
 
-        if (participation.isAccepted() && emergencyDanger(dungeonState)) {
-            participation = DungeonParticipationPolicy.emergencyWithdraw(
-                    participation,
-                    System.currentTimeMillis(),
-                    "死にたくない。今の傷と目の前の危険では、これ以上進むのは無理だと判断した。");
-            participationStore.save(participation);
-        }
-
+        // Physical danger is grounded evidence for Brain cognition. Android code must not revoke
+        // an accepted stance from HP/enemy-distance thresholds.
         boolean canExecute = DungeonParticipationPolicy.canAutoExecute(participation, objective);
         boolean paused = booleanField(activity, "paused");
         if (!canExecute) {
@@ -90,15 +83,6 @@ final class DungeonConsentBridge {
                 }
             }
         }
-    }
-
-    private static boolean emergencyDanger(DungeonState state) {
-        if (state == null || state.maxHp <= 0) return false;
-        double hpRate = state.hp / (double) state.maxHp;
-        if (hpRate > 0.20) return false;
-        int enemyDistance = DungeonPerception.nearestVisibleEnemyDistance(
-                state, state.playerX, state.playerY);
-        return enemyDistance <= 2;
     }
 
     private static void configureGoalButton(
@@ -131,7 +115,7 @@ final class DungeonConsentBridge {
         String message = "このNPCはまだダンジョン参加に同意していません。\n"
                 + "現在: " + stance
                 + (reason.isEmpty() ? "" : "\n本人の考え: " + reason)
-                + "\n\n目的を入力して強制するのではなく、会話で誘い、本人が行く理由を持てるか相談してください。";
+                + "\n\n目的を入力して強制するのではなく、会話で誘い、本人がどうしたいか相談してください。";
         new AlertDialog.Builder(activity)
                 .setTitle("参加意思が必要です")
                 .setMessage(message)
