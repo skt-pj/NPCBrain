@@ -8,6 +8,8 @@ final class ReplyTimerToolSession implements OpenAiClient.FunctionTool {
     static final String OP_NONE = "none";
     static final String OP_REPLY_TIMER = "schedule_reply_timer";
     static final String OP_DUNGEON_PARTICIPATION = "set_dungeon_participation";
+    static final String OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER =
+            "set_dungeon_participation_and_schedule_reply_timer";
 
     private final android.content.Context appContext;
     private final ReplyTimerStore store;
@@ -40,33 +42,34 @@ final class ReplyTimerToolSession implements OpenAiClient.FunctionTool {
                     .put("enum", new JSONArray()
                             .put(OP_NONE)
                             .put(OP_REPLY_TIMER)
-                            .put(OP_DUNGEON_PARTICIPATION))
-                    .put("description", "Exactly one runtime decision for this cycle. Use none when no runtime state write is appropriate."));
+                            .put(OP_DUNGEON_PARTICIPATION)
+                            .put(OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER))
+                    .put("description", "Exactly one runtime operation for this cycle. Use none when no runtime state write is appropriate. The combined operation records participation now and independently schedules the conversational reply."));
             properties.put("wake_at_ms", new JSONObject()
                     .put("type", "integer")
-                    .put("description", "For schedule_reply_timer: absolute Unix epoch milliseconds. Otherwise use 0."));
+                    .put("description", "For schedule_reply_timer or the combined operation: absolute Unix epoch milliseconds. Otherwise use 0."));
             properties.put("reason", new JSONObject()
                     .put("type", "string")
-                    .put("description", "For schedule_reply_timer: short public defer reason. Otherwise use an empty string."));
+                    .put("description", "For schedule_reply_timer or the combined operation: short public defer reason. Otherwise use an empty string."));
             properties.put("participation_decision", new JSONObject()
                     .put("type", "string")
                     .put("enum", new JSONArray().put("none").put("refuse").put("hesitate").put("accept").put("withdraw"))
-                    .put("description", "For set_dungeon_participation: the NPC's own integrated decision. Otherwise use none."));
+                    .put("description", "For set_dungeon_participation or the combined operation: the NPC's own integrated decision. Otherwise use none."));
             properties.put("willingness", new JSONObject()
                     .put("type", "number")
                     .put("minimum", 0.0)
                     .put("maximum", 1.0)
-                    .put("description", "Descriptive current willingness, never an acceptance gate. Use 0.5 for operation=none when no assessment is relevant."));
+                    .put("description", "Descriptive current willingness, never an acceptance gate. Use 0.5 when no participation assessment is relevant."));
             properties.put("fear", new JSONObject()
                     .put("type", "number")
                     .put("minimum", 0.0)
                     .put("maximum", 1.0)
-                    .put("description", "Descriptive current fear, never an automatic retreat/withdraw gate. Use 0.5 for operation=none when no assessment is relevant."));
+                    .put("description", "Descriptive current fear, never an automatic retreat/withdraw gate. Use 0.5 when no participation assessment is relevant."));
             properties.put("resolve", new JSONObject()
                     .put("type", "number")
                     .put("minimum", 0.0)
                     .put("maximum", 1.0)
-                    .put("description", "Descriptive current resolve, never an acceptance gate. Use 0.5 for operation=none when no assessment is relevant."));
+                    .put("description", "Descriptive current resolve, never an acceptance gate. Use 0.5 when no participation assessment is relevant."));
             properties.put("personal_reason", new JSONObject()
                     .put("type", "string")
                     .put("description", "Optional concise public paraphrase of the character's reason; empty is valid."));
@@ -89,10 +92,11 @@ final class ReplyTimerToolSession implements OpenAiClient.FunctionTool {
             tool.put("description",
                     "Global Workspace MUST emit exactly one structured runtime decision before its final JSON response. "
                             + "Use operation=none when this cycle needs no runtime state write. "
-                            + "Use operation=set_dungeon_participation whenever the CURRENT conversational message asks, invites, negotiates, confirms, refuses, reconsiders, or withdraws this NPC's dungeon participation. "
+                            + "Use operation=set_dungeon_participation whenever the CURRENT conversational message asks, invites, negotiates, confirms, refuses, reconsiders, or withdraws this NPC's dungeon participation and no reply deferral is needed. "
+                            + "Use operation=set_dungeon_participation_and_schedule_reply_timer when the NPC has a participation decision NOW but a grounded temporary condition means the conversational reply itself should be sent later. Participation is recorded immediately and is not delayed with the message. "
                             + "The participation_decision is the character's integrated choice after considering personality, current state, fear, memory, relationship and grounded situation. "
                             + "Do not wait for numeric thresholds and do not require a personal_reason. Fear may coexist with accept; low fear may coexist with refuse. "
-                            + "Use operation=schedule_reply_timer only when a grounded temporary condition makes no reply appropriate now but later re-evaluation is genuinely intended, such as a current meal, class, work task, commute or sleep. "
+                            + "Use operation=schedule_reply_timer when only reply deferral is needed because a grounded temporary condition makes no reply appropriate now but later re-evaluation is genuinely intended, such as a current meal, class, work task, commute or sleep. "
                             + "Do not schedule merely because the character does not want to reply or has nothing to say. The app binds NPC, room and source.");
             tool.put("parameters", parameters);
             tool.put("strict", true);
@@ -117,6 +121,17 @@ final class ReplyTimerToolSession implements OpenAiClient.FunctionTool {
             }
             if (OP_REPLY_TIMER.equals(operation)) {
                 return scheduleReply(arguments, output);
+            }
+            if (OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER.equals(operation)) {
+                JSONObject participationResult = recordParticipation(arguments, new JSONObject());
+                JSONObject timerResult = scheduleReply(arguments, new JSONObject());
+                boolean participationOk = participationResult.optBoolean("ok", false);
+                boolean timerOk = timerResult.optBoolean("ok", false);
+                return output.put("ok", participationOk && timerOk)
+                        .put("recorded", OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER)
+                        .put("participation", participationResult)
+                        .put("reply_timer", timerResult)
+                        .put("participation_persists_even_if_timer_fails", true);
             }
             return output.put("ok", false).put("error", "unknown_operation");
         } catch (Exception ignored) {
