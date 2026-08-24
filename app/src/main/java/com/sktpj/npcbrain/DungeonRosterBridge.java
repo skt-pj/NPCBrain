@@ -13,6 +13,9 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.HashMap;
@@ -80,6 +83,9 @@ final class DungeonRosterBridge {
         BridgeState state = new BridgeState(
                 new DungeonRosterStore(activity),
                 new NpcAiStaminaStore(activity),
+                new SecureApiKeyStore(activity),
+                new ModelSettingsStore(activity),
+                new DungeonBrainRuntime(activity),
                 title,
                 slots,
                 change);
@@ -132,8 +138,9 @@ final class DungeonRosterBridge {
         DungeonParticipationState participation = DungeonParticipationStore.forNpc(activity, npcId).load();
         NpcAiStaminaStore.Snapshot stamina = bridge.stamina.snapshot(npcId);
         String floor = dungeon == null ? "未開始" : dungeon.floor + "F";
+        String cognition = Boolean.TRUE.equals(bridge.backgroundBrainThinking.get(npcId)) ? " · BRAIN" : "";
         return character.displayName() + "\n" + floor + " · " + shortParticipation(participation)
-                + " · " + stamina.remainingPercent + "%";
+                + " · " + stamina.remainingPercent + "%" + cognition;
     }
 
     private static String slotDescription(DungeonActivity activity, BridgeState bridge, String npcId) {
@@ -144,7 +151,9 @@ final class DungeonRosterBridge {
         return character.displayName() + "、"
                 + (dungeon == null ? "ダンジョン未開始" : dungeon.floor + "階")
                 + "、参加意思 " + participation.label()
-                + "、AI STAMINA " + stamina.remainingPercent + "%";
+                + "、AI STAMINA " + stamina.remainingPercent + "%"
+                + (Boolean.TRUE.equals(bridge.backgroundBrainThinking.get(npcId))
+                ? "、Brain再評価中" : "");
     }
 
     private static String shortParticipation(DungeonParticipationState state) {
@@ -176,12 +185,19 @@ final class DungeonRosterBridge {
         long interval = turnInterval(activity);
 
         for (String npcId : active) {
-            if (npcId.equals(selected) || !canAdvance(activity, npcId)) continue;
+            if (npcId.equals(selected)
+                    || Boolean.TRUE.equals(bridge.backgroundBrainThinking.get(npcId))
+                    || !canAdvance(activity, npcId)) continue;
             long last = bridge.lastBackgroundStepMs.containsKey(npcId)
                     ? bridge.lastBackgroundStepMs.get(npcId) : 0L;
             if (now - last < interval) continue;
-            advanceBackgroundNpc(activity, npcId);
+            BackgroundStep outcome = advanceBackgroundNpc(activity, bridge, npcId);
             bridge.lastBackgroundStepMs.put(npcId, now);
+            if (outcome != null
+                    && !outcome.trigger.isEmpty()
+                    && DungeonCognitionGate.isCognitionTrigger(outcome.trigger)) {
+                requestBackgroundBrain(activity, bridge, npcId, outcome);
+            }
         }
     }
 
@@ -192,10 +208,14 @@ final class DungeonRosterBridge {
         DungeonObjective objective = new DungeonObjectiveStore(activity).load(npcId);
         if (objective == null || !objective.isActive()) return false;
         DungeonState state = new DungeonStore(activity).load(npcId);
-        return state == null || !objective.isComplete(state.floor);
+        return state == null || (state.hp > 0 && !objective.isComplete(state.floor));
     }
 
-    private static void advanceBackgroundNpc(DungeonActivity activity, String npcId) {
+    private static BackgroundStep advanceBackgroundNpc(
+            DungeonActivity activity,
+            BridgeState bridge,
+            String npcId
+    ) {
         DungeonStore dungeonStore = new DungeonStore(activity);
         DungeonState state = dungeonStore.load(npcId);
         if (state == null) {
@@ -204,22 +224,212 @@ final class DungeonRosterBridge {
         }
         DungeonPerception.refreshExploration(state);
         DungeonObjective objective = new DungeonObjectiveStore(activity).load(npcId);
-        if (objective == null || !objective.isActive() || objective.isComplete(state.floor)) {
+        if (objective == null || !objective.isActive() || objective.isComplete(state.floor) || state.hp <= 0) {
             dungeonStore.save(npcId, state);
-            return;
+            return null;
         }
 
         DungeonPersonalityPolicy.Traits traits = traitsForNpc(activity, npcId);
-        DungeonMindStore.Snapshot mind = new DungeonMindStore(activity).load(npcId);
+        DungeonMindStore mindStore = new DungeonMindStore(activity);
+        DungeonMindStore.Snapshot mind = mindStore.load(npcId);
         DungeonPlan plan = mind == null ? null : mind.plan;
         if (plan == null || !plan.matches(objective)) {
-            plan = DungeonPlan.local(objective, traits, state, "非表示探索のローカル計画");
+            plan = DungeonPlan.local(objective, traits, state, "非表示探索の中立ローカル計画");
         }
-        DungeonIntent intent = DungeonIntent.localFallback(state, traits, "非表示探索をローカル実行");
+
+        DungeonCognitionGate.Signal beforeSignal = DungeonCognitionGate.snapshot(state);
+        DungeonProgressMonitor.Snapshot beforeProgress = bridge.backgroundProgress.get(npcId);
+        if (beforeProgress == null || beforeProgress.floor != state.floor) {
+            beforeProgress = DungeonProgressMonitor.initial(state);
+        }
+        int lastBrainTurn = plan != null && DungeonPlan.SOURCE_BRAIN.equals(plan.source)
+                ? plan.createdTurn : -1;
+
+        DungeonIntent intent = backgroundTurnIntent(state, traits, mind);
         DungeonStepResult step = DungeonEngine.stepDetailed(state, traits, intent, plan);
         DungeonState next = step == null || step.state == null ? state : step.state;
         DungeonPerception.refreshExploration(next);
         dungeonStore.save(npcId, next);
+
+        DungeonCognitionGate.Signal afterSignal = DungeonCognitionGate.snapshot(next);
+        String trigger = DungeonCognitionGate.reason(beforeSignal, afterSignal, lastBrainTurn);
+        DungeonProgressMonitor.Result progress = DungeonProgressMonitor.observe(
+                beforeProgress,
+                next,
+                lastBrainTurn);
+        bridge.backgroundProgress.put(npcId, progress.snapshot);
+        if (progress.shouldReplan) {
+            trigger = DungeonCognitionGate.mergePending(
+                    trigger,
+                    DungeonCognitionGate.PROGRESS_STALLED);
+        }
+        if (objective.isComplete(next.floor) || next.hp <= 0) trigger = "";
+        return new BackgroundStep(next, objective, plan, trigger);
+    }
+
+    static DungeonIntent backgroundTurnIntent(
+            DungeonState state,
+            DungeonPersonalityPolicy.Traits traits,
+            DungeonMindStore.Snapshot mind
+    ) {
+        if (state != null && mind != null && mind.intent != null
+                && mind.intent.isBrain()
+                && mind.intent.floor == state.floor
+                && mind.intent.turn == state.turn) {
+            return mind.intent;
+        }
+        return DungeonIntent.localFallback(state, traits, "非表示探索でBrain persistent planを合法実行");
+    }
+
+    private static void requestBackgroundBrain(
+            DungeonActivity activity,
+            BridgeState bridge,
+            String npcId,
+            BackgroundStep outcome
+    ) {
+        if (outcome == null || outcome.state == null || outcome.objective == null) return;
+        if (Boolean.TRUE.equals(bridge.backgroundBrainThinking.get(npcId))) return;
+        final String apiKey;
+        try {
+            apiKey = bridge.apiKeyStore.load().trim();
+        } catch (Exception ignored) {
+            return;
+        }
+        if (apiKey.isEmpty()) return;
+
+        final DungeonState captured;
+        try {
+            captured = DungeonState.fromJson(new JSONObject(outcome.state.toJson().toString()));
+        } catch (Exception ignored) {
+            return;
+        }
+        if (captured == null) return;
+        final DungeonObjective requestedObjective = outcome.objective;
+        final DungeonPlan existingPlan = outcome.plan;
+        final DungeonPersonalityPolicy.Traits traits = traitsForNpc(activity, npcId);
+        final String effort = bridge.modelSettings.reasoningEffort();
+        final String trigger = outcome.trigger;
+        bridge.backgroundBrainThinking.put(npcId, true);
+
+        new Thread(() -> {
+            try {
+                DungeonBrainRuntime.Result result = bridge.brainRuntime.run(
+                        npcId,
+                        captured,
+                        trigger,
+                        apiKey,
+                        effort,
+                        requestedObjective,
+                        existingPlan,
+                        null);
+                DungeonPlan brainPlan = DungeonPlan.fromBrain(
+                        requestedObjective,
+                        traits,
+                        captured,
+                        result.intent,
+                        result.publicSummary);
+                activity.runOnUiThread(() -> finishBackgroundBrainSuccess(
+                        activity,
+                        bridge,
+                        npcId,
+                        captured,
+                        requestedObjective,
+                        brainPlan,
+                        result));
+            } catch (Exception error) {
+                String message = error.getMessage() == null ? error.toString() : error.getMessage();
+                activity.runOnUiThread(() -> finishBackgroundBrainFailure(
+                        activity,
+                        bridge,
+                        npcId,
+                        captured,
+                        requestedObjective,
+                        existingPlan,
+                        message));
+            }
+        }, "npcbrain-v0427-background-dungeon-" + npcId).start();
+    }
+
+    private static void finishBackgroundBrainSuccess(
+            DungeonActivity activity,
+            BridgeState bridge,
+            String npcId,
+            DungeonState captured,
+            DungeonObjective requestedObjective,
+            DungeonPlan plan,
+            DungeonBrainRuntime.Result result
+    ) {
+        bridge.backgroundBrainThinking.put(npcId, false);
+        DungeonObjective currentObjective = new DungeonObjectiveStore(activity).load(npcId);
+        DungeonState current = new DungeonStore(activity).load(npcId);
+        if (!sameObjective(currentObjective, requestedObjective)
+                || current == null
+                || current.hp <= 0
+                || currentObjective.isComplete(current.floor)
+                || current.floor != captured.floor
+                || current.turn != captured.turn) {
+            return;
+        }
+        DungeonMindStore mindStore = new DungeonMindStore(activity);
+        mindStore.save(npcId, new DungeonMindStore.Snapshot(
+                result.intent,
+                plan,
+                result.trace,
+                result.cognitiveGraph,
+                DungeonMindStore.STATE_BRAIN,
+                "",
+                System.currentTimeMillis()));
+        bridge.backgroundProgress.put(npcId, DungeonProgressMonitor.initial(current));
+    }
+
+    private static void finishBackgroundBrainFailure(
+            DungeonActivity activity,
+            BridgeState bridge,
+            String npcId,
+            DungeonState captured,
+            DungeonObjective requestedObjective,
+            DungeonPlan existingPlan,
+            String error
+    ) {
+        bridge.backgroundBrainThinking.put(npcId, false);
+        DungeonObjective currentObjective = new DungeonObjectiveStore(activity).load(npcId);
+        DungeonState current = new DungeonStore(activity).load(npcId);
+        if (!sameObjective(currentObjective, requestedObjective)
+                || current == null
+                || current.floor != captured.floor
+                || current.turn != captured.turn) {
+            return;
+        }
+        DungeonMindStore mindStore = new DungeonMindStore(activity);
+        DungeonMindStore.Snapshot previous = mindStore.load(npcId);
+        DungeonPlan plan = existingPlan != null && existingPlan.matches(currentObjective)
+                ? existingPlan : DungeonPlan.local(
+                currentObjective,
+                traitsForNpc(activity, npcId),
+                current,
+                "Brain再評価失敗");
+        mindStore.save(npcId, new DungeonMindStore.Snapshot(
+                DungeonIntent.localFallback(
+                        current,
+                        traitsForNpc(activity, npcId),
+                        "Brain再評価失敗"),
+                plan,
+                previous == null ? new JSONArray() : previous.trace,
+                previous == null ? new JSONObject() : previous.cognitiveGraph,
+                DungeonMindStore.STATE_LOCAL,
+                compactError(error),
+                System.currentTimeMillis()));
+    }
+
+    private static boolean sameObjective(DungeonObjective a, DungeonObjective b) {
+        DungeonObjective left = a == null ? DungeonObjective.none() : a;
+        DungeonObjective right = b == null ? DungeonObjective.none() : b;
+        return left.type.equals(right.type) && left.targetFloor == right.targetFloor;
+    }
+
+    private static String compactError(String value) {
+        String text = value == null ? "Brain失敗" : value.replace('\n', ' ').trim();
+        return text.length() <= 96 ? text : text.substring(0, 96) + "…";
     }
 
     private static DungeonPersonalityPolicy.Traits traitsForNpc(DungeonActivity activity, String npcId) {
@@ -324,25 +534,55 @@ final class DungeonRosterBridge {
         return Math.round(value * activity.getResources().getDisplayMetrics().density);
     }
 
+    private static final class BackgroundStep {
+        final DungeonState state;
+        final DungeonObjective objective;
+        final DungeonPlan plan;
+        final String trigger;
+
+        BackgroundStep(
+                DungeonState state,
+                DungeonObjective objective,
+                DungeonPlan plan,
+                String trigger
+        ) {
+            this.state = state;
+            this.objective = objective;
+            this.plan = plan;
+            this.trigger = trigger == null ? "" : trigger;
+        }
+    }
+
     private static final class BridgeState {
         final DungeonRosterStore store;
         final NpcAiStaminaStore stamina;
+        final SecureApiKeyStore apiKeyStore;
+        final ModelSettingsStore modelSettings;
+        final DungeonBrainRuntime brainRuntime;
         final TextView title;
         final LinearLayout slots;
         final Button change;
         final Map<String, Long> lastBackgroundStepMs = new HashMap<>();
+        final Map<String, Boolean> backgroundBrainThinking = new HashMap<>();
+        final Map<String, DungeonProgressMonitor.Snapshot> backgroundProgress = new HashMap<>();
         Handler handler;
         Runnable task;
 
         BridgeState(
                 DungeonRosterStore store,
                 NpcAiStaminaStore stamina,
+                SecureApiKeyStore apiKeyStore,
+                ModelSettingsStore modelSettings,
+                DungeonBrainRuntime brainRuntime,
                 TextView title,
                 LinearLayout slots,
                 Button change
         ) {
             this.store = store;
             this.stamina = stamina;
+            this.apiKeyStore = apiKeyStore;
+            this.modelSettings = modelSettings;
+            this.brainRuntime = brainRuntime;
             this.title = title;
             this.slots = slots;
             this.change = change;
