@@ -92,7 +92,9 @@ final class SpontaneousMessageStore {
         JSONObject status = loadStatus();
         JSONObject current = status.optJSONObject(id);
         int jobId = current == null ? 0 : current.optInt("job_id", 0);
-        if (jobId > 0) DeferredSpontaneousScheduler.cancel(appContext, jobId);
+        if (jobId > 0 && !id.equals(DeferredSpontaneousEventScope.currentEventId())) {
+            DeferredSpontaneousScheduler.cancel(appContext, jobId);
+        }
         putState(status, id, DONE, 0L, outcome, jobId);
         preferences.edit().putString(KEY_STATUS, status.toString()).apply();
     }
@@ -106,8 +108,10 @@ final class SpontaneousMessageStore {
         if (jobId <= 0) jobId = allocateJobId(status);
         putState(status, id, DEFERRED, nextEligibleTimeMs, "defer", jobId);
         preferences.edit().putString(KEY_STATUS, status.toString()).commit();
-        DeferredSpontaneousScheduler.schedule(
-                appContext, id, jobId, nextEligibleTimeMs);
+        if (!id.equals(DeferredSpontaneousEventScope.currentEventId())) {
+            DeferredSpontaneousScheduler.schedule(
+                    appContext, id, jobId, nextEligibleTimeMs);
+        }
     }
 
     synchronized String state(String eventId) {
