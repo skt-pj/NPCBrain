@@ -17,6 +17,7 @@ public final class NPCBrainApplication extends Application {
     public void onCreate() {
         super.onCreate();
         innerLifeRuntime = new NpcInnerLifeRuntime(this);
+        new SpontaneousMessageStore(this).rearmDeferredJobs();
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityCreated(Activity activity, Bundle state) {
                 if (activity instanceof DemoActivityV032) {
