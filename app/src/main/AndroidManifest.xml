@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name=".NPCBrainApplication"
@@ -12,6 +13,10 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <service
+            android:name=".ReplyTimerJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
         <activity
             android:name=".NpcManagerActivity"
             android:enableOnBackInvokedCallback="true"
