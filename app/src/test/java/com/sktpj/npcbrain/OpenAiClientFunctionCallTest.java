@@ -37,6 +37,15 @@ public class OpenAiClientFunctionCallTest {
     }
 
     @Test
+    public void runtimeDecisionToolCanRequireOneExplicitOperation() {
+        OpenAiClient.FunctionTool optional = tool(false);
+        OpenAiClient.FunctionTool required = tool(true);
+        assertEquals("auto", OpenAiClient.toolChoice(optional));
+        assertEquals("required", OpenAiClient.toolChoice(required));
+        assertEquals(ReplyTimerToolSession.OP_NONE, "none");
+    }
+
+    @Test
     public void doesNotTreatOtherFunctionsAsRuntimeDecision() throws Exception {
         JSONObject response = new JSONObject()
                 .put("output", new JSONArray().put(new JSONObject()
@@ -54,5 +63,29 @@ public class OpenAiClientFunctionCallTest {
                 "You are the existing Global Workspace of a brain-inspired NPC cognitive architecture."));
         assertFalse(OpenAiClient.isGlobalWorkspacePrompt(
                 "You are the perception function inside a brain-inspired NPC cognitive architecture."));
+    }
+
+    private static OpenAiClient.FunctionTool tool(boolean required) {
+        return new OpenAiClient.FunctionTool() {
+            @Override
+            public String name() {
+                return "test_tool";
+            }
+
+            @Override
+            public JSONObject definition() {
+                return new JSONObject();
+            }
+
+            @Override
+            public JSONObject invoke(JSONObject arguments) {
+                return new JSONObject();
+            }
+
+            @Override
+            public boolean requiredInvocation() {
+                return required;
+            }
+        };
     }
 }
