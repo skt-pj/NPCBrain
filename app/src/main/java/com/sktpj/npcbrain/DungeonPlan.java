@@ -212,7 +212,11 @@ final class DungeonPlan {
                 state == null ? 0 : state.turn);
     }
 
-    /** Mechanical translation only when an old Brain result lacks dungeon_plan. */
+    /**
+     * Compatibility translation for an older Brain result that has an intent but no dungeon_plan.
+     * The intent mode itself is authoritative; Android maps only the categorical strategy needed
+     * by the executor and keeps all preference numbers neutral instead of inventing psychology.
+     */
     private static DungeonPlan fromIntentFallback(
             DungeonObjective objective,
             DungeonState state,
@@ -222,34 +226,21 @@ final class DungeonPlan {
         DungeonObjective goal = objective == null ? DungeonObjective.none() : objective;
         DungeonIntent resolved = intent == null
                 ? DungeonIntent.localFallback(state, null, "Brain plan fallback") : intent;
-        double risk = 0.50;
-        double combat = 0.50;
-        double explore = 0.50;
-        double progress = goal.targetFloor > 0 ? 0.75 : 0.50;
-        double persist = 0.50;
-        String strategy = goal.targetFloor > 0 ? STRATEGY_ADVANCE : STRATEGY_BALANCED;
+        String strategy;
         switch (resolved.mode) {
             case DungeonIntent.ENGAGE:
-                risk = 0.80;
-                combat = 0.90;
                 strategy = STRATEGY_HUNT;
                 break;
             case DungeonIntent.EVADE:
-                risk = 0.20;
-                combat = 0.15;
                 strategy = STRATEGY_SURVIVE;
                 break;
             case DungeonIntent.SEEK_STAIRS:
-                progress = 0.95;
-                explore = 0.35;
                 strategy = STRATEGY_ADVANCE;
                 break;
             case DungeonIntent.HOLD:
-                persist = 0.20;
                 strategy = STRATEGY_BALANCED;
                 break;
             default:
-                explore = 0.85;
                 strategy = STRATEGY_EXPLORE;
                 break;
         }
@@ -258,13 +249,13 @@ final class DungeonPlan {
             summary = "Brain intent変換: " + DungeonIntent.modeLabel(resolved.mode);
         }
         return new DungeonPlan(
-                risk,
-                combat,
-                explore,
-                progress,
-                persist,
+                0.50,
+                0.50,
+                0.50,
+                0.50,
+                0.50,
                 resolved.confidence,
-                "Brainが選んだintentを機械的にpersistent planへ変換しました。",
+                "Brainが選んだintentをカテゴリとしてpersistent planへ変換しました。",
                 strategy,
                 summary,
                 SOURCE_BRAIN,
