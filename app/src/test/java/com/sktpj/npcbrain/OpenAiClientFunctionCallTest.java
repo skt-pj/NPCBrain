@@ -28,12 +28,14 @@ public class OpenAiClientFunctionCallTest {
     }
 
     @Test
-    public void structuredToolExposesParticipationOperation() {
+    public void structuredToolExposesParticipationOperations() {
         JSONObject policy = ReplyTimerRuntimeContext.dungeonParticipationPolicy();
         assertEquals("global_workspace", policy.optString("decision_owner"));
         assertEquals(ReplyTimerToolSession.TOOL_NAME, policy.optString("structured_tool"));
         assertEquals(ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION,
                 policy.optString("operation"));
+        assertEquals(ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER,
+                policy.optString("combined_with_reply_timer_operation"));
     }
 
     @Test
@@ -42,7 +44,9 @@ public class OpenAiClientFunctionCallTest {
         OpenAiClient.FunctionTool required = tool(true);
         assertEquals("auto", OpenAiClient.toolChoice(optional));
         assertEquals("required", OpenAiClient.toolChoice(required));
-        assertEquals(ReplyTimerToolSession.OP_NONE, "none");
+        assertEquals("none", ReplyTimerToolSession.OP_NONE);
+        assertEquals("set_dungeon_participation_and_schedule_reply_timer",
+                ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER);
     }
 
     @Test
