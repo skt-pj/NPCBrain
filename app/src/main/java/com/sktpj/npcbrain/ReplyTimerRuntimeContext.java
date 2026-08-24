@@ -42,6 +42,11 @@ final class ReplyTimerRuntimeContext {
                     now);
             runtime.put("reply_timer_grounding", ReplyTimerGrounding.toJson(lifeState, now));
 
+            if ("conversational_message".equals(mode)) {
+                runtime.put("conversation_reassessment_policy", conversationPolicy());
+                runtime.put("dungeon_participation_policy", dungeonParticipationPolicy());
+            }
+
             ReplyTimerBinding binding;
             if ("conversational_message".equals(mode)) {
                 JSONObject room = runtime.optJSONObject("room");
@@ -65,5 +70,31 @@ final class ReplyTimerRuntimeContext {
         } catch (Exception ignored) {
             return new Prepared(prompt, null);
         }
+    }
+
+    static JSONObject conversationPolicy() {
+        JSONObject policy = new JSONObject();
+        try {
+            policy.put("direct_question_salience", true);
+            policy.put("repeated_unresolved_question_recheck", true);
+            policy.put("silence_is_character_choice_not_default", true);
+            policy.put("instruction",
+                    "A message directly addressed to this NPC, especially a question, normally deserves conscious social evaluation. Use recent_room_transcript to notice when the user is asking the same or a similar unresolved question again. Re-evaluate each new message instead of carrying forward silence mechanically. The NPC may still stay silent, refuse, defer or answer, but silence must follow from the character's grounded personality, relationship, current state or situation; do not use 'conversation need not continue' as a default suppression rule.");
+        } catch (Exception ignored) {
+        }
+        return policy;
+    }
+
+    static JSONObject dungeonParticipationPolicy() {
+        JSONObject policy = new JSONObject();
+        try {
+            policy.put("decision_owner", "global_workspace");
+            policy.put("structured_tool", ReplyTimerToolSession.TOOL_NAME);
+            policy.put("operation", ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION);
+            policy.put("instruction",
+                    "When the current message concerns whether this NPC will join, refuse, hesitate about, reconsider or withdraw from the dungeon, Global Workspace must record that integrated decision with the runtime tool. Consider fear, personality, current affect, memory, relationship and grounded danger together. Do not wait for numeric thresholds, do not require an explicit reason sentence, and do not infer the decision later from emitted wording.");
+        } catch (Exception ignored) {
+        }
+        return policy;
     }
 }
