@@ -91,24 +91,24 @@ public class DungeonCognitionTest {
 
     @Test
     public void seekStairsDoesNotUseHiddenStairCoordinate() {
-        DungeonState rightStairs = openState(9, 9, 4, 4, 7, 4);
-        DungeonState leftStairs = openState(9, 9, 4, 4, 1, 4);
-        DungeonPerception.refreshExploration(rightStairs);
-        DungeonPerception.refreshExploration(leftStairs);
-        rightStairs.visited[4][7] = false;
-        leftStairs.visited[4][1] = false;
+        DungeonState eastHidden = openState(15, 15, 2, 2, 12, 2);
+        DungeonState southHidden = openState(15, 15, 2, 2, 2, 12);
+        DungeonPerception.refreshExploration(eastHidden);
+        DungeonPerception.refreshExploration(southHidden);
+        assertFalse(DungeonPerception.stairsKnown(eastHidden));
+        assertFalse(DungeonPerception.stairsKnown(southHidden));
 
-        DungeonPersonalityPolicy.Traits diligent =
+        DungeonPersonalityPolicy.Traits traits =
                 new DungeonPersonalityPolicy.Traits(0, 0, 0, 100, 0);
-        DungeonIntent seekRight = new DungeonIntent(
+        DungeonIntent seek = new DungeonIntent(
                 DungeonIntent.SEEK_STAIRS,
                 DungeonPersonalityPolicy.Direction.WAIT,
                 "", 1.0, "", DungeonIntent.SOURCE_BRAIN, 1, 0);
 
         double scoreA = DungeonPersonalityPolicy.scoreDirection(
-                rightStairs, diligent, DungeonPersonalityPolicy.Direction.RIGHT, seekRight);
+                eastHidden, traits, DungeonPersonalityPolicy.Direction.RIGHT, seek);
         double scoreB = DungeonPersonalityPolicy.scoreDirection(
-                leftStairs, diligent, DungeonPersonalityPolicy.Direction.RIGHT, seekRight);
+                southHidden, traits, DungeonPersonalityPolicy.Direction.RIGHT, seek);
         assertEquals(scoreA, scoreB, 0.0001);
     }
 
