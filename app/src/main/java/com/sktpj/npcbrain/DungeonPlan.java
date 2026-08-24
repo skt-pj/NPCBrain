@@ -47,7 +47,7 @@ final class DungeonPlan {
                 riskTolerance,
                 combatPreference,
                 explorationPreference,
-                DungeonObjective.REACH_TOP.equals(objectiveType) ? 0.90 : 0.60,
+                DungeonObjective.REACH_TOP.equals(objectiveType) ? 0.75 : 0.50,
                 persistence,
                 0.5,
                 "",
@@ -99,6 +99,10 @@ final class DungeonPlan {
         this.createdTurn = Math.max(0, createdTurn);
     }
 
+    /**
+     * Offline/local plan is a neutral compiler fallback. It represents the explicit objective,
+     * not an Android-side guess about courage, fear, aggression or personality.
+     */
     static DungeonPlan local(
             DungeonObjective objective,
             DungeonPersonalityPolicy.Traits traits,
@@ -106,50 +110,22 @@ final class DungeonPlan {
             String reason
     ) {
         DungeonObjective goal = objective == null ? DungeonObjective.none() : objective;
-        DungeonPersonalityPolicy.Traits safeTraits = traits == null
-                ? new DungeonPersonalityPolicy.Traits(50, 50, 50, 50, 50) : traits;
-        double e = safeTraits.extraversion / 100.0;
-        double n = safeTraits.neuroticism / 100.0;
-        double a = safeTraits.agreeableness / 100.0;
-        double c = safeTraits.conscientiousness / 100.0;
-        double o = safeTraits.openness / 100.0;
-        double risk = clamp01(0.48 + 0.34 * e - 0.42 * n);
-        double combat = clamp01(0.30 + 0.52 * e - 0.28 * a - 0.18 * n);
-        double explore = clamp01(0.32 + 0.60 * o);
-        double progress = clamp01(0.46 + 0.46 * c);
-        double persist = clamp01(0.40 + 0.55 * c);
-        String strategy = STRATEGY_BALANCED;
-        if (goal.isActive() && goal.targetFloor > 0) {
-            progress = Math.max(0.72, progress);
-            persist = Math.max(0.65, persist);
-            strategy = STRATEGY_ADVANCE;
-        } else if (goal.isCustom()) {
-            if (n >= 0.72) strategy = STRATEGY_SURVIVE;
-            else if (e >= 0.72 && a <= 0.45) strategy = STRATEGY_HUNT;
-            else if (o >= 0.68) strategy = STRATEGY_EXPLORE;
-        }
-        String interpretation;
-        String summary;
-        if (goal.isCustom()) {
-            interpretation = "Brainの解釈待ち。目的原文を保持し、人格ベースで安全に行動します。";
-            summary = goal.targetFloor > 0
-                    ? "ローカル計画: 人格に沿って探索し、" + goal.targetFloor + "Fを目安に進む"
-                    : "ローカル計画: 人格に沿って探索を継続する";
-        } else if (goal.isActive()) {
-            interpretation = "最上階へ進む目的として扱います。";
-            summary = "ローカル計画: 生存しながら探索し、階段を見つけて" + goal.targetFloor + "Fへ進む";
-        } else {
-            interpretation = "目的は設定されていません。";
-            summary = "ローカル計画: 周囲を探索する";
-        }
+        boolean hasFloorGoal = goal.isActive() && goal.targetFloor > 0;
+        String strategy = hasFloorGoal ? STRATEGY_ADVANCE : STRATEGY_BALANCED;
+        String interpretation = goal.isActive()
+                ? "明示された目的を中立ローカル実行へ変換します。"
+                : "目的は設定されていません。";
+        String summary = hasFloorGoal
+                ? "中立ローカル計画: 既知情報だけで" + goal.targetFloor + "Fへ進む"
+                : "中立ローカル計画: 既知情報だけで探索する";
         if (reason != null && !reason.trim().isEmpty()) summary += " · " + reason.trim();
         return new DungeonPlan(
-                risk,
-                combat,
-                explore,
-                progress,
-                persist,
-                0.35,
+                0.50,
+                0.50,
+                0.50,
+                hasFloorGoal ? 0.75 : 0.50,
+                0.50,
+                0.0,
                 interpretation,
                 strategy,
                 summary,
@@ -179,7 +155,7 @@ final class DungeonPlan {
                     payload.plan,
                     payload.publicSummary);
         }
-        return fromIntentFallback(objective, traits, state, intent, publicSummary);
+        return fromIntentFallback(objective, state, intent, publicSummary);
     }
 
     static DungeonPlan fromStructuredBrain(
@@ -191,28 +167,21 @@ final class DungeonPlan {
             String publicSummary
     ) {
         if (structured == null || !structured.optBoolean("applicable", false)) {
-            return fromIntentFallback(objective, traits, state, intent, publicSummary);
+            return fromIntentFallback(objective, state, intent, publicSummary);
         }
         DungeonObjective goal = objective == null ? DungeonObjective.none() : objective;
-        DungeonPlan base = local(goal, traits, state, "");
-        double planConfidence = clamp01(structured.optDouble("confidence", 0.65));
-        double blend = 0.65 + 0.30 * planConfidence;
-        double risk = lerp(base.riskTolerance,
-                structured.optDouble("risk_tolerance", base.riskTolerance), blend);
-        double combat = lerp(base.combatPreference,
-                structured.optDouble("combat_preference", base.combatPreference), blend);
-        double explore = lerp(base.explorationPreference,
-                structured.optDouble("exploration_preference", base.explorationPreference), blend);
-        double progress = lerp(base.progressPreference,
-                structured.optDouble("progress_preference", base.progressPreference), blend);
-        double persist = lerp(base.persistence,
-                structured.optDouble("persistence", base.persistence), blend);
+        double planConfidence = clamp01(structured.optDouble("confidence", 0.5));
+        double risk = clamp01(structured.optDouble("risk_tolerance", 0.5));
+        double combat = clamp01(structured.optDouble("combat_preference", 0.5));
+        double explore = clamp01(structured.optDouble("exploration_preference", 0.5));
+        double progress = clamp01(structured.optDouble("progress_preference", 0.5));
+        double persist = clamp01(structured.optDouble("persistence", 0.5));
         String interpretation = limitText(
                 structured.optString("objective_interpretation", ""), 280);
         if (interpretation.isEmpty()) {
             interpretation = goal.isCustom()
-                    ? "「" + goal.rawUserText() + "」を人格と現在状況に沿って実行します。"
-                    : "最上階を目指す方針として解釈しました。";
+                    ? "「" + goal.rawUserText() + "」をBrainが解釈した方針です。"
+                    : "Brainが現在の目的を解釈した方針です。";
         }
         String strategy = normalizeStrategy(structured.optString("strategy", STRATEGY_BALANCED));
         int target = clampTargetFloor(structured.optInt("target_floor", 0));
@@ -243,81 +212,59 @@ final class DungeonPlan {
                 state == null ? 0 : state.turn);
     }
 
+    /** Mechanical translation only when an old Brain result lacks dungeon_plan. */
     private static DungeonPlan fromIntentFallback(
             DungeonObjective objective,
-            DungeonPersonalityPolicy.Traits traits,
             DungeonState state,
             DungeonIntent intent,
             String publicSummary
     ) {
-        DungeonPlan base = local(objective, traits, state, "");
+        DungeonObjective goal = objective == null ? DungeonObjective.none() : objective;
         DungeonIntent resolved = intent == null
-                ? DungeonIntent.localFallback(state, traits, "Brain plan fallback") : intent;
-        double targetRisk = 0.48;
-        double targetCombat = 0.35;
-        double targetExplore = 0.60;
-        double targetProgress = 0.72;
-        double targetPersistence = 0.82;
-        String strategy = STRATEGY_BALANCED;
+                ? DungeonIntent.localFallback(state, null, "Brain plan fallback") : intent;
+        double risk = 0.50;
+        double combat = 0.50;
+        double explore = 0.50;
+        double progress = goal.targetFloor > 0 ? 0.75 : 0.50;
+        double persist = 0.50;
+        String strategy = goal.targetFloor > 0 ? STRATEGY_ADVANCE : STRATEGY_BALANCED;
         switch (resolved.mode) {
             case DungeonIntent.ENGAGE:
-                targetRisk = 0.82;
-                targetCombat = 0.92;
-                targetExplore = 0.42;
-                targetProgress = 0.42;
-                targetPersistence = 0.76;
+                risk = 0.80;
+                combat = 0.90;
                 strategy = STRATEGY_HUNT;
                 break;
             case DungeonIntent.EVADE:
-                targetRisk = 0.16;
-                targetCombat = 0.18;
-                targetExplore = 0.42;
-                targetProgress = 0.48;
-                targetPersistence = 0.74;
+                risk = 0.20;
+                combat = 0.15;
                 strategy = STRATEGY_SURVIVE;
                 break;
             case DungeonIntent.SEEK_STAIRS:
-                targetRisk = 0.44;
-                targetCombat = 0.30;
-                targetExplore = 0.32;
-                targetProgress = 0.98;
-                targetPersistence = 0.98;
+                progress = 0.95;
+                explore = 0.35;
                 strategy = STRATEGY_ADVANCE;
                 break;
             case DungeonIntent.HOLD:
-                targetRisk = 0.24;
-                targetCombat = 0.22;
-                targetExplore = 0.34;
-                targetProgress = 0.40;
-                targetPersistence = 0.58;
-                strategy = STRATEGY_SURVIVE;
+                persist = 0.20;
+                strategy = STRATEGY_BALANCED;
                 break;
             default:
-                targetRisk = 0.48;
-                targetCombat = 0.32;
-                targetExplore = 0.96;
-                targetProgress = 0.62;
-                targetPersistence = 0.84;
+                explore = 0.85;
                 strategy = STRATEGY_EXPLORE;
                 break;
         }
-        double blend = 0.35 + 0.55 * resolved.confidence;
         String summary = safe(publicSummary);
-        DungeonObjective goal = objective == null ? DungeonObjective.none() : objective;
         if (summary.isEmpty()) {
-            summary = "Brain計画: " + DungeonIntent.modeLabel(resolved.mode)
-                    + (goal.targetFloor > 0 ? "を軸に" + goal.targetFloor + "Fを目指す" : "を軸に行動する");
+            summary = "Brain intent変換: " + DungeonIntent.modeLabel(resolved.mode);
         }
         return new DungeonPlan(
-                lerp(base.riskTolerance, targetRisk, blend),
-                lerp(base.combatPreference, targetCombat, blend),
-                lerp(base.explorationPreference, targetExplore, blend),
-                lerp(base.progressPreference, targetProgress, blend),
-                lerp(base.persistence, targetPersistence, blend),
+                risk,
+                combat,
+                explore,
+                progress,
+                persist,
                 resolved.confidence,
-                goal.isCustom()
-                        ? "目的をBrainの現在判断と人格に沿って実行します。"
-                        : "最上階へ進む目的として解釈しました。",
+                "Brainが選んだintentを機械的にpersistent planへ変換しました。",
                 strategy,
                 summary,
                 SOURCE_BRAIN,
@@ -374,16 +321,13 @@ final class DungeonPlan {
         }
         return new DungeonPlan(
                 object.optDouble("risk_tolerance", 0.5),
-                object.optDouble("combat_preference", 0.4),
-                object.optDouble("exploration_preference", 0.6),
-                object.optDouble("progress_preference",
-                        DungeonObjective.REACH_TOP.equals(objectiveType) ? 0.90 : 0.60),
-                object.optDouble("persistence", 0.7),
+                object.optDouble("combat_preference", 0.5),
+                object.optDouble("exploration_preference", 0.5),
+                object.optDouble("progress_preference", 0.5),
+                object.optDouble("persistence", 0.5),
                 object.optDouble("confidence", 0.5),
                 object.optString("interpretation", ""),
-                object.optString("strategy",
-                        DungeonObjective.REACH_TOP.equals(objectiveType)
-                                ? STRATEGY_ADVANCE : STRATEGY_BALANCED),
+                object.optString("strategy", STRATEGY_BALANCED),
                 object.optString("summary", ""),
                 object.optString("source", SOURCE_LOCAL),
                 objectiveType,
@@ -459,11 +403,6 @@ final class DungeonPlan {
     private static int clampTargetFloor(int value) {
         if (value <= 0) return 0;
         return Math.min(DungeonObjective.TOP_FLOOR, value);
-    }
-
-    private static double lerp(double a, double b, double t) {
-        double clamped = clamp01(t);
-        return a + (b - a) * clamped;
     }
 
     private static double clamp01(double value) {
