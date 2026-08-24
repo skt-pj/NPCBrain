@@ -66,6 +66,28 @@ public class DungeonCognitionTest {
         DungeonCognitionGate.Signal t12 = DungeonCognitionGate.snapshot(state);
         assertEquals(DungeonCognitionGate.PERIODIC,
                 DungeonCognitionGate.reason(same, t12, 0));
+
+        assertTrue(DungeonCognitionGate.isCognitionTrigger(DungeonCognitionGate.FLOOR_START));
+        assertTrue(DungeonCognitionGate.isCognitionTrigger(DungeonCognitionGate.ENEMY_SPOTTED));
+        assertTrue(DungeonCognitionGate.isCognitionTrigger(DungeonCognitionGate.STAIRS_SPOTTED));
+        assertTrue(DungeonCognitionGate.isCognitionTrigger(DungeonCognitionGate.HP_RISK));
+        assertTrue(DungeonCognitionGate.isCognitionTrigger(DungeonCognitionGate.COMBAT_CHANGE));
+        assertTrue(DungeonCognitionGate.isCognitionTrigger(DungeonCognitionGate.PERIODIC));
+        assertFalse(DungeonCognitionGate.isCognitionTrigger(""));
+    }
+
+    @Test
+    public void pendingTriggerKeepsHighestPriorityIncludingProgressStall() {
+        assertEquals(DungeonCognitionGate.PROGRESS_STALLED,
+                DungeonCognitionGate.mergePending("", DungeonCognitionGate.PROGRESS_STALLED));
+        assertEquals(DungeonCognitionGate.PROGRESS_STALLED,
+                DungeonCognitionGate.mergePending(
+                        DungeonCognitionGate.ENEMY_SPOTTED,
+                        DungeonCognitionGate.PROGRESS_STALLED));
+        assertEquals(DungeonCognitionGate.OBJECTIVE_CHANGED,
+                DungeonCognitionGate.mergePending(
+                        DungeonCognitionGate.PERIODIC,
+                        DungeonCognitionGate.OBJECTIVE_CHANGED));
     }
 
     @Test
