@@ -47,10 +47,12 @@ final class DemoRuntimeV032 {
     private static final class BrainRun {
         final BrainEngine.Decision decision;
         final JSONArray trace;
+        final ReplyTimerTask scheduledReplyTimer;
 
-        BrainRun(BrainEngine.Decision decision, JSONArray trace) {
+        BrainRun(BrainEngine.Decision decision, JSONArray trace, ReplyTimerTask scheduledReplyTimer) {
             this.decision = decision;
             this.trace = trace;
+            this.scheduledReplyTimer = scheduledReplyTimer;
         }
     }
 
@@ -173,6 +175,21 @@ final class DemoRuntimeV032 {
                     causeEvent
             );
             BrainRun run = runBrain(npcId, name, prompt, apiKey, effort, listener);
+            if (run.scheduledReplyTimer != null) {
+                conversations.appendNpcRuntimeDecision(
+                        ReplyTimerPolicy.decisionMessageId(run.scheduledReplyTimer, "scheduled"),
+                        roomId,
+                        npcId,
+                        name,
+                        BrainCommunicationDecision.DEFER,
+                        run.scheduledReplyTimer.reason,
+                        worldRuntime.now(),
+                        worldRuntime.messageCauseForNpc(npcId, causeEventId),
+                        run.trace
+                );
+                if (listener != null) listener.onNpcFinished(npcId, name, false);
+                continue;
+            }
             String utterance = run.decision.utterance();
             String action = run.decision.action();
             if (utterance.isEmpty()) utterance = extractQuotedUtterance(run.decision.displayOutput());
@@ -229,6 +246,23 @@ final class DemoRuntimeV032 {
         long now = worldRuntime.now();
         String outputCauseEventId = worldRuntime.messageCauseForNpc(npcId, sourceEventId);
         String directRoom = directRoomForNpc(npcId);
+
+        if (run.scheduledReplyTimer != null) {
+            conversations.appendNpcRuntimeDecision(
+                    ReplyTimerPolicy.decisionMessageId(run.scheduledReplyTimer, "scheduled"),
+                    directRoom,
+                    npcId,
+                    name,
+                    BrainCommunicationDecision.DEFER,
+                    run.scheduledReplyTimer.reason,
+                    now,
+                    outputCauseEventId,
+                    run.trace
+            );
+            spontaneousStore.markDeferred(sourceEventId, run.scheduledReplyTimer.wakeAtMs);
+            if (listener != null) listener.onNpcFinished(npcId, name, false);
+            return;
+        }
 
         if (communication.valid()
                 && communication.isDefer()
@@ -340,6 +374,21 @@ final class DemoRuntimeV032 {
             );
             BrainRun run = runBrain(recipientId, recipientName, prompt, apiKey, effort, listener);
             String cause = worldRuntime.messageCauseForNpc(recipientId, receipt.eventId());
+            if (run.scheduledReplyTimer != null) {
+                conversations.appendNpcRuntimeDecision(
+                        ReplyTimerPolicy.decisionMessageId(run.scheduledReplyTimer, "group_scheduled"),
+                        ROOM_GROUP,
+                        recipientId,
+                        recipientName,
+                        BrainCommunicationDecision.DEFER,
+                        run.scheduledReplyTimer.reason,
+                        worldRuntime.now(),
+                        cause,
+                        run.trace
+                );
+                if (listener != null) listener.onNpcFinished(recipientId, recipientName, false);
+                return;
+            }
             String utterance = run.decision.utterance().trim();
             if (utterance.isEmpty()) {
                 conversations.appendNpcSilentDecision(
@@ -379,6 +428,81 @@ final class DemoRuntimeV032 {
         }
     }
 
+    void processReplyTimer(
+            ReplyTimerTask requestedTask,
+            String apiKey,
+            String reasoningEffort,
+            Listener listener
+    ) throws Exception {
+        if (requestedTask == null || !requestedTask.isValid()) return;
+        ReplyTimerStore timerStore = new ReplyTimerStore(appContext);
+        ReplyTimerTask task = timerStore.get(requestedTask.sourceKey);
+        if (task == null || !ReplyTimerPolicy.isDue(task, System.currentTimeMillis())) return;
+
+        worldRuntime.syncAllNow();
+        if (!npcRegistry.activeNpcIds().contains(task.npcId) || characterStore(task.npcId).isDead()) {
+            timerStore.complete(task.sourceKey);
+            return;
+        }
+        final String effort = ModelSettingsStore.normalizeReasoningEffort(reasoningEffort);
+
+        if (ReplyTimerBinding.MODE_CONVERSATION.equals(task.mode)) {
+            JSONObject sourceMessage = conversations.messageById(task.roomId, task.sourceMessageId);
+            if (sourceMessage == null || sourceMessage.length() == 0) sourceMessage = copy(task.sourceMessage);
+            if (sourceMessage == null || sourceMessage.length() == 0) {
+                timerStore.complete(task.sourceKey);
+                return;
+            }
+            WorldEvent causeEvent = worldRuntime.eventById(task.sourceEventId);
+            String name = displayName(task.npcId);
+            if (listener != null) listener.onNpcStarted(task.npcId, name, 1, 1);
+            String prompt = buildChatEventPrompt(
+                    task.roomId, task.npcId, name, sourceMessage,
+                    worldRuntime.lifeState(task.npcId), causeEvent);
+            BrainRun run = runBrain(task.npcId, name, prompt, apiKey, effort, listener);
+            String outputCauseEventId = worldRuntime.messageCauseForNpc(task.npcId, task.sourceEventId);
+            if (run.scheduledReplyTimer != null) {
+                conversations.appendNpcRuntimeDecision(
+                        ReplyTimerPolicy.decisionMessageId(run.scheduledReplyTimer, "rescheduled"),
+                        task.roomId, task.npcId, name, BrainCommunicationDecision.DEFER,
+                        run.scheduledReplyTimer.reason, worldRuntime.now(), outputCauseEventId, run.trace);
+                if (listener != null) listener.onNpcFinished(task.npcId, name, false);
+                return;
+            }
+
+            String utterance = run.decision.utterance().trim();
+            if (utterance.isEmpty()) utterance = extractQuotedUtterance(run.decision.displayOutput());
+            boolean sent = !utterance.trim().isEmpty();
+            if (sent) {
+                conversations.appendNpcMessageWithId(
+                        ReplyTimerPolicy.delayedReplyMessageId(task),
+                        task.roomId, task.npcId, name, utterance, run.decision.action(),
+                        worldRuntime.now(), outputCauseEventId, run.trace);
+            } else {
+                conversations.appendNpcRuntimeDecision(
+                        ReplyTimerPolicy.decisionMessageId(task, "final_silent"),
+                        task.roomId, task.npcId, name, BrainCommunicationDecision.SKIP,
+                        run.decision.action(), worldRuntime.now(), outputCauseEventId, run.trace);
+            }
+            timerStore.complete(task.sourceKey);
+            if (listener != null) listener.onNpcFinished(task.npcId, name, sent);
+            return;
+        }
+
+        if (ReplyTimerBinding.MODE_SPONTANEOUS.equals(task.mode)) {
+            WorldEvent source = worldRuntime.eventById(task.sourceEventId);
+            if (source == null) source = WorldEvent.fromJson(task.sourceEvent);
+            if (source == null) {
+                timerStore.complete(task.sourceKey);
+                return;
+            }
+            processSpontaneousEvent(source, apiKey, effort, listener);
+            ReplyTimerTask after = timerStore.get(task.sourceKey);
+            if (after != null && after.wakeAtMs > task.wakeAtMs) return;
+            timerStore.complete(task.sourceKey);
+        }
+    }
+
     private BrainRun runBrain(
             String npcId,
             String name,
@@ -387,13 +511,20 @@ final class DemoRuntimeV032 {
             String effort,
             Listener listener
     ) throws Exception {
+        ReplyTimerRuntimeContext.Prepared prepared = ReplyTimerRuntimeContext.prepare(npcId, prompt);
+        ReplyTimerToolSession timerSession = prepared.binding == null
+                ? null
+                : new ReplyTimerToolSession(appContext, prepared.binding);
         BrainEngine engine = new BrainEngine(
                 new OpenAiClient(appContext, apiKey, effort),
                 memoryStore(npcId),
                 characterStore(npcId)
         );
         JSONArray trace = new JSONArray();
-        BrainEngine.Decision decision = engine.thinkDecision(prompt, new BrainEngine.ProgressListener() {
+        BrainEngine.Decision decision;
+        if (timerSession != null) OpenAiClient.setFunctionToolForCurrentThread(timerSession);
+        try {
+            decision = engine.thinkDecision(prepared.prompt, new BrainEngine.ProgressListener() {
             @Override
             public void onStageStarted(
                     String stageId,
@@ -457,8 +588,14 @@ final class DemoRuntimeV032 {
                     );
                 }
             }
-        });
-        return new BrainRun(decision, trace);
+            });
+        } finally {
+            OpenAiClient.clearFunctionToolForCurrentThread();
+        }
+        return new BrainRun(
+                decision,
+                trace,
+                timerSession == null ? null : timerSession.scheduledTask());
     }
 
     private String buildChatEventPrompt(
