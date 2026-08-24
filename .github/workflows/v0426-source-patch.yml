@@ -1,0 +1,73 @@
+name: v0426 source patch
+
+on:
+  push:
+    branches:
+      - feature/v0.4.26-deferred-spontaneous-job
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch DemoRuntime spontaneous gate
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('app/src/main/java/com/sktpj/npcbrain/DemoRuntimeV032.java')
+          text = path.read_text()
+          old = '''    void processPendingSpontaneous(
+                  String apiKey,
+                  String reasoningEffort,
+                  Listener listener
+          ) throws Exception {
+              final String effort = ModelSettingsStore.normalizeReasoningEffort(reasoningEffort);
+              worldRuntime.syncAllNow();
+              JSONArray due = spontaneousStore.dueEvents(worldRuntime.events(), worldRuntime.now());
+              for (int i = 0; i < due.length(); i++) {
+                  JSONObject sourceJson = due.optJSONObject(i);
+                  WorldEvent source = WorldEvent.fromJson(sourceJson);
+                  if (source == null) continue;
+                  processSpontaneousEvent(source, apiKey, effort, listener);
+              }
+          }
+          '''
+          new = '''    void processPendingSpontaneous(
+                  String apiKey,
+                  String reasoningEffort,
+                  Listener listener
+          ) throws Exception {
+              if (!SpontaneousProcessingGate.tryAcquire()) return;
+              try {
+                  final String effort = ModelSettingsStore.normalizeReasoningEffort(reasoningEffort);
+                  worldRuntime.syncAllNow();
+                  JSONArray due = spontaneousStore.dueEvents(worldRuntime.events(), worldRuntime.now());
+                  for (int i = 0; i < due.length(); i++) {
+                      JSONObject sourceJson = due.optJSONObject(i);
+                      WorldEvent source = WorldEvent.fromJson(sourceJson);
+                      if (source == null) continue;
+                      processSpontaneousEvent(source, apiKey, effort, listener);
+                  }
+              } finally {
+                  SpontaneousProcessingGate.release();
+              }
+          }
+          '''
+          if old not in text:
+              raise SystemExit('expected DemoRuntime method not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit patch
+        shell: bash
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/com/sktpj/npcbrain/DemoRuntimeV032.java
+          git commit -m 'Guard spontaneous processing single-flight'
+          git push
