@@ -35,9 +35,9 @@ final class DungeonParticipationState {
     static DungeonParticipationState initial() {
         return new DungeonParticipationState(
                 NOT_ASKED,
-                0.08,
-                0.82,
-                0.08,
+                0.50,
+                0.50,
+                0.50,
                 "",
                 0L);
     }
@@ -81,9 +81,9 @@ final class DungeonParticipationState {
         if (!isKnownStance(rawStance)) return initial();
         return new DungeonParticipationState(
                 rawStance,
-                object.optDouble("willingness", 0.08),
-                object.optDouble("fear", 0.82),
-                object.optDouble("resolve", 0.08),
+                object.optDouble("willingness", 0.50),
+                object.optDouble("fear", 0.50),
+                object.optDouble("resolve", 0.50),
                 object.optString("personal_reason", ""),
                 object.optLong("updated_time_ms", 0L));
     }
