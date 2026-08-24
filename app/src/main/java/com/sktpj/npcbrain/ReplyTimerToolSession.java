@@ -5,6 +5,7 @@ import org.json.JSONObject;
 
 final class ReplyTimerToolSession implements OpenAiClient.FunctionTool {
     static final String TOOL_NAME = "npc_runtime_decision";
+    static final String OP_NONE = "none";
     static final String OP_REPLY_TIMER = "schedule_reply_timer";
     static final String OP_DUNGEON_PARTICIPATION = "set_dungeon_participation";
 
@@ -25,6 +26,11 @@ final class ReplyTimerToolSession implements OpenAiClient.FunctionTool {
     }
 
     @Override
+    public boolean requiredInvocation() {
+        return true;
+    }
+
+    @Override
     public JSONObject definition() {
         JSONObject tool = new JSONObject();
         try {
@@ -32,9 +38,10 @@ final class ReplyTimerToolSession implements OpenAiClient.FunctionTool {
             properties.put("operation", new JSONObject()
                     .put("type", "string")
                     .put("enum", new JSONArray()
+                            .put(OP_NONE)
                             .put(OP_REPLY_TIMER)
                             .put(OP_DUNGEON_PARTICIPATION))
-                    .put("description", "Which runtime decision to record."));
+                    .put("description", "Exactly one runtime decision for this cycle. Use none when no runtime state write is appropriate."));
             properties.put("wake_at_ms", new JSONObject()
                     .put("type", "integer")
                     .put("description", "For schedule_reply_timer: absolute Unix epoch milliseconds. Otherwise use 0."));
@@ -49,17 +56,17 @@ final class ReplyTimerToolSession implements OpenAiClient.FunctionTool {
                     .put("type", "number")
                     .put("minimum", 0.0)
                     .put("maximum", 1.0)
-                    .put("description", "Descriptive current willingness, never an acceptance gate."));
+                    .put("description", "Descriptive current willingness, never an acceptance gate. Use 0.5 for operation=none when no assessment is relevant."));
             properties.put("fear", new JSONObject()
                     .put("type", "number")
                     .put("minimum", 0.0)
                     .put("maximum", 1.0)
-                    .put("description", "Descriptive current fear, never an automatic retreat/withdraw gate."));
+                    .put("description", "Descriptive current fear, never an automatic retreat/withdraw gate. Use 0.5 for operation=none when no assessment is relevant."));
             properties.put("resolve", new JSONObject()
                     .put("type", "number")
                     .put("minimum", 0.0)
                     .put("maximum", 1.0)
-                    .put("description", "Descriptive current resolve, never an acceptance gate."));
+                    .put("description", "Descriptive current resolve, never an acceptance gate. Use 0.5 for operation=none when no assessment is relevant."));
             properties.put("personal_reason", new JSONObject()
                     .put("type", "string")
                     .put("description", "Optional concise public paraphrase of the character's reason; empty is valid."));
@@ -80,7 +87,8 @@ final class ReplyTimerToolSession implements OpenAiClient.FunctionTool {
             tool.put("type", "function");
             tool.put("name", TOOL_NAME);
             tool.put("description",
-                    "Record one structured NPC runtime decision from Global Workspace. "
+                    "Global Workspace MUST emit exactly one structured runtime decision before its final JSON response. "
+                            + "Use operation=none when this cycle needs no runtime state write. "
                             + "Use operation=set_dungeon_participation whenever the CURRENT conversational message asks, invites, negotiates, confirms, refuses, reconsiders, or withdraws this NPC's dungeon participation. "
                             + "The participation_decision is the character's integrated choice after considering personality, current state, fear, memory, relationship and grounded situation. "
                             + "Do not wait for numeric thresholds and do not require a personal_reason. Fear may coexist with accept; low fear may coexist with refuse. "
@@ -100,6 +108,9 @@ final class ReplyTimerToolSession implements OpenAiClient.FunctionTool {
         try {
             if (binding == null || !binding.isValid()) {
                 return output.put("ok", false).put("error", "invalid_bound_source");
+            }
+            if (OP_NONE.equals(operation)) {
+                return output.put("ok", true).put("recorded", OP_NONE);
             }
             if (OP_DUNGEON_PARTICIPATION.equals(operation)) {
                 return recordParticipation(arguments, output);
