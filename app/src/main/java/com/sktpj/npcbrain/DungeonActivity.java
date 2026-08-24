@@ -38,7 +38,9 @@ public final class DungeonActivity extends Activity {
         @Override
         public void run() {
             if (!running) return;
-            if (!paused && !objectiveComplete()) advanceTurn();
+            // Freeze the selected dungeon while its Brain evaluates the exact captured state.
+            // This prevents an environment_action from becoming stale before execution.
+            if (!paused && !brainThinking && !objectiveComplete()) advanceTurn();
             scheduleNextTurn();
         }
     };
@@ -57,6 +59,7 @@ public final class DungeonActivity extends Activity {
     private DungeonIntent currentIntent;
     private DungeonMindStore.Snapshot mindSnapshot;
     private DungeonProgressMonitor.Snapshot progressSnapshot;
+    private DungeonCognitionGate.Signal lastCognitionSignal;
     private int lastBrainPlanTurn = -1;
 
     private DungeonBoardView boardView;
@@ -108,6 +111,12 @@ public final class DungeonActivity extends Activity {
         running = true;
         handler.removeCallbacks(turnTask);
         scheduleNextTurn();
+        if (objective.isActive()
+                && !objectiveComplete()
+                && !brainThinking
+                && (currentPlan == null || !DungeonPlan.SOURCE_BRAIN.equals(currentPlan.source))) {
+            requestBrain(DungeonCognitionGate.FLOOR_START);
+        }
     }
 
     @Override
@@ -344,13 +353,15 @@ public final class DungeonActivity extends Activity {
         currentPlan = storedPlan != null && storedPlan.matches(objective) ? storedPlan : null;
 
         if (mindSnapshot != null && mindSnapshot.intent != null
-                && mindSnapshot.intent.floor == state.floor) {
+                && mindSnapshot.intent.floor == state.floor
+                && mindSnapshot.intent.turn == state.turn) {
             currentIntent = mindSnapshot.intent;
             brainState = mindSnapshot.brainState;
             brainError = mindSnapshot.error;
         } else {
             currentIntent = DungeonIntent.localFallback(state, currentTraits(), "初期評価");
-            brainState = DungeonMindStore.STATE_LOCAL;
+            brainState = currentPlan != null && DungeonPlan.SOURCE_BRAIN.equals(currentPlan.source)
+                    ? DungeonMindStore.STATE_BRAIN : DungeonMindStore.STATE_LOCAL;
             brainError = "";
         }
 
@@ -365,37 +376,61 @@ public final class DungeonActivity extends Activity {
             lastBrainPlanTurn = -1;
         }
         progressSnapshot = DungeonProgressMonitor.initial(state);
+        lastCognitionSignal = DungeonCognitionGate.snapshot(state);
         saveMindSnapshotPreservingTrace();
         render();
     }
 
     private void advanceTurn() {
-        if (state == null || objectiveComplete()) return;
+        if (state == null || objectiveComplete() || brainThinking) return;
         DungeonPersonalityPolicy.Traits traits = currentTraits();
         if (objective.isActive() && (currentPlan == null || !currentPlan.matches(objective))) {
             currentPlan = DungeonPlan.local(objective, traits, state, "計画補完");
         }
-        currentIntent = DungeonIntent.localFallback(state, traits, "持続計画をローカル実行");
-        int oldFloor = state.floor;
+
+        DungeonCognitionGate.Signal before = lastCognitionSignal == null
+                ? DungeonCognitionGate.snapshot(state) : lastCognitionSignal;
+        DungeonIntent turnIntent = currentIntent;
+        boolean exactBrainAction = turnIntent != null
+                && turnIntent.isBrain()
+                && turnIntent.floor == state.floor
+                && turnIntent.turn == state.turn;
+        if (!exactBrainAction) {
+            turnIntent = DungeonIntent.localFallback(state, traits, "Brain persistent planを合法実行");
+        }
+        currentIntent = turnIntent;
+
         DungeonStepResult result = DungeonEngine.stepDetailed(
                 state,
                 traits,
-                currentIntent,
+                turnIntent,
                 currentPlan);
         state = result.state;
         DungeonPerception.refreshExploration(state);
         dungeonStore.save(selectedNpcId, state);
 
-        if (state.floor != oldFloor) {
-            currentIntent = DungeonIntent.localFallback(state, traits, "新しい階をローカル探索");
-            if (boardView != null) boardView.clearEffects();
-        }
+        // environment_action is one turn only. Persistent behavior after that comes from the
+        // Brain-authored dungeon_plan until a salient change requests another Brain evaluation.
+        currentIntent = DungeonIntent.localFallback(
+                state,
+                traits,
+                state.floor == before.floor ? "Brain persistent planを継続" : "新しい階を評価待ち");
+        if (state.floor != before.floor && boardView != null) boardView.clearEffects();
+
+        DungeonCognitionGate.Signal after = DungeonCognitionGate.snapshot(state);
+        String cognitionTrigger = DungeonCognitionGate.reason(before, after, lastBrainPlanTurn);
+        lastCognitionSignal = after;
 
         DungeonProgressMonitor.Result progress = DungeonProgressMonitor.observe(
                 progressSnapshot,
                 state,
                 lastBrainPlanTurn);
         progressSnapshot = progress.snapshot;
+        if (progress.shouldReplan) {
+            cognitionTrigger = DungeonCognitionGate.mergePending(
+                    cognitionTrigger,
+                    DungeonCognitionGate.PROGRESS_STALLED);
+        }
 
         render();
         boardView.playCombatEvents(result.events);
@@ -408,9 +443,8 @@ public final class DungeonActivity extends Activity {
             render();
             return;
         }
-        if (objective.isActive() && progress.shouldReplan) {
-            lastBrainPlanTurn = state.turn;
-            requestBrain(DungeonCognitionGate.PROGRESS_STALLED);
+        if (objective.isActive() && DungeonCognitionGate.isCognitionTrigger(cognitionTrigger)) {
+            requestBrain(cognitionTrigger);
         }
     }
 
@@ -439,7 +473,7 @@ public final class DungeonActivity extends Activity {
 
     private void requestBrain(String triggerReason) {
         if (state == null
-                || !DungeonCognitionGate.isStrategyTrigger(triggerReason)
+                || !DungeonCognitionGate.isCognitionTrigger(triggerReason)
                 || !objective.isActive()
                 || objectiveComplete()) return;
         if (brainThinking) {
@@ -479,6 +513,7 @@ public final class DungeonActivity extends Activity {
         final DungeonPersonalityPolicy.Traits requestedTraits = currentTraits();
         final String effort = modelSettingsStore.reasoningEffort();
         lastBrainPlanTurn = state.turn;
+        lastCognitionSignal = DungeonCognitionGate.snapshot(state);
         brainThinking = true;
         activeBrainNpcId = npcId;
         activeBrainFloor = floor;
@@ -550,7 +585,7 @@ public final class DungeonActivity extends Activity {
                         requestedObjective,
                         message));
             }
-        }, "npcbrain-v0411-dungeon-plan").start();
+        }, "npcbrain-v0427-dungeon-cognition").start();
     }
 
     private void finishBrainSuccess(
@@ -581,24 +616,27 @@ public final class DungeonActivity extends Activity {
                 System.currentTimeMillis());
 
         boolean sameSelectedNpc = npcId.equals(selectedNpcId);
-        boolean applies = sameSelectedNpc
+        boolean objectiveApplies = sameSelectedNpc
                 && state != null
                 && objectiveStillMatches
                 && sameObjective(objective, requestedObjective)
                 && !objectiveComplete();
-        if (objectiveStillMatches && (!sameSelectedNpc || applies)) {
+        boolean exactCapturedState = objectiveApplies
+                && state.floor == requestedFloor
+                && state.turn == requestedTurn;
+        if (objectiveStillMatches && (!sameSelectedNpc || objectiveApplies)) {
             mindStore.save(npcId, snapshot);
         }
-        if (applies) {
+        if (objectiveApplies) {
             mindSnapshot = snapshot;
             currentPlan = plan;
-            currentIntent = DungeonIntent.localFallback(
-                    state,
-                    currentTraits(),
-                    "Brain計画をローカル実行");
+            currentIntent = exactCapturedState
+                    ? result.intent
+                    : DungeonIntent.localFallback(state, currentTraits(), "Brain actionは状態変化で失効");
             brainState = DungeonMindStore.STATE_BRAIN;
             brainError = "";
             lastBrainPlanTurn = Math.max(requestedTurn, state.turn);
+            lastCognitionSignal = DungeonCognitionGate.snapshot(state);
             progressSnapshot = DungeonProgressMonitor.initial(state);
         }
         completeBrainRequest(npcId, requestedFloor);
@@ -646,6 +684,7 @@ public final class DungeonActivity extends Activity {
         brainState = DungeonMindStore.STATE_LOCAL;
         brainError = reason == null ? "" : reason;
         lastBrainPlanTurn = state.turn;
+        lastCognitionSignal = DungeonCognitionGate.snapshot(state);
         mindSnapshot = new DungeonMindStore.Snapshot(
                 currentIntent,
                 currentPlan,
@@ -686,6 +725,7 @@ public final class DungeonActivity extends Activity {
         brainError = "";
         pendingTrigger = "";
         lastBrainPlanTurn = -1;
+        lastCognitionSignal = DungeonCognitionGate.snapshot(state);
         progressSnapshot = DungeonProgressMonitor.initial(state);
         saveMindSnapshotPreservingTrace();
         render();
@@ -704,6 +744,7 @@ public final class DungeonActivity extends Activity {
         brainError = "";
         pendingTrigger = "";
         lastBrainPlanTurn = -1;
+        lastCognitionSignal = DungeonCognitionGate.snapshot(state);
         progressSnapshot = DungeonProgressMonitor.initial(state);
         saveMindSnapshotPreservingTrace();
         render();
@@ -784,31 +825,36 @@ public final class DungeonActivity extends Activity {
         }
 
         if (isThinkingSelected()) {
-            planView.setText("計画: 10段階Brainで再計画中。移動はローカル実行を継続");
+            planView.setText("計画: 10段階Brainで状況を再評価中。ターンは認知完了まで待機");
         } else if (currentPlan != null) {
             String sourceLabel = DungeonPlan.SOURCE_BRAIN.equals(currentPlan.source)
-                    ? "Brain計画" : "Local計画";
+                    ? "Brain計画" : "中立Local計画";
             planView.setText("計画: " + currentPlan.summary + " · " + sourceLabel);
         } else {
-            planView.setText("計画: 目的未設定。ローカル探索のみ");
+            planView.setText("計画: 目的未設定。中立ローカル探索のみ");
         }
 
         DungeonIntent intent = currentIntent == null
                 ? DungeonIntent.localFallback(state, currentTraits(), "待機") : currentIntent;
-        String effectiveMode = DungeonPersonalityPolicy.effectiveMode(state, intent);
-        intentView.setText("戦術: " + DungeonIntent.modeLabel(effectiveMode) + " · LOCAL EXECUTION");
+        String effectiveMode = DungeonPersonalityPolicy.effectiveMode(state, intent, currentPlan);
+        String executionOwner = intent.isBrain()
+                && intent.floor == state.floor
+                && intent.turn == state.turn
+                ? "BRAIN ACTION" : "BRAIN PLAN / LEGAL EXEC";
+        intentView.setText("戦術: " + DungeonIntent.modeLabel(effectiveMode) + " · " + executionOwner);
 
         if (objectiveComplete()) {
-            summaryView.setText("10Fへ到達したため自動進行とダンジョンBrain再計画を停止しました。");
+            summaryView.setText("10Fへ到達したため自動進行とダンジョンBrain再評価を停止しました。");
         } else if (isThinkingSelected()) {
-            summaryView.setText("APIは目的変更/進行停滞時だけ使用します。通常turnは端末内で進みます。");
+            summaryView.setText("敵・階段・HP帯・隣接戦闘・階層・周期・停滞の変化をBrainが再評価しています。");
         } else if (!brainError.isEmpty()) {
-            summaryView.setText("Brain: " + brainError + " · Local planで継続");
+            summaryView.setText("Brain: " + brainError + " · 中立Local executorで継続");
         } else {
-            summaryView.setText("Brain再計画: 目的変更 または 48turn進展なし + 96turn cooldown");
+            summaryView.setText("Brain再評価: 状況変化 + 12turn周期 + 進行停滞。Androidは心理判断を上書きしません。");
         }
         actionView.setText("直近: " + state.lastAction
                 + (paused ? "   ·   PAUSED" : "")
+                + (brainThinking ? "   ·   BRAIN" : "")
                 + (objectiveComplete() ? "   ·   GOAL COMPLETE" : ""));
         pauseButton.setText(paused ? "再開" : "一時停止");
         speedButton.setText("速度 " + SPEED_LABELS[speedIndex]);
@@ -823,19 +869,19 @@ public final class DungeonActivity extends Activity {
 
     private void renderBrainBadge() {
         if (isThinkingSelected()) {
-            brainBadgeView.setText("PLANNING · 10段階");
+            brainBadgeView.setText("COGNITION · 10段階");
             brainBadgeView.setTextColor(Color.rgb(220, 239, 255));
             brainBadgeView.setBackground(cardBackground(
                     Color.rgb(35, 85, 132), Color.rgb(72, 139, 202), 12));
             return;
         }
         if (currentPlan != null && DungeonPlan.SOURCE_BRAIN.equals(currentPlan.source)) {
-            brainBadgeView.setText("BRAIN PLAN · LOCAL EXEC");
+            brainBadgeView.setText("BRAIN · LEGAL EXEC");
             brainBadgeView.setTextColor(Color.rgb(217, 252, 231));
             brainBadgeView.setBackground(cardBackground(
                     Color.rgb(27, 90, 61), Color.rgb(65, 148, 104), 12));
         } else {
-            brainBadgeView.setText("LOCAL PLAN");
+            brainBadgeView.setText("NEUTRAL LOCAL");
             brainBadgeView.setTextColor(Color.rgb(255, 226, 188));
             brainBadgeView.setBackground(cardBackground(
                     Color.rgb(92, 61, 28), Color.rgb(160, 111, 50), 12));
@@ -936,11 +982,11 @@ public final class DungeonActivity extends Activity {
         TextView stateNote = new TextView(this);
         String note = "目的: " + (objectiveComplete() ? "達成 · " : "") + objective.label();
         if (isThinkingSelected()) {
-            note += "\n10段階の公開用認知診断で持続計画を更新中。逐語的なchain-of-thoughtではありません。";
+            note += "\n10段階の公開用認知診断で現在状況と持続計画を更新中。逐語的なchain-of-thoughtではありません。";
         } else if (currentPlan != null) {
             note += "\n計画: " + currentPlan.summary;
         } else {
-            note += "\n計画: 目的未設定。ローカル探索中。";
+            note += "\n計画: 目的未設定。中立ローカル探索中。";
         }
         stateNote.setText(note);
         stateNote.setTextColor(Color.rgb(76, 82, 94));
