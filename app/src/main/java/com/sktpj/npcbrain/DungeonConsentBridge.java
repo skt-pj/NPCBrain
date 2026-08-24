@@ -135,9 +135,30 @@ final class DungeonConsentBridge {
         new AlertDialog.Builder(activity)
                 .setTitle("参加意思が必要です")
                 .setMessage(message)
-                .setPositiveButton("会話へ", (dialog, which) -> invokeNoArgs(activity, "openConversation"))
+                .setPositiveButton("会話へ", (dialog, which) -> openConversationWithInvitation(activity))
                 .setNegativeButton("閉じる", null)
                 .show();
+    }
+
+    private static void openConversationWithInvitation(DungeonActivity activity) {
+        String npcId = stringField(activity, "selectedNpcId");
+        if (!npcId.isEmpty()) {
+            new AppUiStateStore(activity).saveConversationRoomId("direct_" + npcId);
+            DungeonState state = dungeonState(activity);
+            if (state != null) {
+                DungeonObjective objective = new DungeonObjectiveStore(activity).load(npcId);
+                DungeonInvitationContext invitation = DungeonInvitationContext.fromDungeon(
+                        npcId,
+                        state,
+                        objective,
+                        System.currentTimeMillis());
+                if (invitation != null) {
+                    new DungeonInvitationContextStore(
+                            NpcContexts.storage(activity, npcId)).save(invitation);
+                }
+            }
+        }
+        invokeNoArgs(activity, "openConversation");
     }
 
     private static void renderParticipation(TextView view, DungeonParticipationState state) {
