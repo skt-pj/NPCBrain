@@ -10,9 +10,13 @@ public final class NPCBrainApplication extends Application {
     private static WeakReference<DemoActivityV032> demoActivityRef = new WeakReference<>(null);
     private static volatile boolean demoRoomRefreshRequested;
 
+    private NpcInnerLifeRuntime innerLifeRuntime;
+    private int startedActivityCount;
+
     @Override
     public void onCreate() {
         super.onCreate();
+        innerLifeRuntime = new NpcInnerLifeRuntime(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityCreated(Activity activity, Bundle state) {
                 if (activity instanceof DemoActivityV032) {
@@ -23,6 +27,10 @@ public final class NPCBrainApplication extends Application {
             }
 
             @Override public void onActivityStarted(Activity activity) {
+                startedActivityCount++;
+                if (startedActivityCount == 1 && innerLifeRuntime != null) {
+                    innerLifeRuntime.onForeground();
+                }
                 installRuntimeBridges(activity);
                 PrimaryUiCoordinator.onStarted(activity);
             }
@@ -43,7 +51,12 @@ public final class NPCBrainApplication extends Application {
                 PrimaryUiCoordinator.onPaused(activity);
             }
 
-            @Override public void onActivityStopped(Activity activity) {}
+            @Override public void onActivityStopped(Activity activity) {
+                startedActivityCount = Math.max(0, startedActivityCount - 1);
+                if (startedActivityCount == 0 && innerLifeRuntime != null) {
+                    innerLifeRuntime.onBackground();
+                }
+            }
 
             @Override public void onActivitySaveInstanceState(Activity activity, Bundle state) {
                 PrimaryUiCoordinator.onSaveInstanceState(activity, state);
@@ -75,6 +88,9 @@ public final class NPCBrainApplication extends Application {
             DynamicConversationUiBridge.install(activity);
             DungeonParticipationChatBridge.install((DemoActivityV032) activity);
             return;
+        }
+        if (activity instanceof NpcStatusActivity) {
+            NpcInnerLifeUiBridge.install((NpcStatusActivity) activity);
         }
         if (activity instanceof DungeonActivity) {
             DungeonActivity dungeon = (DungeonActivity) activity;
