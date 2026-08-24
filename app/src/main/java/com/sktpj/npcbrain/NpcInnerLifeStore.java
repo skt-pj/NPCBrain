@@ -22,30 +22,29 @@ final class NpcInnerLifeStore {
         preferences = storageContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
+    synchronized NpcInnerLifeState loadExisting() {
+        String raw = preferences.getString(STATE, "");
+        if (raw == null || raw.trim().isEmpty()) return null;
+        try {
+            JSONObject json = new JSONObject(raw);
+            long initialized = json.optLong("initialized_at_ms", 0L);
+            return NpcInnerLifeState.fromJson(json, initialized, 0.5, 0.5, 0.5);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     synchronized NpcInnerLifeState loadOrCreate(
             long nowMs,
             double extraversion,
             double neuroticism,
             double openness
     ) {
-        String raw = preferences.getString(STATE, "");
-        JSONObject json = null;
-        if (raw != null && !raw.trim().isEmpty()) {
-            try {
-                json = new JSONObject(raw);
-            } catch (Exception ignored) {
-            }
-        }
-        NpcInnerLifeState state = NpcInnerLifeState.fromJson(
-                json,
-                nowMs,
-                extraversion,
-                neuroticism,
-                openness
-        );
-        if (raw == null || raw.trim().isEmpty() || json == null) {
-            save(state);
-        }
+        NpcInnerLifeState existing = loadExisting();
+        if (existing != null) return existing;
+        NpcInnerLifeState state = NpcInnerLifeState.initial(
+                nowMs, extraversion, neuroticism, openness);
+        save(state);
         return state;
     }
 
@@ -98,6 +97,11 @@ final class NpcInnerLifeStore {
             double openness
     ) {
         NpcInnerLifeState state = loadOrCreate(nowMs, extraversion, neuroticism, openness);
+        return compactSummary(state);
+    }
+
+    static String compactSummary(NpcInnerLifeState state) {
+        if (state == null) return "まだ内面状態は記録されていません。";
         return state.mood + " · " + state.focus + "\n"
                 + "次: " + state.intention + "\n"
                 + String.format(
@@ -110,6 +114,10 @@ final class NpcInnerLifeStore {
                         pct(state.curiosity),
                         pct(state.safetyConcern)
                 );
+    }
+
+    static int maxStreamEntries() {
+        return MAX_STREAM;
     }
 
     private JSONArray loadStream() {
