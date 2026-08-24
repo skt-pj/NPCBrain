@@ -11,7 +11,7 @@ import static org.junit.Assert.assertTrue;
 
 public class ReplyTimerRuntimeContextTest {
     @Test
-    public void conversationGetsBoundSourceAndGroundedTimerContext() throws Exception {
+    public void conversationGetsBoundSourceTimerAndReassessmentPolicies() throws Exception {
         long now = System.currentTimeMillis();
         JSONObject life = new JSONObject()
                 .put("npc_id", "npc3")
@@ -27,7 +27,7 @@ public class ReplyTimerRuntimeContextTest {
         JSONObject message = new JSONObject()
                 .put("id", "msg-3")
                 .put("sender_id", "user")
-                .put("text", "あとで返事して")
+                .put("text", "ダンジョンに一緒に行く？")
                 .put("time_ms", now);
         JSONObject runtime = new JSONObject()
                 .put("mode", "conversational_message")
@@ -37,7 +37,8 @@ public class ReplyTimerRuntimeContextTest {
                 .put("room", new JSONObject().put("room_id", "direct_npc3"))
                 .put("character_id", "npc3")
                 .put("life_state", life)
-                .put("newest_message", message);
+                .put("newest_message", message)
+                .put("recent_room_transcript", "user: 前にも聞いたけど、ダンジョンに一緒に行く？");
         String prompt = "Communication event for the NPC runtime.\nRuntime JSON:\n"
                 + runtime + "\n\nTreat this as a real messaging situation.";
 
@@ -56,6 +57,19 @@ public class ReplyTimerRuntimeContextTest {
         assertTrue(grounding.getBoolean("schedule_reply_timer_available"));
         assertTrue(grounding.getLong("now_ms") >= now);
         assertTrue(grounding.has("current_activity_ends_at_ms"));
+
+        JSONObject reassessment = enriched.getJSONObject("conversation_reassessment_policy");
+        assertTrue(reassessment.getBoolean("direct_question_salience"));
+        assertTrue(reassessment.getBoolean("repeated_unresolved_question_recheck"));
+        assertTrue(reassessment.getBoolean("silence_is_character_choice_not_default"));
+        assertTrue(reassessment.getString("instruction").contains("Re-evaluate each new message"));
+
+        JSONObject participation = enriched.getJSONObject("dungeon_participation_policy");
+        assertEquals("global_workspace", participation.getString("decision_owner"));
+        assertEquals(ReplyTimerToolSession.TOOL_NAME, participation.getString("structured_tool"));
+        assertEquals(ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION,
+                participation.getString("operation"));
+        assertTrue(participation.getString("instruction").contains("Do not wait for numeric thresholds"));
     }
 
     @Test
@@ -67,5 +81,6 @@ public class ReplyTimerRuntimeContextTest {
         ReplyTimerRuntimeContext.Prepared prepared = ReplyTimerRuntimeContext.prepare("npc1", prompt);
         assertNull(prepared.binding);
         assertFalse(prepared.prompt.contains("reply_timer_grounding"));
+        assertFalse(prepared.prompt.contains("conversation_reassessment_policy"));
     }
 }
