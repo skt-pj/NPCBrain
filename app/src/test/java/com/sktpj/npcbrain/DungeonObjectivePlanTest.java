@@ -85,7 +85,7 @@ public class DungeonObjectivePlanTest {
     }
 
     @Test
-    public void brainIntentFallbackTranslationDoesNotDependOnTraits() {
+    public void brainIntentFallbackKeepsPsychologicalWeightsNeutral() {
         DungeonState state = openState(9, 9, 2, 2, 7, 7);
         DungeonObjective objective = DungeonObjective.reachTop(1L);
         DungeonIntent engage = new DungeonIntent(
@@ -104,6 +104,11 @@ public class DungeonObjectivePlanTest {
                 state,
                 engage,
                 "攻める");
+        assertEquals(0.5, a.riskTolerance, 0.000001);
+        assertEquals(0.5, a.combatPreference, 0.000001);
+        assertEquals(0.5, a.explorationPreference, 0.000001);
+        assertEquals(0.5, a.progressPreference, 0.000001);
+        assertEquals(0.5, a.persistence, 0.000001);
         assertEquals(a.riskTolerance, b.riskTolerance, 0.000001);
         assertEquals(a.combatPreference, b.combatPreference, 0.000001);
         assertEquals(a.strategy, b.strategy);
