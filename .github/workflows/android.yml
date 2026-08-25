@@ -90,6 +90,18 @@ jobs:
           rm -f skt-common-signing.jks skt-common-signing.jks.b64 signing-source.gradle.kts
           echo "version=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
 
+      - name: Upload signed APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NPCBrain-release
+          path: |
+            dist/NPCBrain-release.apk
+            dist/NPCBrain-release.apk.sha256
+            dist/signing-certificate.txt
+            dist/build-metadata.txt
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Record CI result and publish latest APK
         if: ${{ always() && github.event_name != 'pull_request' }}
         shell: bash
