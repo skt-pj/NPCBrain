@@ -60,7 +60,7 @@ public final class NpcManagerActivity extends Activity {
         root.addView(header);
 
         TextView note = new TextView(this);
-        note.setText("関係・年齢・経歴は初回確定時だけ編集できます。名前や人格はあとから変更できます。");
+        note.setText("関係・年齢・職業・経歴は自動設定後、初回確定時に一度だけ編集できます。名前や人格はあとから変更できます。");
         note.setTextColor(AppUiTheme.APP_MUTED);
         note.setTextSize(13);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
@@ -122,6 +122,7 @@ public final class NpcManagerActivity extends Activity {
         TextView meta = new TextView(this);
         meta.setText("ユーザーとの関係  " + store.relationshipToUser()
                 + "\n年齢  " + store.age()
+                + "\n職業  " + store.occupation()
                 + "\n経歴  " + store.background());
         meta.setTextColor(Color.rgb(78, 92, 111));
         meta.setTextSize(13);
@@ -157,17 +158,11 @@ public final class NpcManagerActivity extends Activity {
         String suggestedId = NpcRegistryStore.nextNpcId(registry.npcIds());
         LinearLayout form = form();
         EditText name = field("名前", suggestedId.toUpperCase());
-        EditText relationship = field("ユーザーとの関係", CharacterStateStore.DEFAULT_RELATIONSHIP);
-        EditText age = field("年齢", CharacterStateStore.DEFAULT_AGE);
-        EditText background = field("経歴", CharacterStateStore.DEFAULT_BACKGROUND);
         form.addView(name);
-        form.addView(relationship);
-        form.addView(age);
-        form.addView(background);
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("NPCを追加")
-                .setMessage("この3項目は保存後に編集できません。")
+                .setMessage("プロフィールは自動設定され、追加後に一度だけ確定できます。")
                 .setView(form)
                 .setNegativeButton("キャンセル", null)
                 .setPositiveButton("追加", null)
@@ -176,10 +171,6 @@ public final class NpcManagerActivity extends Activity {
             String npcId = registry.createNpcId();
             CharacterStateStore store = new CharacterStateStore(NpcContexts.storage(this, npcId));
             store.saveProfile(safe(name.getText().toString(), npcId.toUpperCase()), 50, 50, 50, 50, 50, "");
-            store.initializeIdentityMetadata(
-                    relationship.getText().toString(),
-                    age.getText().toString(),
-                    background.getText().toString());
             dialog.dismiss();
             renderList();
         }));
@@ -191,23 +182,39 @@ public final class NpcManagerActivity extends Activity {
         LinearLayout form = form();
         EditText relationship = field("ユーザーとの関係", store.relationshipToUser());
         EditText age = field("年齢", store.age());
+        EditText occupation = field("職業", store.occupation());
         EditText background = field("経歴", store.background());
         form.addView(relationship);
         form.addView(age);
+        form.addView(occupation);
         form.addView(background);
         new AlertDialog.Builder(this)
                 .setTitle(store.displayName() + " の初期プロフィール")
-                .setMessage("確定後は編集できません。")
+                .setMessage("確定後は編集できません。確定内容は人格と一日の行動に反映されます。")
                 .setView(form)
                 .setNegativeButton("キャンセル", null)
                 .setPositiveButton("確定", (dialog, which) -> {
-                    store.initializeIdentityMetadata(
+                    boolean saved = store.initializeIdentityMetadata(
                             relationship.getText().toString(),
                             age.getText().toString(),
+                            occupation.getText().toString(),
                             background.getText().toString());
+                    if (saved) {
+                        applyProfileSchedule(npcId, store);
+                    }
                     renderList();
                 })
                 .show();
+    }
+
+    private void applyProfileSchedule(String npcId, CharacterStateStore store) {
+        NpcId id = NpcId.of(npcId);
+        long now = new WorldClock(this).now();
+        WorldStateStore worldStateStore = new WorldStateStore(this);
+        LifeState current = worldStateStore.lifeState(id, now);
+        DailySchedule schedule = DailySchedule.profileFor(id, store.age(), store.occupation());
+        worldStateStore.saveLifeState(current.withSchedule(now, schedule.toJson()));
+        new WorldRuntimeV040(this).syncAllNow();
     }
 
     private LinearLayout form() {
