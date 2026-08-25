@@ -24,7 +24,7 @@ public final class NpcManagerActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (!BuildConfig.DEBUG) {
+        if (!NPCBrainApplication.isDebugBuild()) {
             finish();
             return;
         }
@@ -35,7 +35,7 @@ public final class NpcManagerActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (BuildConfig.DEBUG) renderList();
+        if (NPCBrainApplication.isDebugBuild()) renderList();
     }
 
     private View buildContent() {
