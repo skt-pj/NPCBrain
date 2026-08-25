@@ -168,7 +168,7 @@ final class CharacterStateStore {
         return root;
     }
 
-    synchronized void saveProfile(
+    synchronized boolean saveProfile(
             String name,
             int extraversion,
             int neuroticism,
@@ -177,9 +177,8 @@ final class CharacterStateStore {
             int openness,
             String speechStyle
     ) {
-        if (isDead()) return;
-        new NpcProfileSynthesisStore(storageContext).clear();
-        preferences.edit()
+        if (isDead()) return false;
+        boolean saved = preferences.edit()
                 .putString(NAME, safe(name, "NPC"))
                 .putInt(EXTRAVERSION, clampPercent(extraversion))
                 .putInt(NEUROTICISM, clampPercent(neuroticism))
@@ -187,7 +186,9 @@ final class CharacterStateStore {
                 .putInt(CONSCIENTIOUSNESS, clampPercent(conscientiousness))
                 .putInt(OPENNESS, clampPercent(openness))
                 .putString(SPEECH_STYLE, speechStyle == null ? "" : speechStyle.trim())
-                .apply();
+                .commit();
+        if (saved) new NpcProfileSynthesisStore(storageContext).clear();
+        return saved;
     }
 
     synchronized void updateDynamicState(JSONObject state) {
