@@ -1,6 +1,6 @@
 # v0.4.27 Brain Authority Correction
 
-Status: approved for implementation by the user's 2026-08-24 request to fix all identified post-Brain gates. APK delivery is intentionally deferred while implementation continues.
+Status: implemented and verified. The user requested final APK delivery on 2026-08-25 after implementation continuation.
 
 ## 1. Problem statement
 
@@ -57,6 +57,7 @@ The existing project personality audit already establishes the applicable design
 - Compatibility conversion from an older Brain intent without `dungeon_plan` maps only the categorical strategy. It keeps numeric preference values neutral instead of inventing courage/aggression/risk values.
 - Big Five traits are not used by the local dungeon executor to make a second psychological decision.
 - HP does not force EVADE or participation withdrawal. HP=0 still causes death.
+- Selected and background dungeon execution both preserve Brain authority. A one-turn Brain action is consumed only on its exact floor/turn; later turns use the persistent Brain plan plus a neutral legal executor until a cognition trigger requests Brain reassessment.
 
 ### 5.3 Conversation and inner life
 
@@ -82,14 +83,25 @@ No module is added, removed, split, merged, reordered or made recurrent. No new 
 - participation + grounded reply deferral can be recorded in the same Global Workspace cycle;
 - inner-life local ticks do not replace AI-generated mood/focus/intention from keyword/threshold rules;
 - repeated direct-question policy is present in conversational runtime context;
+- stale one-turn Brain dungeon actions are not reused on later background turns;
 - all existing hard-rule, hidden-information, map, combat, death, persistence and build tests remain green.
 
 ## 8. Migration and rollback
 
 Existing participation JSON remains readable. Existing stance is preserved. Numeric willingness/fear/resolve remain bounded compatibility/monitor fields but cease to gate stance. Existing DungeonPlan/Mind JSON remains readable. Rollback is the parent commit of the v0.4.27 change branch/PR. No memory deletion is required.
 
-APK version: v0.4.27 / versionCode 44. Common Android signing and CI artifact verification remain unchanged; APK handoff is deferred until explicitly requested.
+APK version: v0.4.27 / versionCode 44.
+
+Verification evidence:
+
+- GitHub Actions run: `32801326094` (`Android CI` #172)
+- `:app:testDebugUnitTest`: success, 186 tests
+- `:app:assembleRelease`: success
+- release signing: success
+- artifact upload: success
+- artifact: `NPCBrain-v0.4.27-release`
+- APK SHA-256: `d47aac0287da3120fd26f09194147759e35d02ad61b969672cf80bafd75e8745`
 
 ## 9. Approval
 
-The user first requested a logical explanation before changes, then requested correction of the identified bad specifications, and later explicitly instructed implementation to continue while APK delivery can wait. This is approval for the non-topology corrective implementation described above.
+The user first requested a logical explanation before changes, then requested correction of the identified bad specifications, later instructed implementation to continue while APK delivery could wait, and finally requested that work continue through APK delivery. This is approval for the non-topology corrective implementation and final v0.4.27 APK handoff described above.
