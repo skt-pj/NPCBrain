@@ -3,7 +3,6 @@ package com.sktpj.npcbrain;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Typeface;
-import android.view.View;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -33,10 +32,10 @@ final class NpcProfileEditor {
     static void showInvitation(
             Activity activity,
             String npcId,
-            Runnable beforeSave,
+            Runnable afterMetadataSave,
             OnSaved onSaved
     ) {
-        show(activity, npcId, false, beforeSave, onSaved);
+        show(activity, npcId, false, afterMetadataSave, onSaved);
     }
 
     static void showDebug(Activity activity, String npcId, OnSaved onSaved) {
@@ -47,7 +46,7 @@ final class NpcProfileEditor {
             Activity activity,
             String npcId,
             boolean debugOverride,
-            Runnable beforeSave,
+            Runnable afterMetadataSave,
             OnSaved onSaved
     ) {
         ContextBundle bundle = new ContextBundle(activity, npcId);
@@ -116,7 +115,6 @@ final class NpcProfileEditor {
                 .create();
 
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            if (beforeSave != null) beforeSave.run();
             boolean metadataSaved = debugOverride
                     ? bundle.character.updateIdentityMetadataForDebug(
                             relationship.getText().toString(),
@@ -132,6 +130,7 @@ final class NpcProfileEditor {
                 Toast.makeText(activity, "プロフィールを保存できませんでした。", Toast.LENGTH_SHORT).show();
                 return;
             }
+            if (afterMetadataSave != null) afterMetadataSave.run();
 
             bundle.character.saveProfile(
                     safe(name.getText().toString(), npcId.toUpperCase(Locale.US)),
