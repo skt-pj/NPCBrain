@@ -94,6 +94,22 @@ final class CharacterStateStore {
                 .commit();
     }
 
+    synchronized boolean updateIdentityMetadataForDebug(
+            String relationship,
+            String age,
+            String occupation,
+            String background
+    ) {
+        if (isDead()) return false;
+        return preferences.edit()
+                .putString(RELATIONSHIP_TO_USER, safe(relationship, DEFAULT_RELATIONSHIP))
+                .putString(AGE, safe(age, DEFAULT_AGE))
+                .putString(OCCUPATION, safe(occupation, DEFAULT_OCCUPATION))
+                .putString(BACKGROUND, safe(background, DEFAULT_BACKGROUND))
+                .putBoolean(IDENTITY_METADATA_LOCKED, true)
+                .commit();
+    }
+
     synchronized boolean initializeIdentityMetadata(String relationship, String age, String background) {
         return initializeIdentityMetadata(relationship, age, DEFAULT_OCCUPATION, background);
     }
