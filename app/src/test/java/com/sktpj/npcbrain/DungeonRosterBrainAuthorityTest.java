@@ -68,7 +68,8 @@ public class DungeonRosterBrainAuthorityTest {
                 mind);
 
         assertEquals(DungeonIntent.SOURCE_LOCAL, selected.source);
-        assertEquals(DungeonIntent.EXPLORE, selected.mode);
+        assertEquals(state.turn, selected.turn);
+        assertEquals(DungeonPersonalityPolicy.Direction.WAIT, selected.preferredDirection);
     }
 
     private static DungeonState openState() {
