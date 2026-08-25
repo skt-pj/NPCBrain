@@ -6,11 +6,13 @@ on:
       - main
     paths-ignore:
       - 'ci-output/**'
+      - 'dist/**'
   pull_request:
     branches:
       - main
     paths-ignore:
       - 'ci-output/**'
+      - 'dist/**'
   workflow_dispatch:
 
 permissions:
@@ -44,15 +46,16 @@ jobs:
       - name: Test and build release APK
         run: gradle :app:testDebugUnitTest :app:assembleRelease --stacktrace
 
-      - name: Sign and prepare artifact
-        id: artifact
+      - name: Sign and prepare latest APK
+        id: build_output
         shell: bash
         run: |
           set -euo pipefail
           VERSION_NAME="$(grep '^VERSION_NAME=' version.properties | cut -d= -f2)"
           VERSION_CODE="$(grep '^VERSION_CODE=' version.properties | cut -d= -f2)"
           APK_SOURCE="app/build/outputs/apk/release/app-release-unsigned.apk"
-          APK_TARGET="NPCBrain-v${VERSION_NAME}-release.apk"
+          mkdir -p dist
+          APK_TARGET="dist/NPCBrain-release.apk"
 
           curl -fsSL "https://raw.githubusercontent.com/skt-pj/2048TD/main/ci/2048td-release.jks.b64" -o skt-common-signing.jks.b64
           curl -fsSL "https://raw.githubusercontent.com/skt-pj/2048TD/main/app/build.gradle.kts" -o signing-source.gradle.kts
@@ -73,7 +76,7 @@ jobs:
             --out "$APK_TARGET" \
             "$APK_SOURCE"
 
-          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK_TARGET" | tee signing-certificate.txt
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK_TARGET" | tee dist/signing-certificate.txt
           sha256sum "$APK_TARGET" > "${APK_TARGET}.sha256"
           {
             echo "repository=${GITHUB_REPOSITORY}"
@@ -83,31 +86,16 @@ jobs:
             echo "versionCode=${VERSION_CODE}"
             echo "run=${GITHUB_RUN_ID}"
             echo "build=testDebugUnitTest,assembleRelease,apksigner"
-          } > build-metadata.txt
+          } > dist/build-metadata.txt
           rm -f skt-common-signing.jks skt-common-signing.jks.b64 signing-source.gradle.kts
-          echo "name=NPCBrain-v${VERSION_NAME}-release" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload APK artifact
-        id: upload
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ steps.artifact.outputs.name }}
-          path: |
-            NPCBrain-v*-release.apk
-            NPCBrain-v*-release.apk.sha256
-            signing-certificate.txt
-            build-metadata.txt
-          if-no-files-found: error
-
-      - name: Record CI result
+      - name: Record CI result and publish latest APK
         if: ${{ always() && github.event_name != 'pull_request' }}
         shell: bash
         env:
           JOB_STATUS: ${{ job.status }}
-          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
-          ARTIFACT_NAME: ${{ steps.artifact.outputs.name }}
-          VERSION_NAME: ${{ steps.artifact.outputs.version }}
+          VERSION_NAME: ${{ steps.build_output.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p ci-output
@@ -116,13 +104,15 @@ jobs:
             echo "run_id=${GITHUB_RUN_ID}"
             echo "status=${JOB_STATUS}"
             echo "job_commit=${GITHUB_SHA}"
-            echo "artifact_id=${ARTIFACT_ID}"
-            echo "artifact_name=${ARTIFACT_NAME}"
+            echo "apk_path=dist/NPCBrain-release.apk"
             echo "versionName=${VERSION_NAME}"
           } > "$RESULT_FILE"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$RESULT_FILE"
+          if [ "$JOB_STATUS" = "success" ] && [ -f dist/NPCBrain-release.apk ]; then
+            git add -A dist
+          fi
           git commit -m "Record Android CI run ${GITHUB_RUN_ID} [skip ci]"
           for i in 1 2 3; do
             if git push; then
