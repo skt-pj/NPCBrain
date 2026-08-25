@@ -11,18 +11,25 @@ import java.util.Arrays;
 
 public final class PrimaryNavigationPolicyTest {
     @Test
-    public void destinationsAreFixedFiveInCanonicalOrder() {
+    public void releaseDestinationsHideNpcManager() {
+        assertEquals(Arrays.asList(
+                "conversation", "status", "dungeon", "codex"),
+                PrimaryNavigationPolicy.destinationIds(false));
+    }
+
+    @Test
+    public void debugDestinationsIncludeNpcManager() {
         assertEquals(Arrays.asList(
                 "conversation", "status", "dungeon", "codex", "manager"),
-                PrimaryNavigationPolicy.destinationIds());
+                PrimaryNavigationPolicy.destinationIds(true));
         assertEquals(Arrays.asList(
                 "会話", "NPC状況", "ダンジョン", "図鑑", "NPC管理"),
                 PrimaryNavigationPolicy.labels());
     }
 
     @Test
-    public void everyDestinationHasStableLabel() {
-        for (String id : PrimaryNavigationPolicy.destinationIds()) {
+    public void everyDebugDestinationHasStableLabel() {
+        for (String id : PrimaryNavigationPolicy.destinationIds(true)) {
             assertTrue(PrimaryNavigationPolicy.isDestination(id));
             assertTrue(!PrimaryNavigationPolicy.labelFor(id).isEmpty());
         }

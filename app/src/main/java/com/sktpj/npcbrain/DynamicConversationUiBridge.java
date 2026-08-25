@@ -27,16 +27,16 @@ final class DynamicConversationUiBridge {
         String currentRoomId = stringField(activity, "currentRoomId");
         if (!currentRoomId.isEmpty()) return;
         PopupMenu popup = new PopupMenu(activity, anchor);
+        popup.getMenu().add("NPCを招待");
         popup.getMenu().add("AI設定");
-        popup.getMenu().add("NPC人格設定");
         popup.getMenu().add("長期記憶を見る");
         popup.getMenu().add("会話履歴を消去");
         popup.setOnMenuItemClickListener(item -> {
             String title = item.getTitle().toString();
-            if ("AI設定".equals(title)) {
+            if ("NPCを招待".equals(title)) {
+                showInvitation(activity);
+            } else if ("AI設定".equals(title)) {
                 invoke(activity, "showAiSettingsDialog", new Class<?>[0]);
-            } else if ("NPC人格設定".equals(title)) {
-                showNpcPicker(activity, "人格を設定するNPC", "showPersonalityDialog");
             } else if ("長期記憶を見る".equals(title)) {
                 showNpcPicker(activity, "記憶を見るNPC", "showMemoryDialog");
             } else if ("会話履歴を消去".equals(title)) {
@@ -45,6 +45,16 @@ final class DynamicConversationUiBridge {
             return true;
         });
         popup.show();
+    }
+
+    private static void showInvitation(Activity activity) {
+        NpcRegistryStore registry = new NpcRegistryStore(activity);
+        String npcId = registry.nextNpcId();
+        NpcProfileEditor.showInvitation(
+                activity,
+                npcId,
+                () -> registry.ensure(npcId),
+                () -> invoke(activity, "showRoomList", new Class<?>[0]));
     }
 
     private static void showNpcPicker(Activity activity, String title, String methodName) {

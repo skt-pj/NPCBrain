@@ -23,6 +23,13 @@ public class NpcRegistryPolicyTest {
     }
 
     @Test
+    public void nextNpcIdDoesNotReuseRemovedSlot() {
+        assertEquals("npc5", NpcRegistryStore.nextNpcId(
+                Arrays.asList("npc1", "npc2", "npc3"),
+                Arrays.asList("npc4")));
+    }
+
+    @Test
     public void dungeonKeysPreserveLegacyAndIsolateAddedNpc() {
         assertEquals("npc1_state", DungeonStore.key("npc1"));
         assertEquals("npc2_state", DungeonStore.key("npc2"));

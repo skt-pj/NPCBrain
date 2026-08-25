@@ -13,6 +13,7 @@ import java.util.Set;
 final class NpcRegistryStore {
     private static final String PREFS = "npcbrain_npc_registry_v1";
     private static final String IDS = "npc_ids";
+    private static final String REMOVED_IDS = "removed_npc_ids";
 
     private final Context appContext;
     private final SharedPreferences preferences;
@@ -25,7 +26,12 @@ final class NpcRegistryStore {
     }
 
     synchronized List<String> npcIds() {
-        return normalize(readIds());
+        Set<String> removed = new LinkedHashSet<>(readRemovedIds());
+        List<String> result = new ArrayList<>();
+        for (String id : normalize(readIds())) {
+            if (!removed.contains(id)) result.add(id);
+        }
+        return result;
     }
 
     synchronized List<String> activeNpcIds() {
@@ -44,31 +50,53 @@ final class NpcRegistryStore {
 
     synchronized void ensure(String npcId) {
         String id = NpcId.of(npcId).value();
+        if (readRemovedIds().contains(id)) return;
         List<String> ids = normalize(readIds());
         if (ids.contains(id)) return;
         ids.add(id);
-        write(ids);
+        writeIds(ids);
     }
 
     synchronized String createNpcId() {
+        String id = nextNpcId();
         List<String> ids = npcIds();
-        String id = nextNpcId(ids);
         ids.add(id);
-        write(ids);
+        writeIds(ids);
         NPCBrainApplication.requestDemoRoomRefresh();
         return id;
     }
 
-    static String nextNpcId(List<String> existing) {
-        Set<String> ids = new LinkedHashSet<>();
-        if (existing != null) {
-            for (String id : existing) {
-                try {
-                    ids.add(NpcId.of(id).value());
-                } catch (Exception ignored) {
-                }
+    synchronized String nextNpcId() {
+        return nextNpcId(npcIds(), readRemovedIds());
+    }
+
+    synchronized boolean removeNpc(String npcId) {
+        String id = NpcId.of(npcId).value();
+        if (!npcIds().contains(id)) return false;
+        List<String> removed = readRemovedIds();
+        if (!removed.contains(id)) removed.add(id);
+        writeRemovedIds(removed);
+
+        List<String> remaining = new ArrayList<>();
+        for (String current : readIds()) {
+            try {
+                if (!id.equals(NpcId.of(current).value())) remaining.add(current);
+            } catch (Exception ignored) {
             }
         }
+        writeRawIds(remaining);
+        NPCBrainApplication.requestDemoRoomRefresh();
+        return true;
+    }
+
+    static String nextNpcId(List<String> existing) {
+        return nextNpcId(existing, null);
+    }
+
+    static String nextNpcId(List<String> existing, List<String> removed) {
+        Set<String> ids = new LinkedHashSet<>();
+        addCanonical(ids, existing);
+        addCanonical(ids, removed);
         for (int number = 3; number < Integer.MAX_VALUE; number++) {
             String candidate = "npc" + number;
             if (!ids.contains(candidate)) return candidate;
@@ -91,24 +119,62 @@ final class NpcRegistryStore {
         return new ArrayList<>(unique);
     }
 
+    private static void addCanonical(Set<String> target, List<String> values) {
+        if (values == null) return;
+        for (String value : values) {
+            try {
+                target.add(NpcId.of(value).value());
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     private List<String> readIds() {
+        return readJsonList(IDS);
+    }
+
+    private List<String> readRemovedIds() {
+        return readJsonList(REMOVED_IDS);
+    }
+
+    private List<String> readJsonList(String key) {
         List<String> result = new ArrayList<>();
-        String raw = preferences.getString(IDS, "");
+        String raw = preferences.getString(key, "");
         if (raw == null || raw.trim().isEmpty()) return result;
         try {
             JSONArray array = new JSONArray(raw);
             for (int i = 0; i < array.length(); i++) {
                 String id = array.optString(i, "").trim();
-                if (!id.isEmpty()) result.add(id);
+                if (id.isEmpty()) continue;
+                try {
+                    result.add(NpcId.of(id).value());
+                } catch (Exception ignored) {
+                }
             }
         } catch (Exception ignored) {
         }
         return result;
     }
 
-    private void write(List<String> ids) {
+    private void writeIds(List<String> ids) {
+        writeRawIds(normalize(ids));
+    }
+
+    private void writeRawIds(List<String> ids) {
         JSONArray array = new JSONArray();
-        for (String id : normalize(ids)) array.put(id);
+        if (ids != null) {
+            LinkedHashSet<String> unique = new LinkedHashSet<>();
+            addCanonical(unique, ids);
+            for (String id : unique) array.put(id);
+        }
         preferences.edit().putString(IDS, array.toString()).commit();
+    }
+
+    private void writeRemovedIds(List<String> ids) {
+        JSONArray array = new JSONArray();
+        LinkedHashSet<String> unique = new LinkedHashSet<>();
+        addCanonical(unique, ids);
+        for (String id : unique) array.put(id);
+        preferences.edit().putString(REMOVED_IDS, array.toString()).commit();
     }
 }
