@@ -15,7 +15,6 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.util.List;
-import java.util.Locale;
 
 public final class NpcManagerActivity extends Activity {
     private NpcRegistryStore registry;
@@ -64,7 +63,7 @@ public final class NpcManagerActivity extends Activity {
         root.addView(header);
 
         TextView note = new TextView(this);
-        note.setText("Debugビルド専用。NPCの追加、全設定の再編集、削除ができます。");
+        note.setText("Debugビルド専用。NPCの追加、全設定のLLM整合・再編集、削除ができます。");
         note.setTextColor(AppUiTheme.APP_MUTED);
         note.setTextSize(13);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
@@ -165,11 +164,12 @@ public final class NpcManagerActivity extends Activity {
     }
 
     private void addNpc() {
-        String npcId = registry.createNpcId();
-        CharacterStateStore store = new CharacterStateStore(NpcContexts.storage(this, npcId));
-        store.saveProfile(npcId.toUpperCase(Locale.US), 50, 50, 50, 50, 50, "");
-        NpcProfileEditor.showDebug(this, npcId, this::renderList);
-        renderList();
+        String npcId = registry.nextNpcId();
+        NpcProfileEditor.showDebug(this, npcId, () -> {
+            registry.ensure(npcId);
+            new WorldRuntimeV040(this).syncAllNow();
+            renderList();
+        });
     }
 
     private void confirmDelete(String npcId, String displayName) {
