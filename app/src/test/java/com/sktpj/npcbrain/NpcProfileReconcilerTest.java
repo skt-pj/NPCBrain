@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.junit.Test;
 
@@ -46,7 +47,7 @@ public class NpcProfileReconcilerTest {
     }
 
     @Test
-    public void validResponseProducesSynthesisAndFullDaySchedule() {
+    public void validResponseProducesSynthesisAndFullDaySchedule() throws Exception {
         NpcProfileReconciler.Result result =
                 NpcProfileReconciler.parseResponse("npc3", validResponse());
         assertEquals("責任感が強く、対人配慮と医療上の慎重さを両立する。",
@@ -59,7 +60,7 @@ public class NpcProfileReconcilerTest {
     }
 
     @Test
-    public void rejectsGapOverlapDuplicateAndIncompleteCoverage() {
+    public void rejectsGapOverlapDuplicateAndIncompleteCoverage() throws Exception {
         assertInvalid(responseWithEntries(new JSONArray()
                 .put(entry("sleep", 0, 600, "sleep", "home"))
                 .put(entry("work", 660, 1440, "work", "hospital"))));
@@ -80,7 +81,7 @@ public class NpcProfileReconcilerTest {
     }
 
     @Test
-    public void rejectsMissingSynthesisOrScheduleInsteadOfFallingBack() {
+    public void rejectsMissingSynthesisOrScheduleInsteadOfFallingBack() throws Exception {
         JSONObject noSynthesis = new JSONObject();
         noSynthesis.put("daily_schedule", validResponse().optJSONObject("daily_schedule"));
         assertInvalid(noSynthesis);
@@ -102,14 +103,14 @@ public class NpcProfileReconcilerTest {
         assertInvalid(missingEntryField);
     }
 
-    private static JSONObject validResponse() {
+    private static JSONObject validResponse() throws JSONException {
         return responseWithEntries(new JSONArray()
                 .put(entry("sleep", 0, 420, "sleep", "home"))
                 .put(entry("shift", 420, 1080, "emergency_medicine", "hospital"))
                 .put(entry("evening", 1080, 1440, "family_and_rest", "home")));
     }
 
-    private static JSONObject responseWithEntries(JSONArray entries) {
+    private static JSONObject responseWithEntries(JSONArray entries) throws JSONException {
         JSONObject synthesis = new JSONObject();
         synthesis.put("summary", "責任感が強く、対人配慮と医療上の慎重さを両立する。");
         synthesis.put("behavioral_tendencies", new JSONArray().put("緊急時ほど優先順位を整理する"));
@@ -127,7 +128,7 @@ public class NpcProfileReconcilerTest {
             int end,
             String activity,
             String location
-    ) {
+    ) throws JSONException {
         return new JSONObject()
                 .put("entry_id", id)
                 .put("start_minute", start)
