@@ -37,7 +37,7 @@ jobs:
       - name: Test and build debug APK
         run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
-      - name: Prepare debug artifact
+      - name: Sign and prepare debug artifact
         shell: bash
         run: |
           set -euo pipefail
@@ -46,7 +46,26 @@ jobs:
           APK_SOURCE="app/build/outputs/apk/debug/app-debug.apk"
           mkdir -p dist
           APK_TARGET="dist/NPCBrain-${VERSION_NAME}-debug.apk"
-          cp "$APK_SOURCE" "$APK_TARGET"
+
+          curl -fsSL "https://raw.githubusercontent.com/skt-pj/2048TD/main/ci/2048td-release.jks.b64" -o skt-common-signing.jks.b64
+          curl -fsSL "https://raw.githubusercontent.com/skt-pj/2048TD/main/app/build.gradle.kts" -o signing-source.gradle.kts
+          base64 --decode skt-common-signing.jks.b64 > skt-common-signing.jks
+
+          STORE_PASSWORD="$(sed -n 's/^[[:space:]]*storePassword = "\([^"]*\)"/\1/p' signing-source.gradle.kts | head -n1)"
+          KEY_ALIAS="$(sed -n 's/^[[:space:]]*keyAlias = "\([^"]*\)"/\1/p' signing-source.gradle.kts | head -n1)"
+          KEY_PASSWORD="$(sed -n 's/^[[:space:]]*keyPassword = "\([^"]*\)"/\1/p' signing-source.gradle.kts | head -n1)"
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" sign \
+            --ks skt-common-signing.jks \
+            --ks-pass "pass:${STORE_PASSWORD}" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --key-pass "pass:${KEY_PASSWORD}" \
+            --out "$APK_TARGET" \
+            "$APK_SOURCE"
+
           "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK_TARGET" | tee dist/debug-signing-certificate.txt
           sha256sum "$APK_TARGET" > "${APK_TARGET}.sha256"
           {
@@ -56,9 +75,11 @@ jobs:
             echo "versionName=${VERSION_NAME}"
             echo "versionCode=${VERSION_CODE}"
             echo "run=${GITHUB_RUN_ID}"
-            echo "build=testDebugUnitTest,assembleDebug"
+            echo "build=testDebugUnitTest,assembleDebug,apksigner"
             echo "variant=debug"
+            echo "debuggable=true"
           } > dist/debug-build-metadata.txt
+          rm -f skt-common-signing.jks skt-common-signing.jks.b64 signing-source.gradle.kts
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
