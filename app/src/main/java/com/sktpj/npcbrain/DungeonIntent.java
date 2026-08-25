@@ -72,6 +72,10 @@ final class DungeonIntent {
                 turn);
     }
 
+    /**
+     * Mechanical fallback only. It never infers courage, fear, aggression or willingness from
+     * Big Five or HP. Personality decisions belong to Brain valuation/action selection.
+     */
     static DungeonIntent localFallback(
             DungeonState state,
             DungeonPersonalityPolicy.Traits traits,
@@ -79,30 +83,16 @@ final class DungeonIntent {
     ) {
         if (state == null) {
             return new DungeonIntent(HOLD, DungeonPersonalityPolicy.Direction.WAIT,
-                    "", 1.0, "状態待機", SOURCE_LOCAL, 1, 0);
+                    "", 0.0, "状態待機", SOURCE_LOCAL, 1, 0);
         }
-        boolean stairsKnown = DungeonPerception.stairsKnown(state);
-        String mode = stairsKnown ? SEEK_STAIRS : EXPLORE;
-        int visibleEnemyDistance = DungeonPerception.nearestVisibleEnemyDistance(
-                state, state.playerX, state.playerY);
-        double hpRate = state.maxHp <= 0 ? 0.0 : state.hp / (double) state.maxHp;
-        if (hpRate <= 0.30 && visibleEnemyDistance < 999) {
-            mode = EVADE;
-        } else if (visibleEnemyDistance == 1 && traits != null) {
-            double boldness = traits.extraversion / 100.0;
-            double caution = (traits.neuroticism + traits.agreeableness) / 200.0;
-            if (boldness >= 0.65 && boldness > caution + 0.10) mode = ENGAGE;
-        } else if (visibleEnemyDistance <= 3 && traits != null
-                && traits.extraversion > traits.neuroticism + 15) {
-            mode = ENGAGE;
-        }
-        String summary = "ローカル方策";
+        String mode = DungeonPerception.stairsKnown(state) ? SEEK_STAIRS : EXPLORE;
+        String summary = "中立ローカル実行";
         if (reason != null && !reason.trim().isEmpty()) summary += " · " + reason.trim();
         return new DungeonIntent(
                 mode,
                 DungeonPersonalityPolicy.Direction.WAIT,
                 "",
-                1.0,
+                0.25,
                 summary,
                 SOURCE_LOCAL,
                 state.floor,
@@ -182,7 +172,7 @@ final class DungeonIntent {
     }
 
     private static double clamp01(double value) {
-        if (Double.isNaN(value)) return 0.0;
+        if (Double.isNaN(value) || Double.isInfinite(value)) return 0.0;
         return Math.max(0.0, Math.min(1.0, value));
     }
 

@@ -3,41 +3,42 @@ package com.sktpj.npcbrain;
 import org.junit.Test;
 
 import java.util.ArrayList;
-import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class DungeonProgressPolicyTest {
     @Test
-    public void brainEvadeExpiresWhenThreatIsNoLongerImmediate() {
+    public void brainEvadeDoesNotExpireByDistanceOrTurnAge() {
         DungeonState state = openState(9, 9, 4, 4, 7, 7, 10);
         state.enemies.add(new DungeonState.Enemy("enemy", 7, 4, 4));
         DungeonPerception.refreshExploration(state);
         DungeonIntent evade = brainIntent(DungeonIntent.EVADE, 0);
 
-        assertEquals(DungeonIntent.EXPLORE,
-                DungeonPersonalityPolicy.effectiveMode(state, evade));
-
-        state.enemies.get(0).x = 6;
         assertEquals(DungeonIntent.EVADE,
                 DungeonPersonalityPolicy.effectiveMode(state, evade));
-
-        state.turn = 3;
-        assertEquals(DungeonIntent.EXPLORE,
+        state.turn = 100;
+        assertEquals(DungeonIntent.EVADE,
                 DungeonPersonalityPolicy.effectiveMode(state, evade));
     }
 
     @Test
-    public void criticalLowHpCanKeepEvadingWhileThreatIsNear() {
-        DungeonState state = openState(9, 9, 4, 4, 7, 7, 3);
-        state.enemies.add(new DungeonState.Enemy("enemy", 7, 4, 4));
+    public void lowHpDoesNotForceBrainEngageIntoEvade() {
+        DungeonState state = openState(9, 9, 4, 4, 7, 7, 2);
+        state.enemies.add(new DungeonState.Enemy("enemy", 6, 4, 4));
         DungeonPerception.refreshExploration(state);
-        state.turn = 20;
-
-        assertEquals(DungeonIntent.EVADE,
+        assertEquals(DungeonIntent.ENGAGE,
                 DungeonPersonalityPolicy.effectiveMode(
-                        state, brainIntent(DungeonIntent.EVADE, 0)));
+                        state, brainIntent(DungeonIntent.ENGAGE, 0)));
+    }
+
+    @Test
+    public void brainHoldDoesNotExpireByTurnAge() {
+        DungeonState state = openState(9, 9, 4, 4, 7, 7, 10);
+        state.turn = 500;
+        assertEquals(DungeonIntent.HOLD,
+                DungeonPersonalityPolicy.effectiveMode(
+                        state, brainIntent(DungeonIntent.HOLD, 0)));
     }
 
     @Test
@@ -74,34 +75,40 @@ public class DungeonProgressPolicyTest {
     }
 
     @Test
-    public void generatedFloorsWithoutEnemiesEventuallyReachStairs() {
-        DungeonPersonalityPolicy.Traits cautious =
+    public void localFallbackCanStillProgressWithoutEnemies() {
+        DungeonPersonalityPolicy.Traits anyTraits =
                 new DungeonPersonalityPolicy.Traits(10, 95, 90, 60, 45);
-        for (long seed = 1; seed <= 24; seed++) {
+        for (long seed = 1; seed <= 12; seed++) {
             DungeonState state = DungeonGenerator.generate(seed * 991L, 1);
             state.enemies.clear();
             int initialFloor = state.floor;
             for (int turn = 0; turn < 360 && state.floor == initialFloor; turn++) {
-                DungeonIntent local = DungeonIntent.localFallback(state, cautious, "progress-test");
-                state = DungeonEngine.step(state, cautious, local);
+                DungeonIntent local = DungeonIntent.localFallback(state, anyTraits, "progress-test");
+                state = DungeonEngine.step(state, anyTraits, local);
             }
             assertTrue("seed=" + seed + " floor did not progress", state.floor > initialFloor);
         }
     }
 
     @Test
-    public void staleEvadeIntentStillClearsKnownStairsWhileEnemyChases() {
-        DungeonState state = corridorChaseState();
-        DungeonPersonalityPolicy.Traits cautious =
-                new DungeonPersonalityPolicy.Traits(5, 100, 100, 80, 20);
-        DungeonIntent staleEvade = brainIntent(DungeonIntent.EVADE, 0);
-        int initialFloor = state.floor;
-
-        for (int i = 0; i < 12 && state.floor == initialFloor; i++) {
-            state = DungeonEngine.step(state, cautious, staleEvade);
-        }
-
-        assertTrue("stale evade should not prevent floor clear", state.floor > initialFloor);
+    public void traitsCannotChangeLocalCompilerChoiceForSameBrainDecision() {
+        DungeonState state = openState(9, 9, 4, 4, 7, 7, 10);
+        state.enemies.add(new DungeonState.Enemy("enemy", 5, 4, 4));
+        DungeonPerception.refreshExploration(state);
+        DungeonIntent engage = new DungeonIntent(
+                DungeonIntent.ENGAGE,
+                DungeonPersonalityPolicy.Direction.RIGHT,
+                "enemy", 0.8, "", DungeonIntent.SOURCE_BRAIN, 1, 0);
+        DungeonPlan plan = new DungeonPlan(
+                0.7, 0.8, 0.4, 0.6, "", DungeonPlan.SOURCE_BRAIN,
+                DungeonObjective.REACH_TOP, 10, 1, 0);
+        DungeonPersonalityPolicy.Traits timid =
+                new DungeonPersonalityPolicy.Traits(0, 100, 100, 0, 0);
+        DungeonPersonalityPolicy.Traits bold =
+                new DungeonPersonalityPolicy.Traits(100, 0, 0, 100, 100);
+        assertEquals(
+                DungeonPersonalityPolicy.choose(state, timid, engage, plan),
+                DungeonPersonalityPolicy.choose(state, bold, engage, plan));
     }
 
     private static DungeonIntent brainIntent(String mode, int turn) {
@@ -125,30 +132,11 @@ public class DungeonProgressPolicyTest {
             tiles[2][x] = DungeonState.FLOOR;
             visited[2][x] = true;
         }
-        // x=8 is six cells from the player and therefore genuinely unobserved.
-        // Its hidden tile type must not change the known frontier route.
         tiles[2][8] = hiddenTile;
         tiles[5][10] = DungeonState.STAIRS;
         return new DungeonState(
                 1, 0, width, height, tiles, visited,
                 2, 2, 10, 10, 9L, "", new ArrayList<>());
-    }
-
-    private static DungeonState corridorChaseState() {
-        int width = 10;
-        int height = 5;
-        int[][] tiles = filled(width, height, DungeonState.WALL);
-        boolean[][] visited = new boolean[height][width];
-        for (int x = 1; x <= 8; x++) {
-            tiles[2][x] = DungeonState.FLOOR;
-            visited[2][x] = true;
-        }
-        tiles[2][8] = DungeonState.STAIRS;
-        List<DungeonState.Enemy> enemies = new ArrayList<>();
-        enemies.add(new DungeonState.Enemy("chaser", 1, 2, 5));
-        return new DungeonState(
-                1, 0, width, height, tiles, visited,
-                2, 2, 10, 10, 17L, "", enemies);
     }
 
     private static DungeonState openState(

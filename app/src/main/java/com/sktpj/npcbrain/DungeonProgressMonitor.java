@@ -1,5 +1,8 @@
 package com.sktpj.npcbrain;
 
+import java.util.ArrayDeque;
+import java.util.Queue;
+
 final class DungeonProgressMonitor {
     static final int STALL_TURNS = 48;
     static final int REPLAN_COOLDOWN_TURNS = 96;
@@ -87,11 +90,32 @@ final class DungeonProgressMonitor {
 
     static int knownStairPathDistance(DungeonState state) {
         if (state == null || !DungeonPerception.stairsKnown(state)) return 999;
-        return DungeonPersonalityPolicy.knownPathDistance(
-                state,
-                state.playerX,
-                state.playerY,
-                state.stairsX(),
-                state.stairsY());
+        int targetX = state.stairsX();
+        int targetY = state.stairsY();
+        if (!knownTraversable(state, targetX, targetY)) return 999;
+
+        boolean[][] seen = new boolean[state.height][state.width];
+        Queue<int[]> queue = new ArrayDeque<>();
+        queue.add(new int[]{state.playerX, state.playerY, 0});
+        seen[state.playerY][state.playerX] = true;
+        int[][] directions = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+        while (!queue.isEmpty()) {
+            int[] point = queue.remove();
+            if (point[0] == targetX && point[1] == targetY) return point[2];
+            for (int[] direction : directions) {
+                int nx = point[0] + direction[0];
+                int ny = point[1] + direction[1];
+                if (!knownTraversable(state, nx, ny) || seen[ny][nx]) continue;
+                seen[ny][nx] = true;
+                queue.add(new int[]{nx, ny, point[2] + 1});
+            }
+        }
+        return 999;
+    }
+
+    private static boolean knownTraversable(DungeonState state, int x, int y) {
+        if (state == null || !state.inside(x, y)) return false;
+        if (x == state.playerX && y == state.playerY) return true;
+        return state.visited[y][x] && state.walkable(x, y);
     }
 }

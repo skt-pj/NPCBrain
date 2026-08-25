@@ -118,7 +118,7 @@ public class DungeonUserObjectiveTest {
     }
 
     @Test
-    public void huntAndSurviveInterpretSameEnemyDifferently() {
+    public void huntAndSurviveInterpretSameEnemyDifferentlyWithoutHpOverride() {
         DungeonState state = openState(9, 9, 2, 2, 7, 7);
         state.enemies.add(new DungeonState.Enemy("enemy", 3, 2, 6));
         DungeonPerception.refreshExploration(state);
@@ -138,8 +138,10 @@ public class DungeonUserObjectiveTest {
                 DungeonPersonalityPolicy.effectiveMode(state, neutral, survive));
 
         state.hp = 2;
-        assertEquals(DungeonIntent.EVADE,
+        assertEquals(DungeonIntent.ENGAGE,
                 DungeonPersonalityPolicy.effectiveMode(state, neutral, hunt));
+        assertEquals(DungeonIntent.EVADE,
+                DungeonPersonalityPolicy.effectiveMode(state, neutral, survive));
     }
 
     @Test

@@ -9,6 +9,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class DungeonEngineTest {
@@ -79,48 +80,91 @@ public class DungeonEngineTest {
     }
 
     @Test
-    public void personalityChangesDirectionScores() {
-        DungeonState combat = openState(5, 5, 2, 2, 2, 1);
-        for (int y = 0; y < combat.height; y++) {
-            for (int x = 0; x < combat.width; x++) combat.visited[y][x] = true;
-        }
-        combat.enemies.add(new DungeonState.Enemy("enemy", 3, 2, 4));
+    public void traitsDoNotCreateLocalPsychologicalDirectionDecision() {
+        DungeonState state = openState(7, 7, 3, 3, 5, 5);
+        DungeonPerception.refreshExploration(state);
+        state.enemies.add(new DungeonState.Enemy("enemy", 4, 3, 4));
+        DungeonPersonalityPolicy.Traits outgoing =
+                new DungeonPersonalityPolicy.Traits(100, 0, 0, 0, 100);
+        DungeonPersonalityPolicy.Traits cautious =
+                new DungeonPersonalityPolicy.Traits(0, 100, 100, 100, 0);
+        DungeonIntent local = new DungeonIntent(
+                DungeonIntent.EXPLORE,
+                DungeonPersonalityPolicy.Direction.WAIT,
+                "",
+                0.25,
+                "local",
+                DungeonIntent.SOURCE_LOCAL,
+                1,
+                0);
+        DungeonPlan neutral = new DungeonPlan(
+                0.5, 0.5, 0.5, 0.5,
+                "neutral", DungeonPlan.SOURCE_LOCAL,
+                DungeonObjective.NONE, 0, 1, 0);
 
-        DungeonPersonalityPolicy.Traits outgoing = new DungeonPersonalityPolicy.Traits(100, 0, 0, 0, 0);
-        DungeonPersonalityPolicy.Traits cautious = new DungeonPersonalityPolicy.Traits(0, 100, 100, 0, 0);
+        assertEquals(
+                DungeonPersonalityPolicy.scoreDirection(
+                        state, outgoing, DungeonPersonalityPolicy.Direction.RIGHT, local, neutral),
+                DungeonPersonalityPolicy.scoreDirection(
+                        state, cautious, DungeonPersonalityPolicy.Direction.RIGHT, local, neutral),
+                0.000001);
+        assertEquals(
+                DungeonPersonalityPolicy.scoreDirection(
+                        state, outgoing, DungeonPersonalityPolicy.Direction.LEFT, local, neutral),
+                DungeonPersonalityPolicy.scoreDirection(
+                        state, cautious, DungeonPersonalityPolicy.Direction.LEFT, local, neutral),
+                0.000001);
+    }
 
-        double outgoingToward = DungeonPersonalityPolicy.scoreDirection(
-                combat, outgoing, DungeonPersonalityPolicy.Direction.RIGHT);
-        double outgoingAway = DungeonPersonalityPolicy.scoreDirection(
-                combat, outgoing, DungeonPersonalityPolicy.Direction.LEFT);
-        double cautiousToward = DungeonPersonalityPolicy.scoreDirection(
-                combat, cautious, DungeonPersonalityPolicy.Direction.RIGHT);
-        double cautiousAway = DungeonPersonalityPolicy.scoreDirection(
-                combat, cautious, DungeonPersonalityPolicy.Direction.LEFT);
+    @Test
+    public void legalSameCycleBrainDirectionExecutesWithoutLocalPsychologicalOverride() {
+        DungeonState state = openState(7, 7, 3, 3, 5, 5);
+        DungeonPerception.refreshExploration(state);
+        DungeonIntent brain = new DungeonIntent(
+                DungeonIntent.EXPLORE,
+                DungeonPersonalityPolicy.Direction.RIGHT,
+                "",
+                1.0,
+                "Brain chose right",
+                DungeonIntent.SOURCE_BRAIN,
+                1,
+                0);
+        DungeonPlan plan = new DungeonPlan(
+                0.0, 0.0, 1.0, 1.0,
+                "plan", DungeonPlan.SOURCE_BRAIN,
+                DungeonObjective.NONE, 0, 1, 0);
+        DungeonPersonalityPolicy.Traits traits =
+                new DungeonPersonalityPolicy.Traits(0, 100, 100, 100, 0);
 
-        assertTrue(outgoingToward > outgoingAway);
-        assertTrue(cautiousAway > cautiousToward);
+        assertEquals(DungeonPersonalityPolicy.Direction.RIGHT,
+                DungeonEngine.legalBrainDirection(state, brain));
+        DungeonState next = DungeonEngine.step(state, traits, brain, plan);
+        assertEquals(4, next.playerX);
+        assertEquals(3, next.playerY);
+    }
 
-        DungeonState progress = openState(5, 5, 2, 2, 2, 1);
-        for (int y = 0; y < progress.height; y++) {
-            for (int x = 0; x < progress.width; x++) progress.visited[y][x] = true;
-        }
-        DungeonPersonalityPolicy.Traits diligent = new DungeonPersonalityPolicy.Traits(0, 0, 0, 100, 0);
-        assertTrue(DungeonPersonalityPolicy.scoreDirection(
-                progress, diligent, DungeonPersonalityPolicy.Direction.UP)
-                > DungeonPersonalityPolicy.scoreDirection(
-                progress, diligent, DungeonPersonalityPolicy.Direction.LEFT));
+    @Test
+    public void hardWorldConstraintCanRejectBrainDirection() {
+        DungeonState state = openState(7, 7, 3, 3, 5, 5);
+        state.tiles[2][3] = DungeonState.WALL;
+        DungeonPerception.refreshExploration(state);
+        DungeonIntent brain = new DungeonIntent(
+                DungeonIntent.EXPLORE,
+                DungeonPersonalityPolicy.Direction.UP,
+                "",
+                1.0,
+                "Brain chose blocked tile",
+                DungeonIntent.SOURCE_BRAIN,
+                1,
+                0);
 
-        DungeonState explore = openState(5, 5, 2, 2, 3, 3);
-        for (int y = 0; y < explore.height; y++) {
-            for (int x = 0; x < explore.width; x++) explore.visited[y][x] = true;
-        }
-        explore.visited[1][2] = false;
-        DungeonPersonalityPolicy.Traits curious = new DungeonPersonalityPolicy.Traits(0, 0, 0, 0, 100);
-        assertTrue(DungeonPersonalityPolicy.scoreDirection(
-                explore, curious, DungeonPersonalityPolicy.Direction.UP)
-                > DungeonPersonalityPolicy.scoreDirection(
-                explore, curious, DungeonPersonalityPolicy.Direction.LEFT));
+        assertNull(DungeonEngine.legalBrainDirection(state, brain));
+        DungeonState next = DungeonEngine.step(
+                state,
+                new DungeonPersonalityPolicy.Traits(50, 50, 50, 50, 50),
+                brain,
+                null);
+        assertFalse(next.playerX == 3 && next.playerY == 2);
     }
 
     @Test

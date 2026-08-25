@@ -11,23 +11,46 @@ import static org.junit.Assert.assertTrue;
 
 public class OpenAiClientFunctionCallTest {
     @Test
-    public void extractsScheduleReplyTimerArgumentsFromResponsesOutput() throws Exception {
+    public void extractsRuntimeDecisionArgumentsFromResponsesOutput() throws Exception {
         JSONObject response = new JSONObject()
                 .put("output", new JSONArray().put(new JSONObject()
                         .put("type", "function_call")
                         .put("call_id", "call_1")
                         .put("name", ReplyTimerToolSession.TOOL_NAME)
-                        .put("arguments", "{\"wake_at_ms\":123456789,\"reason\":\"食事が終わった後\"}")));
+                        .put("arguments", "{\"operation\":\"schedule_reply_timer\",\"wake_at_ms\":123456789,\"reason\":\"食事が終わった後\",\"participation_decision\":\"none\",\"willingness\":0.5,\"fear\":0.5,\"resolve\":0.5,\"personal_reason\":\"\"}")));
 
         JSONObject args = OpenAiClient.extractFunctionArgumentsForTest(
                 response, ReplyTimerToolSession.TOOL_NAME);
+        assertEquals(ReplyTimerToolSession.OP_REPLY_TIMER, args.getString("operation"));
         assertEquals(123456789L, args.getLong("wake_at_ms"));
         assertEquals("食事が終わった後", args.getString("reason"));
-        assertEquals(2, args.length());
+        assertEquals(8, args.length());
     }
 
     @Test
-    public void doesNotTreatOtherFunctionsAsReplyTimer() throws Exception {
+    public void structuredToolExposesParticipationOperations() {
+        JSONObject policy = ReplyTimerRuntimeContext.dungeonParticipationPolicy();
+        assertEquals("global_workspace", policy.optString("decision_owner"));
+        assertEquals(ReplyTimerToolSession.TOOL_NAME, policy.optString("structured_tool"));
+        assertEquals(ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION,
+                policy.optString("operation"));
+        assertEquals(ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER,
+                policy.optString("combined_with_reply_timer_operation"));
+    }
+
+    @Test
+    public void runtimeDecisionToolCanRequireOneExplicitOperation() {
+        OpenAiClient.FunctionTool optional = tool(false);
+        OpenAiClient.FunctionTool required = tool(true);
+        assertEquals("auto", OpenAiClient.toolChoice(optional));
+        assertEquals("required", OpenAiClient.toolChoice(required));
+        assertEquals("none", ReplyTimerToolSession.OP_NONE);
+        assertEquals("set_dungeon_participation_and_schedule_reply_timer",
+                ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER);
+    }
+
+    @Test
+    public void doesNotTreatOtherFunctionsAsRuntimeDecision() throws Exception {
         JSONObject response = new JSONObject()
                 .put("output", new JSONArray().put(new JSONObject()
                         .put("type", "function_call")
@@ -44,5 +67,29 @@ public class OpenAiClientFunctionCallTest {
                 "You are the existing Global Workspace of a brain-inspired NPC cognitive architecture."));
         assertFalse(OpenAiClient.isGlobalWorkspacePrompt(
                 "You are the perception function inside a brain-inspired NPC cognitive architecture."));
+    }
+
+    private static OpenAiClient.FunctionTool tool(boolean required) {
+        return new OpenAiClient.FunctionTool() {
+            @Override
+            public String name() {
+                return "test_tool";
+            }
+
+            @Override
+            public JSONObject definition() {
+                return new JSONObject();
+            }
+
+            @Override
+            public JSONObject invoke(JSONObject arguments) {
+                return new JSONObject();
+            }
+
+            @Override
+            public boolean requiredInvocation() {
+                return required;
+            }
+        };
     }
 }

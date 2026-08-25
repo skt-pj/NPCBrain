@@ -60,6 +60,10 @@ final class DungeonCognitionGate {
                 DungeonPerception.adjacentVisibleEnemy(state));
     }
 
+    /**
+     * Detects changes worth another Brain evaluation. HP bands are salience buckets only: they
+     * decide when to ask Brain again and never select EVADE, WITHDRAW, or any other action.
+     */
     static String reason(Signal previous, Signal current, int lastBrainTurn) {
         if (current == null) return "";
         if (previous == null || current.floor != previous.floor) return FLOOR_START;
@@ -75,12 +79,23 @@ final class DungeonCognitionGate {
         return OBJECTIVE_CHANGED.equals(reason) || PROGRESS_STALLED.equals(reason);
     }
 
+    static boolean isCognitionTrigger(String reason) {
+        return OBJECTIVE_CHANGED.equals(reason)
+                || PROGRESS_STALLED.equals(reason)
+                || FLOOR_START.equals(reason)
+                || ENEMY_SPOTTED.equals(reason)
+                || STAIRS_SPOTTED.equals(reason)
+                || HP_RISK.equals(reason)
+                || COMBAT_CHANGE.equals(reason)
+                || PERIODIC.equals(reason);
+    }
+
     static String mergePending(String current, String incoming) {
         String safeCurrent = current == null ? "" : current;
-        if (incoming == null || incoming.isEmpty()) return safeCurrent;
-        if (PROGRESS_STALLED.equals(incoming)) return safeCurrent;
-        if (safeCurrent.isEmpty()) return incoming;
-        return priority(incoming) < priority(safeCurrent) ? incoming : safeCurrent;
+        String safeIncoming = incoming == null ? "" : incoming;
+        if (safeIncoming.isEmpty()) return safeCurrent;
+        if (safeCurrent.isEmpty()) return safeIncoming;
+        return priority(safeIncoming) < priority(safeCurrent) ? safeIncoming : safeCurrent;
     }
 
     private static int priority(String reason) {
@@ -91,8 +106,9 @@ final class DungeonCognitionGate {
         if (ENEMY_SPOTTED.equals(reason)) return 4;
         if (STAIRS_SPOTTED.equals(reason)) return 5;
         if (COMBAT_CHANGE.equals(reason)) return 6;
-        if (TACTICAL_EXPIRED.equals(reason)) return 7;
-        return 8;
+        if (PERIODIC.equals(reason)) return 7;
+        if (TACTICAL_EXPIRED.equals(reason)) return 8;
+        return 9;
     }
 
     private static boolean containsNew(List<String> current, List<String> previous) {

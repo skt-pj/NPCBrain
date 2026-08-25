@@ -35,40 +35,60 @@ public class NpcInnerLifePolicyTest {
     }
 
     @Test
-    public void sleepRecoversMoreEnergyThanAwakeActivity() {
-        NpcInnerLifeState base = state(0L, 0.40, 0.30, 0.30, 0.30, 0.50, 0.10);
-        NpcInnerLifeState sleep = NpcInnerLifePolicy.advance(
+    public void activityKeywordsDoNotChooseDifferentPsychologicalState() {
+        NpcInnerLifeState base = new NpcInnerLifeState(
+                0L, 0L, 0L, 0L, 0L,
+                0.40, 0.30, 0.30, 0.30, 0.50, 0.10,
+                "少し迷っている", "昨日の会話", "もう少し考える", 0);
+        NpcInnerLifeState sleepWord = NpcInnerLifePolicy.advance(
                 base, HOUR, "sleep", "", 0.5, 0.5, 0.5, 0.5, 0.0, 0.2).state;
-        NpcInnerLifeState work = NpcInnerLifePolicy.advance(
+        NpcInnerLifeState workWord = NpcInnerLifePolicy.advance(
                 base, HOUR, "work", "", 0.5, 0.5, 0.5, 0.5, 0.0, 0.2).state;
-        assertTrue(sleep.energy > base.energy);
-        assertTrue(sleep.energy > work.energy);
+        assertEquals(sleepWord.energy, workWord.energy, 0.0001);
+        assertEquals(sleepWord.hunger, workWord.hunger, 0.0001);
+        assertEquals(base.mood, sleepWord.mood);
+        assertEquals(base.focus, sleepWord.focus);
+        assertEquals(base.intention, sleepWord.intention);
+        assertEquals(base.mood, workWord.mood);
+        assertEquals(base.focus, workWord.focus);
+        assertEquals(base.intention, workWord.intention);
     }
 
     @Test
-    public void eatingAndSocialActivityReduceTheirNeeds() {
+    public void needThresholdsDoNotReplaceAiGeneratedFocusOrIntention() {
+        NpcInnerLifeState base = new NpcInnerLifeState(
+                0L, 0L, 0L, 0L, 0L,
+                0.05, 0.95, 0.95, 0.95, 0.90, 0.95,
+                "複雑な気分", "ダンジョンに行くか考えている", "自分で決める", 0);
+        NpcInnerLifeState result = NpcInnerLifePolicy.advance(
+                base, 1L, "dangerous dungeon meal work sleep", "締切",
+                0.5, 1.0, 0.5, 0.5, -0.8, 1.0).state;
+        assertEquals("複雑な気分", result.mood);
+        assertEquals("ダンジョンに行くか考えている", result.focus);
+        assertEquals("自分で決める", result.intention);
+    }
+
+    @Test
+    public void localSignalsRemainBoundedAndCanEvolve() {
         NpcInnerLifeState base = state(0L, 0.70, 0.70, 0.75, 0.30, 0.50, 0.10);
-        NpcInnerLifeState eating = NpcInnerLifePolicy.advance(
-                base, HOUR, "dinner", "", 0.5, 0.5, 0.5, 0.5, 0.0, 0.2).state;
-        NpcInnerLifeState social = NpcInnerLifePolicy.advance(
-                base, HOUR, "chat with friend", "", 0.5, 0.5, 0.5, 0.5, 0.0, 0.2).state;
-        assertTrue(eating.hunger < base.hunger);
-        assertTrue(social.socialNeed < base.socialNeed);
+        NpcInnerLifeState later = NpcInnerLifePolicy.advance(
+                base, 12L * HOUR, "anything", "", 1.0, 1.0, 0.0, 1.0, 0.0, 1.0).state;
+        assertTrue(later.energy >= 0.0 && later.energy <= 1.0);
+        assertTrue(later.hunger >= 0.0 && later.hunger <= 1.0);
+        assertTrue(later.socialNeed >= 0.0 && later.socialNeed <= 1.0);
+        assertTrue(later.boredom >= 0.0 && later.boredom <= 1.0);
+        assertTrue(later.curiosity >= 0.0 && later.curiosity <= 1.0);
+        assertTrue(later.safetyConcern >= 0.0 && later.safetyConcern <= 1.0);
+        assertTrue(later.hunger >= base.hunger);
     }
 
     @Test
-    public void opennessRaisesInitialCuriosity() {
+    public void opennessRaisesInitialCuriositySignalOnly() {
         NpcInnerLifeState closed = NpcInnerLifeState.initial(1000L, 0.5, 0.5, 0.0);
         NpcInnerLifeState open = NpcInnerLifeState.initial(1000L, 0.5, 0.5, 1.0);
         assertTrue(open.curiosity > closed.curiosity);
-    }
-
-    @Test
-    public void criticalNeedsTakePriorityOverOrdinaryGoal() {
-        NpcInnerLifeState exhausted = state(0L, 0.10, 0.20, 0.20, 0.20, 0.40, 0.10);
-        NpcInnerLifeState result = NpcInnerLifePolicy.advance(
-                exhausted, 1L, "work", "締切を終える", 0.5, 0.5, 0.8, 0.5, 0.0, 0.2).state;
-        assertEquals("休息", result.focus);
+        assertEquals(closed.focus, open.focus);
+        assertEquals(closed.intention, open.intention);
     }
 
     @Test

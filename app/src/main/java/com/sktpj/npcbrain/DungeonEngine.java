@@ -55,9 +55,36 @@ final class DungeonEngine {
             DungeonIntent intent,
             DungeonPlan plan
     ) {
-        DungeonPersonalityPolicy.Direction direction = DungeonPersonalityPolicy.choose(
-                state, traits, intent, plan);
+        DungeonPersonalityPolicy.Direction direction = legalBrainDirection(state, intent);
+        if (direction == null) {
+            direction = DungeonPersonalityPolicy.choose(state, traits, intent, plan);
+        }
         return stepDetailed(state, traits, direction);
+    }
+
+    /**
+     * A same-cycle Brain action is authoritative when it is still physically feasible.
+     * The local compiler may replace it only when the world state makes that exact action illegal.
+     */
+    static DungeonPersonalityPolicy.Direction legalBrainDirection(
+            DungeonState state,
+            DungeonIntent intent
+    ) {
+        if (state == null || intent == null || !intent.isBrain()) return null;
+        DungeonPersonalityPolicy.Direction direction = intent.preferredDirection;
+        if (direction == null) return null;
+        if (direction == DungeonPersonalityPolicy.Direction.WAIT) {
+            return direction;
+        }
+        int targetX = state.playerX + direction.dx;
+        int targetY = state.playerY + direction.dy;
+        if (!state.walkable(targetX, targetY)) return null;
+        if (!intent.targetId.isEmpty()) {
+            DungeonState.Enemy target = state.enemyAt(targetX, targetY);
+            if (target == null || !target.alive() || !intent.targetId.equals(target.id)) return null;
+            if (!DungeonPerception.isVisible(state, target.x, target.y)) return null;
+        }
+        return direction;
     }
 
     static DungeonStepResult stepDetailed(

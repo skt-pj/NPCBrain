@@ -41,6 +41,12 @@ final class ReplyTimerRuntimeContext {
                     NpcId.of(npcId),
                     now);
             runtime.put("reply_timer_grounding", ReplyTimerGrounding.toJson(lifeState, now));
+            runtime.put("runtime_decision_contract", runtimeDecisionContract());
+
+            if ("conversational_message".equals(mode)) {
+                runtime.put("conversation_reassessment_policy", conversationPolicy());
+                runtime.put("dungeon_participation_policy", dungeonParticipationPolicy());
+            }
 
             ReplyTimerBinding binding;
             if ("conversational_message".equals(mode)) {
@@ -65,5 +71,49 @@ final class ReplyTimerRuntimeContext {
         } catch (Exception ignored) {
             return new Prepared(prompt, null);
         }
+    }
+
+    static JSONObject runtimeDecisionContract() {
+        JSONObject policy = new JSONObject();
+        try {
+            policy.put("tool", ReplyTimerToolSession.TOOL_NAME);
+            policy.put("required_once_per_global_workspace_cycle", true);
+            policy.put("no_state_write_operation", ReplyTimerToolSession.OP_NONE);
+            policy.put("combined_participation_and_reply_timer_operation",
+                    ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER);
+            policy.put("instruction",
+                    "Invoke the runtime decision tool exactly once before the final Global Workspace JSON. Choose none when no runtime state write is appropriate. If the NPC decides dungeon participation now but a grounded temporary condition delays the conversational reply, use the combined participation-and-reply-timer operation so the stance is recorded immediately while reply delivery is deferred. Tool invocation is independent of whether npc_utterance is empty, a reply is deferred, or the character speaks.");
+        } catch (Exception ignored) {
+        }
+        return policy;
+    }
+
+    static JSONObject conversationPolicy() {
+        JSONObject policy = new JSONObject();
+        try {
+            policy.put("direct_question_salience", true);
+            policy.put("repeated_unresolved_question_recheck", true);
+            policy.put("silence_is_character_choice_not_default", true);
+            policy.put("instruction",
+                    "A message directly addressed to this NPC, especially a question, normally deserves conscious social evaluation. Use recent_room_transcript to notice when the user is asking the same or a similar unresolved question again. Re-evaluate each new message instead of carrying forward silence mechanically. The NPC may still stay silent, refuse, defer or answer, but silence must follow from the character's grounded personality, relationship, current state or situation; do not use 'conversation need not continue' as a default suppression rule.");
+        } catch (Exception ignored) {
+        }
+        return policy;
+    }
+
+    static JSONObject dungeonParticipationPolicy() {
+        JSONObject policy = new JSONObject();
+        try {
+            policy.put("decision_owner", "global_workspace");
+            policy.put("structured_tool", ReplyTimerToolSession.TOOL_NAME);
+            policy.put("operation", ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION);
+            policy.put("combined_with_reply_timer_operation",
+                    ReplyTimerToolSession.OP_DUNGEON_PARTICIPATION_AND_REPLY_TIMER);
+            policy.put("independent_of_visible_utterance", true);
+            policy.put("instruction",
+                    "When the current message concerns whether this NPC will join, refuse, hesitate about, reconsider or withdraw from the dungeon, Global Workspace must record that integrated decision with the runtime tool. Consider fear, personality, current affect, memory, relationship and grounded danger together. Do not wait for numeric thresholds, do not require an explicit reason sentence, and do not infer the decision later from emitted wording. Record the decision even when the NPC ultimately stays silent. If the conversational reply itself is deferred, use the combined operation so participation is recorded immediately rather than waiting for the timer.");
+        } catch (Exception ignored) {
+        }
+        return policy;
     }
 }

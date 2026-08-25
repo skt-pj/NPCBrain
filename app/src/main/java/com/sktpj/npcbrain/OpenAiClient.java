@@ -37,6 +37,10 @@ final class OpenAiClient {
         String name();
         JSONObject definition();
         JSONObject invoke(JSONObject arguments);
+
+        default boolean requiredInvocation() {
+            return false;
+        }
     }
 
     private static final class FunctionCall {
@@ -164,6 +168,10 @@ final class OpenAiClient {
         return prompt != null && prompt.startsWith("You are the existing Global Workspace");
     }
 
+    static String toolChoice(OpenAiClient.FunctionTool tool) {
+        return tool != null && tool.requiredInvocation() ? "required" : "auto";
+    }
+
     private JSONObject requestJsonInternal(String prompt, int maxOutputTokens) throws Exception {
         FunctionTool tool = isGlobalWorkspacePrompt(prompt) ? FUNCTION_TOOL.get() : null;
         JSONObject body = new JSONObject();
@@ -173,7 +181,7 @@ final class OpenAiClient {
         body.put("input", prompt);
         if (tool != null) {
             body.put("tools", new JSONArray().put(tool.definition()));
-            body.put("tool_choice", "auto");
+            body.put("tool_choice", toolChoice(tool));
             body.put("parallel_tool_calls", false);
         }
 
