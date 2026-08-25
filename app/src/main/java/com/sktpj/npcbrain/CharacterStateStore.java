@@ -127,6 +127,11 @@ final class CharacterStateStore {
             root.put("occupation", occupation());
             root.put("background", background());
 
+            JSONObject synthesis = new NpcProfileSynthesisStore(storageContext).load();
+            if (synthesis.length() > 0) {
+                root.put("profile_synthesis", new JSONObject(synthesis.toString()));
+            }
+
             double extraversion = traitPercent(EXTRAVERSION) / 100.0;
             double neuroticism = traitPercent(NEUROTICISM) / 100.0;
             double agreeableness = traitPercent(AGREEABLENESS) / 100.0;
@@ -173,6 +178,7 @@ final class CharacterStateStore {
             String speechStyle
     ) {
         if (isDead()) return;
+        new NpcProfileSynthesisStore(storageContext).clear();
         preferences.edit()
                 .putString(NAME, safe(name, "NPC"))
                 .putInt(EXTRAVERSION, clampPercent(extraversion))
@@ -215,6 +221,7 @@ final class CharacterStateStore {
         String age = age();
         String occupation = occupation();
         String background = background();
+        new NpcProfileSynthesisStore(storageContext).clear();
         SharedPreferences.Editor editor = preferences.edit().clear();
         if (locked) {
             editor.putString(RELATIONSHIP_TO_USER, relationship)
