@@ -2,6 +2,7 @@ package com.sktpj.npcbrain;
 
 import android.app.Activity;
 import android.app.Application;
+import android.content.pm.ApplicationInfo;
 import android.os.Bundle;
 
 import java.lang.ref.WeakReference;
@@ -9,6 +10,7 @@ import java.lang.ref.WeakReference;
 public final class NPCBrainApplication extends Application {
     private static WeakReference<DemoActivityV032> demoActivityRef = new WeakReference<>(null);
     private static volatile boolean demoRoomRefreshRequested;
+    private static volatile boolean debugBuild;
 
     private NpcInnerLifeRuntime innerLifeRuntime;
     private int startedActivityCount;
@@ -16,6 +18,7 @@ public final class NPCBrainApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        debugBuild = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         new ReplyTimerStore(this).rearmAll();
         innerLifeRuntime = new NpcInnerLifeRuntime(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
@@ -68,6 +71,10 @@ public final class NPCBrainApplication extends Application {
                 if (activity == current) demoActivityRef = new WeakReference<>(null);
             }
         });
+    }
+
+    static boolean isDebugBuild() {
+        return debugBuild;
     }
 
     static DemoActivityV032 currentDemoActivity() {
