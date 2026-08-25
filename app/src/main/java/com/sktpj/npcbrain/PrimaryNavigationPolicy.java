@@ -23,7 +23,7 @@ final class PrimaryNavigationPolicy {
     private PrimaryNavigationPolicy() {}
 
     static List<String> destinationIds() {
-        return destinationIds(BuildConfig.DEBUG);
+        return destinationIds(NPCBrainApplication.isDebugBuild());
     }
 
     static List<String> destinationIds(boolean debugBuild) {
