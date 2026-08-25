@@ -10,12 +10,12 @@ import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.util.List;
+import java.util.Locale;
 
 public final class NpcManagerActivity extends Activity {
     private NpcRegistryStore registry;
@@ -24,6 +24,10 @@ public final class NpcManagerActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (!BuildConfig.DEBUG) {
+            finish();
+            return;
+        }
         registry = new NpcRegistryStore(this);
         setContentView(buildContent());
     }
@@ -31,7 +35,7 @@ public final class NpcManagerActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        renderList();
+        if (BuildConfig.DEBUG) renderList();
     }
 
     private View buildContent() {
@@ -51,7 +55,7 @@ public final class NpcManagerActivity extends Activity {
         header.addView(back, new LinearLayout.LayoutParams(dp(92), dp(46)));
 
         TextView title = new TextView(this);
-        title.setText("NPC管理");
+        title.setText("NPC管理 · DEBUG");
         title.setTextColor(AppUiTheme.APP_TEXT);
         title.setTextSize(22);
         title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -60,7 +64,7 @@ public final class NpcManagerActivity extends Activity {
         root.addView(header);
 
         TextView note = new TextView(this);
-        note.setText("関係・年齢・職業・経歴は自動設定後、初回確定時に一度だけ編集できます。名前や人格はあとから変更できます。");
+        note.setText("Debugビルド専用。NPCの追加、全設定の再編集、削除ができます。");
         note.setTextColor(AppUiTheme.APP_MUTED);
         note.setTextSize(13);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
@@ -75,7 +79,7 @@ public final class NpcManagerActivity extends Activity {
         add.setTypeface(Typeface.DEFAULT_BOLD);
         add.setTextColor(Color.WHITE);
         add.setBackground(cardBackground(Color.rgb(46, 101, 181), Color.rgb(46, 101, 181), 14));
-        add.setOnClickListener(v -> showCreateDialog());
+        add.setOnClickListener(v -> addNpc());
         LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(54));
         ap.topMargin = dp(16);
@@ -86,19 +90,25 @@ public final class NpcManagerActivity extends Activity {
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(0, dp(12), 0, dp(24));
         scroll.addView(list);
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        root.addView(scroll, sp);
+        root.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
         return root;
     }
 
     private void renderList() {
-        if (list == null) return;
+        if (list == null || registry == null) return;
         list.removeAllViews();
         List<String> ids = registry.npcIds();
         for (String npcId : ids) {
             CharacterStateStore store = new CharacterStateStore(NpcContexts.storage(this, npcId));
             list.addView(profileCard(npcId, store));
+        }
+        if (ids.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("登録NPCはいません。");
+            empty.setTextColor(AppUiTheme.APP_MUTED);
+            empty.setTextSize(14);
+            list.addView(empty);
         }
     }
 
@@ -132,106 +142,46 @@ public final class NpcManagerActivity extends Activity {
         mp.topMargin = dp(8);
         card.addView(meta, mp);
 
-        if (!store.isDead() && !store.identityMetadataLocked()) {
-            Button init = new Button(this);
-            init.setText("初期プロフィールを確定");
-            init.setAllCaps(false);
-            init.setOnClickListener(v -> showMetadataDialog(npcId, store));
-            LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(
+        if (!store.isDead()) {
+            Button edit = new Button(this);
+            edit.setText("設定を編集");
+            edit.setAllCaps(false);
+            edit.setOnClickListener(v -> NpcProfileEditor.showDebug(this, npcId, this::renderList));
+            LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
-            ip.topMargin = dp(10);
-            card.addView(init, ip);
-        } else if (!store.isDead()) {
-            TextView locked = new TextView(this);
-            locked.setText("初期プロフィール確定済み");
-            locked.setTextColor(Color.rgb(126, 137, 151));
-            locked.setTextSize(11);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = dp(8);
-            card.addView(locked, lp);
+            ep.topMargin = dp(10);
+            card.addView(edit, ep);
         }
+
+        Button delete = new Button(this);
+        delete.setText("削除");
+        delete.setAllCaps(false);
+        delete.setOnClickListener(v -> confirmDelete(npcId, store.displayName()));
+        LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, this.dp(48));
+        dp.topMargin = this.dp(6);
+        card.addView(delete, dp);
         return card;
     }
 
-    private void showCreateDialog() {
-        String suggestedId = NpcRegistryStore.nextNpcId(registry.npcIds());
-        LinearLayout form = form();
-        EditText name = field("名前", suggestedId.toUpperCase());
-        form.addView(name);
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("NPCを追加")
-                .setMessage("プロフィールは自動設定され、追加後に一度だけ確定できます。")
-                .setView(form)
-                .setNegativeButton("キャンセル", null)
-                .setPositiveButton("追加", null)
-                .create();
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            String npcId = registry.createNpcId();
-            CharacterStateStore store = new CharacterStateStore(NpcContexts.storage(this, npcId));
-            store.saveProfile(safe(name.getText().toString(), npcId.toUpperCase()), 50, 50, 50, 50, 50, "");
-            dialog.dismiss();
-            renderList();
-        }));
-        dialog.show();
+    private void addNpc() {
+        String npcId = registry.createNpcId();
+        CharacterStateStore store = new CharacterStateStore(NpcContexts.storage(this, npcId));
+        store.saveProfile(npcId.toUpperCase(Locale.US), 50, 50, 50, 50, 50, "");
+        NpcProfileEditor.showDebug(this, npcId, this::renderList);
+        renderList();
     }
 
-    private void showMetadataDialog(String npcId, CharacterStateStore store) {
-        if (store.identityMetadataLocked() || store.isDead()) return;
-        LinearLayout form = form();
-        EditText relationship = field("ユーザーとの関係", store.relationshipToUser());
-        EditText age = field("年齢", store.age());
-        EditText occupation = field("職業", store.occupation());
-        EditText background = field("経歴", store.background());
-        form.addView(relationship);
-        form.addView(age);
-        form.addView(occupation);
-        form.addView(background);
+    private void confirmDelete(String npcId, String displayName) {
         new AlertDialog.Builder(this)
-                .setTitle(store.displayName() + " の初期プロフィール")
-                .setMessage("確定後は編集できません。確定内容は人格と一日の行動に反映されます。")
-                .setView(form)
+                .setTitle("NPCを削除")
+                .setMessage(displayName + " (" + npcId + ") をNPC一覧から削除します。")
                 .setNegativeButton("キャンセル", null)
-                .setPositiveButton("確定", (dialog, which) -> {
-                    boolean saved = store.initializeIdentityMetadata(
-                            relationship.getText().toString(),
-                            age.getText().toString(),
-                            occupation.getText().toString(),
-                            background.getText().toString());
-                    if (saved) {
-                        applyProfileSchedule(npcId, store);
-                    }
+                .setPositiveButton("削除", (dialog, which) -> {
+                    registry.removeNpc(npcId);
                     renderList();
                 })
                 .show();
-    }
-
-    private void applyProfileSchedule(String npcId, CharacterStateStore store) {
-        NpcId id = NpcId.of(npcId);
-        long now = new WorldClock(this).now();
-        WorldStateStore worldStateStore = new WorldStateStore(this);
-        LifeState current = worldStateStore.lifeState(id, now);
-        DailySchedule schedule = DailySchedule.profileFor(id, store.age(), store.occupation());
-        worldStateStore.saveLifeState(current.withSchedule(now, schedule.toJson()));
-        new WorldRuntimeV040(this).syncAllNow();
-    }
-
-    private LinearLayout form() {
-        LinearLayout form = new LinearLayout(this);
-        form.setOrientation(LinearLayout.VERTICAL);
-        int side = dp(20);
-        form.setPadding(side, dp(4), side, 0);
-        return form;
-    }
-
-    private EditText field(String hint, String value) {
-        EditText edit = new EditText(this);
-        edit.setHint(hint);
-        edit.setText(value);
-        edit.setSingleLine(false);
-        edit.setMinHeight(dp(52));
-        return edit;
     }
 
     private void openConversation() {
@@ -247,10 +197,6 @@ public final class NpcManagerActivity extends Activity {
         drawable.setCornerRadius(dp(radiusDp));
         drawable.setStroke(dp(1), stroke);
         return drawable;
-    }
-
-    private static String safe(String value, String fallback) {
-        return value == null || value.trim().isEmpty() ? fallback : value.trim();
     }
 
     private int dp(int value) {
