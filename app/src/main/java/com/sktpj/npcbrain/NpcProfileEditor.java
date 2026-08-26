@@ -2,7 +2,13 @@ package com.sktpj.npcbrain;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.graphics.Color;
 import android.graphics.Typeface;
+import android.os.Build;
+import android.view.Gravity;
+import android.view.Window;
+import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -11,6 +17,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 final class NpcProfileEditor {
     interface OnSaved {
@@ -32,10 +39,10 @@ final class NpcProfileEditor {
     static void showInvitation(
             Activity activity,
             String npcId,
-            Runnable afterMetadataSave,
+            Runnable afterProfileSaved,
             OnSaved onSaved
     ) {
-        show(activity, npcId, false, afterMetadataSave, onSaved);
+        show(activity, npcId, false, afterProfileSaved, onSaved);
     }
 
     static void showDebug(Activity activity, String npcId, OnSaved onSaved) {
@@ -46,7 +53,7 @@ final class NpcProfileEditor {
             Activity activity,
             String npcId,
             boolean debugOverride,
-            Runnable afterMetadataSave,
+            Runnable afterProfileSaved,
             OnSaved onSaved
     ) {
         ContextBundle bundle = new ContextBundle(activity, npcId);
@@ -58,11 +65,6 @@ final class NpcProfileEditor {
             Toast.makeText(activity, "このNPCの初回設定は確定済みです。", Toast.LENGTH_SHORT).show();
             return;
         }
-
-        LinearLayout form = new LinearLayout(activity);
-        form.setOrientation(LinearLayout.VERTICAL);
-        int side = dp(activity, 18);
-        form.setPadding(side, dp(activity, 8), side, dp(activity, 12));
 
         String currentName = bundle.character.displayName();
         if (currentName == null || currentName.trim().isEmpty() || "NPC".equals(currentName.trim())) {
@@ -85,6 +87,10 @@ final class NpcProfileEditor {
         EditText fears = field(activity, "恐れ", bundle.memory.profileText("fear"));
         EditText relations = field(activity, "人間関係", bundle.memory.profileText("relationship"));
 
+        LinearLayout form = new LinearLayout(activity);
+        form.setOrientation(LinearLayout.VERTICAL);
+        int side = dp(activity, 18);
+        form.setPadding(side, dp(activity, 6), side, dp(activity, 20));
         form.addView(name);
         form.addView(extraversion.root);
         form.addView(neuroticism.root);
@@ -102,66 +108,204 @@ final class NpcProfileEditor {
         form.addView(fears);
         form.addView(relations);
 
+        TextView explanation = new TextView(activity);
+        explanation.setText(debugOverride
+                ? "全項目をLLMで整合し、人格・認知入力・一日の予定へ反映します。明示入力そのものは勝手に書き換えません。"
+                : "全項目をLLMで整合してから招待を確定します。この初回設定が人格・認知入力・一日の予定へ反映されます。");
+        explanation.setTextSize(13);
+        explanation.setTextColor(Color.rgb(80, 88, 102));
+        explanation.setPadding(side, dp(activity, 10), side, dp(activity, 4));
+
+        TextView status = new TextView(activity);
+        status.setText("入力後、下のボタンで保存してください。");
+        status.setTextSize(13);
+        status.setTextColor(Color.rgb(50, 85, 135));
+        status.setPadding(side, dp(activity, 4), side, dp(activity, 8));
+
         ScrollView scroll = new ScrollView(activity);
+        scroll.setFillViewport(true);
         scroll.addView(form);
+
+        LinearLayout footer = new LinearLayout(activity);
+        footer.setOrientation(LinearLayout.HORIZONTAL);
+        footer.setGravity(Gravity.CENTER_VERTICAL);
+        footer.setPadding(side, dp(activity, 10), side, dp(activity, 12));
+
+        Button cancel = new Button(activity);
+        cancel.setText("キャンセル");
+        cancel.setAllCaps(false);
+        cancel.setMinHeight(dp(activity, 48));
+
+        Button save = new Button(activity);
+        save.setText(debugOverride ? "保存" : "招待");
+        save.setAllCaps(false);
+        save.setTypeface(Typeface.DEFAULT_BOLD);
+        save.setMinHeight(dp(activity, 48));
+
+        LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(0, dp(activity, 52), 1f);
+        cancelParams.rightMargin = dp(activity, 6);
+        footer.addView(cancel, cancelParams);
+        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(0, dp(activity, 52), 1f);
+        saveParams.leftMargin = dp(activity, 6);
+        footer.addView(save, saveParams);
+
+        LinearLayout shell = new LinearLayout(activity);
+        shell.setOrientation(LinearLayout.VERTICAL);
+        shell.addView(explanation, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        shell.addView(status, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        shell.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        shell.addView(footer, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
         AlertDialog dialog = new AlertDialog.Builder(activity)
                 .setTitle(debugOverride ? "NPC設定を編集" : "NPCを招待")
-                .setMessage(debugOverride
-                        ? "Debug NPC管理では、確定済み設定も何度でも変更できます。"
-                        : "この設定は招待時の初回のみ確定できます。人格と一日の行動へ反映します。")
-                .setView(scroll)
-                .setNegativeButton("キャンセル", null)
-                .setPositiveButton(debugOverride ? "保存" : "招待", null)
+                .setView(shell)
                 .create();
+        AtomicBoolean sessionActive = new AtomicBoolean(true);
+        dialog.setOnDismissListener(ignored -> sessionActive.set(false));
+        cancel.setOnClickListener(v -> dialog.dismiss());
 
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            boolean metadataSaved = debugOverride
-                    ? bundle.character.updateIdentityMetadataForDebug(
-                            relationship.getText().toString(),
-                            age.getText().toString(),
-                            occupation.getText().toString(),
-                            background.getText().toString())
-                    : bundle.character.initializeIdentityMetadata(
-                            relationship.getText().toString(),
-                            age.getText().toString(),
-                            occupation.getText().toString(),
-                            background.getText().toString());
-            if (!metadataSaved) {
-                Toast.makeText(activity, "プロフィールを保存できませんでした。", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            if (afterMetadataSave != null) afterMetadataSave.run();
-
-            bundle.character.saveProfile(
+        save.setOnClickListener(v -> {
+            if (!sessionActive.get() || !dialog.isShowing() || !save.isEnabled()) return;
+            NpcProfileDraft draft = new NpcProfileDraft(
                     safe(name.getText().toString(), npcId.toUpperCase(Locale.US)),
                     extraversion.seek.getProgress(),
                     neuroticism.seek.getProgress(),
                     agreeableness.seek.getProgress(),
                     conscientiousness.seek.getProgress(),
                     openness.seek.getProgress(),
-                    speech.getText().toString());
-            bundle.memory.replaceProfileAdaptations(
+                    speech.getText().toString(),
+                    relationship.getText().toString(),
+                    age.getText().toString(),
+                    occupation.getText().toString(),
+                    background.getText().toString(),
                     role.getText().toString(),
                     values.getText().toString(),
                     goals.getText().toString(),
                     fears.getText().toString(),
                     relations.getText().toString());
-            applyProfileSchedule(activity, npcId, bundle.character);
-            dialog.dismiss();
-            if (onSaved != null) onSaved.onSaved();
-        }));
+
+            save.setEnabled(false);
+            status.setTextColor(Color.rgb(50, 85, 135));
+            status.setText("プロフィールをLLMで整合中…");
+
+            new Thread(() -> {
+                try {
+                    NpcProfileReconciler.Result result =
+                            new NpcProfileReconciler(activity).reconcile(npcId, draft);
+                    activity.runOnUiThread(() -> {
+                        if (!isActive(activity, dialog, sessionActive)) return;
+                        try {
+                            persistValidatedProfile(
+                                    activity,
+                                    npcId,
+                                    debugOverride,
+                                    draft,
+                                    result,
+                                    bundle,
+                                    afterProfileSaved);
+                            status.setTextColor(Color.rgb(35, 115, 70));
+                            status.setText("保存しました。");
+                            dialog.dismiss();
+                            if (onSaved != null) onSaved.onSaved();
+                        } catch (Exception error) {
+                            showSaveError(status, save, error);
+                        }
+                    });
+                } catch (Exception error) {
+                    activity.runOnUiThread(() -> {
+                        if (!isActive(activity, dialog, sessionActive)) return;
+                        showSaveError(status, save, error);
+                    });
+                }
+            }, "npc-profile-reconcile-" + npcId).start();
+        });
+
+        dialog.setOnShowListener(ignored -> {
+            Window window = dialog.getWindow();
+            if (window != null) {
+                int screenHeight = activity.getResources().getDisplayMetrics().heightPixels;
+                int height = Math.max(dp(activity, 360), Math.round(screenHeight * 0.88f));
+                height = Math.min(height, screenHeight);
+                window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, height);
+            }
+        });
         dialog.show();
     }
 
-    private static void applyProfileSchedule(Activity activity, String npcId, CharacterStateStore store) {
+    private static void persistValidatedProfile(
+            Activity activity,
+            String npcId,
+            boolean debugOverride,
+            NpcProfileDraft draft,
+            NpcProfileReconciler.Result result,
+            ContextBundle bundle,
+            Runnable afterProfileSaved
+    ) {
+        if (bundle.character.isDead()) {
+            throw new IllegalStateException("死亡したNPCは編集できません。");
+        }
+        boolean metadataSaved = debugOverride
+                ? bundle.character.updateIdentityMetadataForDebug(
+                        draft.relationshipToUser(), draft.age(), draft.occupation(), draft.background())
+                : bundle.character.initializeIdentityMetadata(
+                        draft.relationshipToUser(), draft.age(), draft.occupation(), draft.background());
+        if (!metadataSaved) {
+            throw new IllegalStateException("プロフィール基本情報を保存できませんでした。");
+        }
+
+        boolean characterSaved = bundle.character.saveProfile(
+                draft.name(),
+                draft.extraversion(),
+                draft.neuroticism(),
+                draft.agreeableness(),
+                draft.conscientiousness(),
+                draft.openness(),
+                draft.speechStyle());
+        if (!characterSaved) {
+            throw new IllegalStateException("人格データを保存できませんでした。");
+        }
+
+        bundle.memory.replaceProfileAdaptations(
+                draft.roleIdentity(),
+                draft.values(),
+                draft.goals(),
+                draft.fears(),
+                draft.relationships());
+
+        if (!bundle.synthesis.save(result.synthesis())) {
+            throw new IllegalStateException("LLM整合プロフィールを保存できませんでした。");
+        }
+
         NpcId id = NpcId.of(npcId);
         long now = new WorldClock(activity).now();
         WorldStateStore worldStateStore = new WorldStateStore(activity);
         LifeState current = worldStateStore.lifeState(id, now);
-        DailySchedule schedule = DailySchedule.profileFor(id, store.age(), store.occupation());
-        worldStateStore.saveLifeState(current.withSchedule(now, schedule.toJson()));
+        worldStateStore.saveLifeState(current.withSchedule(now, result.schedule().toJson()));
+
+        if (afterProfileSaved != null) afterProfileSaved.run();
         new WorldRuntimeV040(activity).syncAllNow();
         NPCBrainApplication.requestDemoRoomRefresh();
+    }
+
+    private static void showSaveError(TextView status, Button save, Exception error) {
+        String message = error == null ? "保存できませんでした。" : error.getMessage();
+        if (message == null || message.trim().isEmpty()) message = "保存できませんでした。";
+        status.setTextColor(Color.rgb(178, 54, 54));
+        status.setText("保存できませんでした: " + message.trim());
+        save.setEnabled(true);
+    }
+
+    private static boolean isActive(
+            Activity activity,
+            AlertDialog dialog,
+            AtomicBoolean sessionActive
+    ) {
+        if (!sessionActive.get() || !dialog.isShowing() || activity.isFinishing()) return false;
+        return Build.VERSION.SDK_INT < 17 || !activity.isDestroyed();
     }
 
     private static EditText field(Activity activity, String hint, String value) {
@@ -205,11 +349,13 @@ final class NpcProfileEditor {
     private static final class ContextBundle {
         final CharacterStateStore character;
         final MemoryStore memory;
+        final NpcProfileSynthesisStore synthesis;
 
         ContextBundle(Activity activity, String npcId) {
             android.content.Context storage = NpcContexts.storage(activity, npcId);
             character = new CharacterStateStore(storage);
             memory = new MemoryStore(storage);
+            synthesis = new NpcProfileSynthesisStore(storage);
         }
     }
 }

@@ -127,6 +127,11 @@ final class CharacterStateStore {
             root.put("occupation", occupation());
             root.put("background", background());
 
+            JSONObject synthesis = new NpcProfileSynthesisStore(storageContext).load();
+            if (synthesis.length() > 0) {
+                root.put("profile_synthesis", new JSONObject(synthesis.toString()));
+            }
+
             double extraversion = traitPercent(EXTRAVERSION) / 100.0;
             double neuroticism = traitPercent(NEUROTICISM) / 100.0;
             double agreeableness = traitPercent(AGREEABLENESS) / 100.0;
@@ -163,7 +168,7 @@ final class CharacterStateStore {
         return root;
     }
 
-    synchronized void saveProfile(
+    synchronized boolean saveProfile(
             String name,
             int extraversion,
             int neuroticism,
@@ -172,8 +177,8 @@ final class CharacterStateStore {
             int openness,
             String speechStyle
     ) {
-        if (isDead()) return;
-        preferences.edit()
+        if (isDead()) return false;
+        boolean saved = preferences.edit()
                 .putString(NAME, safe(name, "NPC"))
                 .putInt(EXTRAVERSION, clampPercent(extraversion))
                 .putInt(NEUROTICISM, clampPercent(neuroticism))
@@ -181,7 +186,9 @@ final class CharacterStateStore {
                 .putInt(CONSCIENTIOUSNESS, clampPercent(conscientiousness))
                 .putInt(OPENNESS, clampPercent(openness))
                 .putString(SPEECH_STYLE, speechStyle == null ? "" : speechStyle.trim())
-                .apply();
+                .commit();
+        if (saved) new NpcProfileSynthesisStore(storageContext).clear();
+        return saved;
     }
 
     synchronized void updateDynamicState(JSONObject state) {
@@ -215,6 +222,7 @@ final class CharacterStateStore {
         String age = age();
         String occupation = occupation();
         String background = background();
+        new NpcProfileSynthesisStore(storageContext).clear();
         SharedPreferences.Editor editor = preferences.edit().clear();
         if (locked) {
             editor.putString(RELATIONSHIP_TO_USER, relationship)
