@@ -1,0 +1,93 @@
+name: Patch dungeon readability once
+
+on:
+  push:
+    branches:
+      - feature/v0.4.35-dungeon-walk-sprite
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: feature/v0.4.35-dungeon-walk-sprite
+          fetch-depth: 0
+      - name: Patch board palette usage
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('app/src/main/java/com/sktpj/npcbrain/DungeonBoardView.java')
+          text = path.read_text(encoding='utf-8')
+          old = '''        if (!explored) {
+              paint.setColor(Color.rgb(5, 9, 15));
+              canvas.drawRect(left, top, left + cell, top + cell, paint);
+              paint.setStrokeWidth(Math.max(1f, cell * 0.02f));
+              paint.setColor(Color.rgb(10, 17, 26));
+              canvas.drawLine(left, top + cell, left + cell, top, paint);
+              return;
+          }
+
+          int tile = state.tileAt(x, y);
+          if (tile == DungeonState.WALL) {
+              paint.setColor(visible ? Color.rgb(54, 68, 84) : Color.rgb(30, 39, 51));
+              canvas.drawRect(left, top, left + cell, top + cell, paint);
+              paint.setColor(visible ? Color.rgb(78, 96, 116) : Color.rgb(43, 54, 68));
+              canvas.drawRect(left, top, left + cell, top + cell * 0.16f, paint);
+              paint.setColor(Color.rgb(18, 27, 38));
+              canvas.drawRect(left, top + cell * 0.84f, left + cell, top + cell, paint);
+          } else {
+              int base = ((x + y) & 1) == 0 ? 45 : 49;
+              if (!visible) base -= 18;
+              paint.setColor(Color.rgb(base, base + 5, base + 9));
+              canvas.drawRect(left, top, left + cell, top + cell, paint);
+              paint.setColor(visible ? Color.rgb(59, 68, 77) : Color.rgb(35, 42, 50));
+              paint.setStyle(Paint.Style.STROKE);
+              paint.setStrokeWidth(Math.max(1f, cell * 0.018f));
+              canvas.drawRect(left + 1, top + 1, left + cell - 1, top + cell - 1, paint);
+              paint.setStyle(Paint.Style.FILL);
+          }
+'''
+          new = '''        if (!explored) {
+              paint.setColor(DungeonBoardPalette.UNEXPLORED_FILL);
+              canvas.drawRect(left, top, left + cell, top + cell, paint);
+              paint.setStrokeWidth(Math.max(1f, cell * 0.02f));
+              paint.setColor(DungeonBoardPalette.UNEXPLORED_MARK);
+              canvas.drawLine(left, top + cell, left + cell, top, paint);
+              return;
+          }
+
+          int tile = state.tileAt(x, y);
+          if (tile == DungeonState.WALL) {
+              paint.setColor(DungeonBoardPalette.wallBody(visible));
+              canvas.drawRect(left, top, left + cell, top + cell, paint);
+              paint.setColor(DungeonBoardPalette.wallTop(visible));
+              canvas.drawRect(left, top, left + cell, top + cell * 0.16f, paint);
+              paint.setColor(DungeonBoardPalette.wallBottom(visible));
+              canvas.drawRect(left, top + cell * 0.84f, left + cell, top + cell, paint);
+          } else {
+              paint.setColor(DungeonBoardPalette.floorFill(visible, x, y));
+              canvas.drawRect(left, top, left + cell, top + cell, paint);
+              paint.setColor(DungeonBoardPalette.floorBorder(visible));
+              paint.setStyle(Paint.Style.STROKE);
+              paint.setStrokeWidth(Math.max(1f, cell * 0.018f));
+              canvas.drawRect(left + 1, top + 1, left + cell - 1, top + cell - 1, paint);
+              paint.setStyle(Paint.Style.FILL);
+          }
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one old palette block, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+      - name: Remove one-time workflow and commit
+        run: |
+          rm .github/workflows/patch-dungeon-readability-once.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/com/sktpj/npcbrain/DungeonBoardView.java .github/workflows/patch-dungeon-readability-once.yml
+          git commit -m 'Improve dungeon sprite background readability'
+          git push origin HEAD:feature/v0.4.35-dungeon-walk-sprite
