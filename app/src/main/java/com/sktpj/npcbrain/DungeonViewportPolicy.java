@@ -1,6 +1,7 @@
 package com.sktpj.npcbrain;
 
 final class DungeonViewportPolicy {
+    // Keep the board still through normal movement; follow only when the player reaches an edge cell.
     private static final int EDGE_MARGIN_CELLS = 1;
 
     private DungeonViewportPolicy() {
