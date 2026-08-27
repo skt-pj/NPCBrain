@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 
 public class DungeonInvitationContextTest {
@@ -28,7 +29,8 @@ public class DungeonInvitationContextTest {
         assertEquals("初心者向けダンジョンを試す", context.objectiveLabel);
         assertEquals(1, context.visibleEnemyCount);
         assertEquals(1, context.nearestVisibleEnemyDistance);
-        assertEquals(DungeonInvitationContext.HIGH, context.dangerBand);
+        assertEquals("", context.dangerBand);
+        assertFalse(context.toJson().has("danger_band"));
 
         DungeonInvitationContext restored = DungeonInvitationContext.fromJson(context.toJson());
         assertNotNull(restored);
@@ -42,11 +44,11 @@ public class DungeonInvitationContextTest {
         assertEquals(context.objectiveLabel, restored.objectiveLabel);
         assertEquals(context.visibleEnemyCount, restored.visibleEnemyCount);
         assertEquals(context.nearestVisibleEnemyDistance, restored.nearestVisibleEnemyDistance);
-        assertEquals(context.dangerBand, restored.dangerBand);
+        assertEquals("", restored.dangerBand);
     }
 
     @Test
-    public void hiddenEnemyDoesNotAffectInvitationDangerSummary() {
+    public void hiddenEnemyDoesNotAffectInvitationGroundedFacts() {
         DungeonInvitationContext nearOnly = DungeonInvitationContext.fromDungeon(
                 "npc1", state(false, 10), DungeonObjective.none(), 1L);
         DungeonInvitationContext nearAndHidden = DungeonInvitationContext.fromDungeon(
@@ -57,19 +59,16 @@ public class DungeonInvitationContextTest {
         assertEquals(nearOnly.visibleEnemyCount, nearAndHidden.visibleEnemyCount);
         assertEquals(nearOnly.nearestVisibleEnemyDistance,
                 nearAndHidden.nearestVisibleEnemyDistance);
-        assertEquals(nearOnly.dangerBand, nearAndHidden.dangerBand);
+        assertEquals("", nearOnly.dangerBand);
+        assertEquals("", nearAndHidden.dangerBand);
     }
 
     @Test
-    public void dangerBandUsesOnlyBoundedVisibleRisk() {
-        assertEquals(DungeonInvitationContext.CRITICAL,
-                DungeonInvitationContext.dangerBand(2, 10, 1, 2));
-        assertEquals(DungeonInvitationContext.HIGH,
-                DungeonInvitationContext.dangerBand(3, 10, 0, 999));
-        assertEquals(DungeonInvitationContext.GUARDED,
-                DungeonInvitationContext.dangerBand(6, 10, 0, 999));
-        assertEquals(DungeonInvitationContext.LOW,
-                DungeonInvitationContext.dangerBand(10, 10, 0, 999));
+    public void dangerBandDoesNotDeriveSharedPsychologicalRisk() {
+        assertEquals("", DungeonInvitationContext.dangerBand(2, 10, 1, 2));
+        assertEquals("", DungeonInvitationContext.dangerBand(3, 10, 0, 999));
+        assertEquals("", DungeonInvitationContext.dangerBand(6, 10, 0, 999));
+        assertEquals("", DungeonInvitationContext.dangerBand(10, 10, 0, 999));
     }
 
     private static DungeonState state(boolean includeHiddenEnemy, int hp) {
