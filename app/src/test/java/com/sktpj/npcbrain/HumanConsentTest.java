@@ -9,13 +9,9 @@ import static org.junit.Assert.assertTrue;
 
 public class HumanConsentTest {
     @Test
-    public void humanBaselineIsPrincipleNotFixedPsychologicalNumbers() {
+    public void humanBaselineIsNotInjectedAsSharedPsychology() {
         JSONObject baseline = HumanBaseline.toJson();
-        assertTrue(baseline.optBoolean("ordinary_human", false));
-        assertEquals("global_workspace", baseline.optString("decision_owner"));
-        assertFalse(baseline.has("death_aversion"));
-        assertFalse(baseline.has("self_preservation"));
-        assertFalse(baseline.has("violence_aversion"));
+        assertEquals(0, baseline.length());
     }
 
     @Test
@@ -132,12 +128,15 @@ public class HumanConsentTest {
     }
 
     @Test
-    public void executionStillRequiresExplicitAcceptedStanceAndActiveObjective() {
+    public void executionDoesNotUseParticipationOrObjectiveAsGate() {
         DungeonParticipationState accepted = new DungeonParticipationState(
                 DungeonParticipationState.ACCEPT, 0.5, 0.5, 0.5, "", 1L);
-        assertFalse(DungeonParticipationPolicy.canAutoExecute(accepted, DungeonObjective.none()));
+        DungeonParticipationState refused = new DungeonParticipationState(
+                DungeonParticipationState.REFUSE, 0.1, 0.9, 0.1, "行かない", 2L);
+        assertTrue(DungeonParticipationPolicy.canAutoExecute(accepted, DungeonObjective.none()));
         assertTrue(DungeonParticipationPolicy.canAutoExecute(accepted, DungeonObjective.reachTop(2L)));
-        assertFalse(DungeonParticipationPolicy.canAutoExecute(
+        assertTrue(DungeonParticipationPolicy.canAutoExecute(
                 DungeonParticipationState.initial(), DungeonObjective.reachTop(2L)));
+        assertTrue(DungeonParticipationPolicy.canAutoExecute(refused, DungeonObjective.none()));
     }
 }
