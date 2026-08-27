@@ -203,12 +203,11 @@ final class DungeonRosterBridge {
 
     private static boolean canAdvance(DungeonActivity activity, String npcId) {
         if (npcId == null || npcId.trim().isEmpty()) return false;
-        DungeonParticipationState participation = DungeonParticipationStore.forNpc(activity, npcId).load();
-        if (!participation.isAccepted()) return false;
         DungeonObjective objective = new DungeonObjectiveStore(activity).load(npcId);
-        if (objective == null || !objective.isActive()) return false;
         DungeonState state = new DungeonStore(activity).load(npcId);
-        return state == null || (state.hp > 0 && !objective.isComplete(state.floor));
+        if (state == null) return true;
+        if (state.hp <= 0) return false;
+        return objective == null || !objective.isActive() || !objective.isComplete(state.floor);
     }
 
     private static BackgroundStep advanceBackgroundNpc(
@@ -224,7 +223,8 @@ final class DungeonRosterBridge {
         }
         DungeonPerception.refreshExploration(state);
         DungeonObjective objective = new DungeonObjectiveStore(activity).load(npcId);
-        if (objective == null || !objective.isActive() || objective.isComplete(state.floor) || state.hp <= 0) {
+        if (objective == null) objective = DungeonObjective.none();
+        if (state.hp <= 0 || (objective.isActive() && objective.isComplete(state.floor))) {
             dungeonStore.save(npcId, state);
             return null;
         }
@@ -263,7 +263,7 @@ final class DungeonRosterBridge {
                     trigger,
                     DungeonCognitionGate.PROGRESS_STALLED);
         }
-        if (objective.isComplete(next.floor) || next.hp <= 0) trigger = "";
+        if ((objective.isActive() && objective.isComplete(next.floor)) || next.hp <= 0) trigger = "";
         return new BackgroundStep(next, objective, plan, trigger);
     }
 
