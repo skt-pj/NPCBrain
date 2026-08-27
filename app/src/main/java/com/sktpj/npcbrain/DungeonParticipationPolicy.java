@@ -66,14 +66,15 @@ final class DungeonParticipationPolicy {
         return previous == null ? DungeonParticipationState.initial() : previous;
     }
 
+    /**
+     * Compatibility helper only. Participation/objective are NPC state, not Android-side
+     * psychological execution gates. Hard world/user controls are enforced by the executor.
+     */
     static boolean canAutoExecute(
             DungeonParticipationState participation,
             DungeonObjective objective
     ) {
-        return participation != null
-                && participation.isAccepted()
-                && objective != null
-                && objective.isActive();
+        return true;
     }
 
     private static String normalizeDecision(String value) {
