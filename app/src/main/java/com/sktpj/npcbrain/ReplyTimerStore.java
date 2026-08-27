@@ -5,8 +5,10 @@ import android.content.SharedPreferences;
 
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 
 final class ReplyTimerStore {
@@ -71,6 +73,30 @@ final class ReplyTimerStore {
         }
     }
 
+    synchronized int clearForNpc(String npcId) {
+        String id = safe(npcId);
+        if (id.isEmpty()) return 0;
+        JSONObject tasks = loadTasks();
+        List<ReplyTimerTask> removed = new ArrayList<>();
+        Iterator<String> keys = tasks.keys();
+        List<String> taskKeys = new ArrayList<>();
+        while (keys.hasNext()) taskKeys.add(keys.next());
+        for (String key : taskKeys) {
+            ReplyTimerTask task = ReplyTimerTask.fromJson(tasks.optJSONObject(key));
+            if (!sameNpc(task == null ? "" : task.npcId, id)) continue;
+            removed.add(task);
+            tasks.remove(key);
+        }
+        if (removed.isEmpty()) return 0;
+        if (!preferences.edit().putString(KEY_TASKS, tasks.toString()).commit()) return 0;
+        String activeSourceKey = ReplyTimerExecutionScope.currentSourceKey();
+        for (ReplyTimerTask task : removed) {
+            if (task == null || task.sourceKey.equals(activeSourceKey)) continue;
+            ReplyTimerScheduler.cancel(appContext, task.jobId);
+        }
+        return removed.size();
+    }
+
     synchronized void rearmAll() {
         JSONObject tasks = loadTasks();
         Iterator<String> keys = tasks.keys();
@@ -78,6 +104,12 @@ final class ReplyTimerStore {
             ReplyTimerTask task = ReplyTimerTask.fromJson(tasks.optJSONObject(keys.next()));
             if (task != null) ReplyTimerScheduler.schedule(appContext, task);
         }
+    }
+
+    static boolean sameNpc(String taskNpcId, String targetNpcId) {
+        String task = safe(taskNpcId);
+        String target = safe(targetNpcId);
+        return !task.isEmpty() && task.equals(target);
     }
 
     private int allocateJobId(JSONObject tasks) {
