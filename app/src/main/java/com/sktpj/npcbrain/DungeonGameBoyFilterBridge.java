@@ -5,6 +5,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.FrameLayout;
@@ -74,6 +75,19 @@ final class DungeonGameBoyFilterBridge {
                     DungeonGameBoyFilter.TARGET_HEIGHT,
                     Bitmap.Config.ARGB_8888);
             filteredCanvas = new Canvas(filteredBitmap);
+        }
+
+        @Override
+        public ViewParent invalidateChildInParent(int[] location, Rect dirty) {
+            ViewParent parent = super.invalidateChildInParent(location, dirty);
+            postInvalidateOnAnimation();
+            return parent;
+        }
+
+        @Override
+        public void onDescendantInvalidated(View child, View target) {
+            super.onDescendantInvalidated(child, target);
+            postInvalidateOnAnimation();
         }
 
         @Override
