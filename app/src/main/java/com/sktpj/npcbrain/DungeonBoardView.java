@@ -60,6 +60,18 @@ final class DungeonBoardView extends View {
     private int walkToY;
     private int walkDirectionRow = DungeonWalkAnimationPolicy.DOWN;
     private long walkStartedAtMs = -1L;
+    private int viewportStartX;
+    private int viewportStartY;
+    private int viewportCols = -1;
+    private int viewportRows = -1;
+    private int viewportFloor = -1;
+    private int viewportMapWidth = -1;
+    private int viewportMapHeight = -1;
+    private int cameraFromX;
+    private int cameraFromY;
+    private int cameraToX;
+    private int cameraToY;
+    private boolean cameraAnimating;
 
     DungeonBoardView(Context context) {
         super(context);
@@ -79,6 +91,7 @@ final class DungeonBoardView extends View {
             lastStateRef = null;
             lastFloor = -1;
             walkStartedAtMs = -1L;
+            resetViewport();
             invalidate();
             return;
         }
@@ -96,8 +109,10 @@ final class DungeonBoardView extends View {
             walkToY = nextState.playerY;
             walkDirectionRow = DungeonWalkAnimationPolicy.directionRow(dx, dy, walkDirectionRow);
             walkStartedAtMs = SystemClock.uptimeMillis();
+            prepareWalkCamera(nextState);
         } else if (!sameState || !sameFloor) {
             walkStartedAtMs = -1L;
+            resetViewport();
         }
 
         state = nextState;
@@ -145,25 +160,104 @@ final class DungeonBoardView extends View {
         int rows = oddClamp((int) Math.floor(getHeight() / cell), 7, 13);
         cell = Math.min(getWidth() / (float) cols, getHeight() / (float) rows);
 
-        int startX = clamp(state.playerX - cols / 2, 0, Math.max(0, state.width - cols));
-        int startY = clamp(state.playerY - rows / 2, 0, Math.max(0, state.height - rows));
-        int endX = Math.min(state.width, startX + cols);
-        int endY = Math.min(state.height, startY + rows);
-        float boardWidth = (endX - startX) * cell;
-        float boardHeight = (endY - startY) * cell;
+        ensureViewport(cols, rows);
+        long walkElapsed = walkStartedAtMs < 0L ? -1L : now - walkStartedAtMs;
+        boolean walking = DungeonWalkAnimationPolicy.isActive(walkElapsed);
+        float cameraGridX = viewportStartX;
+        float cameraGridY = viewportStartY;
+        if (cameraAnimating && walking) {
+            float progress = DungeonWalkAnimationPolicy.progress(walkElapsed);
+            cameraGridX = cameraFromX + (cameraToX - cameraFromX) * progress;
+            cameraGridY = cameraFromY + (cameraToY - cameraFromY) * progress;
+        } else if (cameraAnimating) {
+            viewportStartX = cameraToX;
+            viewportStartY = cameraToY;
+            cameraAnimating = false;
+            cameraGridX = viewportStartX;
+            cameraGridY = viewportStartY;
+        } else if (!walking) {
+            viewportStartX = DungeonViewportPolicy.followStart(
+                    viewportStartX, state.playerX, cols, state.width);
+            viewportStartY = DungeonViewportPolicy.followStart(
+                    viewportStartY, state.playerY, rows, state.height);
+            cameraGridX = viewportStartX;
+            cameraGridY = viewportStartY;
+        }
+
+        int startX = (int) Math.floor(cameraGridX);
+        int startY = (int) Math.floor(cameraGridY);
+        float cameraFractionX = cameraGridX - startX;
+        float cameraFractionY = cameraGridY - startY;
+        int endX = Math.min(state.width, startX + cols + (cameraFractionX > 0.001f ? 1 : 0));
+        int endY = Math.min(state.height, startY + rows + (cameraFractionY > 0.001f ? 1 : 0));
+        int overlayEndX = Math.min(state.width, startX + cols);
+        int overlayEndY = Math.min(state.height, startY + rows);
+        float boardWidth = Math.min(state.width, cols) * cell;
+        float boardHeight = Math.min(state.height, rows) * cell;
         float left = (getWidth() - boardWidth) / 2f;
         float top = (getHeight() - boardHeight) / 2f;
 
         float[] shake = shakeOffset(now);
         canvas.save();
-        canvas.translate(shake[0], shake[1]);
+        canvas.clipRect(left, top, left + boardWidth, top + boardHeight);
+        canvas.translate(
+                shake[0] - cameraFractionX * cell,
+                shake[1] - cameraFractionY * cell);
         drawViewport(canvas, startX, startY, endX, endY, left, top, cell, now);
-        drawImpactOverlays(canvas, startX, startY, endX, endY, left, top, cell, now);
+        drawImpactOverlays(canvas, startX, startY, overlayEndX, overlayEndY, left, top, cell, now);
         canvas.restore();
 
         drawMiniMap(canvas);
         drawFrame(canvas, left, top, boardWidth, boardHeight);
-        if (!effects.isEmpty() || isWalkActive(now)) postInvalidateOnAnimation();
+        if (!effects.isEmpty() || isWalkActive(now) || cameraAnimating) postInvalidateOnAnimation();
+    }
+
+    private void resetViewport() {
+        viewportCols = -1;
+        viewportRows = -1;
+        viewportFloor = -1;
+        viewportMapWidth = -1;
+        viewportMapHeight = -1;
+        cameraAnimating = false;
+    }
+
+    private void ensureViewport(int cols, int rows) {
+        boolean geometryChanged = viewportCols != cols
+                || viewportRows != rows
+                || viewportFloor != state.floor
+                || viewportMapWidth != state.width
+                || viewportMapHeight != state.height;
+        if (!geometryChanged) return;
+        viewportCols = cols;
+        viewportRows = rows;
+        viewportFloor = state.floor;
+        viewportMapWidth = state.width;
+        viewportMapHeight = state.height;
+        viewportStartX = DungeonViewportPolicy.initialStart(state.playerX, cols, state.width);
+        viewportStartY = DungeonViewportPolicy.initialStart(state.playerY, rows, state.height);
+        cameraAnimating = false;
+    }
+
+    private void prepareWalkCamera(DungeonState nextState) {
+        if (viewportCols <= 0
+                || viewportRows <= 0
+                || viewportFloor != nextState.floor
+                || viewportMapWidth != nextState.width
+                || viewportMapHeight != nextState.height) {
+            cameraAnimating = false;
+            return;
+        }
+        cameraFromX = viewportStartX;
+        cameraFromY = viewportStartY;
+        cameraToX = DungeonViewportPolicy.followStart(
+                viewportStartX, nextState.playerX, viewportCols, nextState.width);
+        cameraToY = DungeonViewportPolicy.followStart(
+                viewportStartY, nextState.playerY, viewportRows, nextState.height);
+        cameraAnimating = cameraFromX != cameraToX || cameraFromY != cameraToY;
+        if (!cameraAnimating) {
+            cameraToX = cameraFromX;
+            cameraToY = cameraFromY;
+        }
     }
 
     private void drawViewport(
