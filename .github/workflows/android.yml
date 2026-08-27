@@ -43,19 +43,21 @@ jobs:
           gradle-version: '8.13'
           cache-provider: basic
 
-      - name: Test and build release APK
-        run: gradle :app:testDebugUnitTest :app:assembleRelease --stacktrace
+      - name: Test and build APKs
+        run: gradle :app:testDebugUnitTest :app:assembleRelease :app:assembleDebug --stacktrace
 
-      - name: Sign and prepare latest APK
+      - name: Sign and prepare latest APKs
         id: build_output
         shell: bash
         run: |
           set -euo pipefail
           VERSION_NAME="$(grep '^VERSION_NAME=' version.properties | cut -d= -f2)"
           VERSION_CODE="$(grep '^VERSION_CODE=' version.properties | cut -d= -f2)"
-          APK_SOURCE="app/build/outputs/apk/release/app-release-unsigned.apk"
+          RELEASE_SOURCE="app/build/outputs/apk/release/app-release-unsigned.apk"
+          DEBUG_SOURCE="app/build/outputs/apk/debug/app-debug.apk"
           mkdir -p dist
-          APK_TARGET="dist/NPCBrain-release.apk"
+          RELEASE_TARGET="dist/NPCBrain-release.apk"
+          DEBUG_TARGET="dist/NPCBrain-debug.apk"
 
           curl -fsSL "https://raw.githubusercontent.com/skt-pj/2048TD/main/ci/2048td-release.jks.b64" -o skt-common-signing.jks.b64
           curl -fsSL "https://raw.githubusercontent.com/skt-pj/2048TD/main/app/build.gradle.kts" -o signing-source.gradle.kts
@@ -73,11 +75,21 @@ jobs:
             --ks-pass "pass:${STORE_PASSWORD}" \
             --ks-key-alias "$KEY_ALIAS" \
             --key-pass "pass:${KEY_PASSWORD}" \
-            --out "$APK_TARGET" \
-            "$APK_SOURCE"
+            --out "$RELEASE_TARGET" \
+            "$RELEASE_SOURCE"
 
-          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK_TARGET" | tee dist/signing-certificate.txt
-          sha256sum "$APK_TARGET" > "${APK_TARGET}.sha256"
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" sign \
+            --ks skt-common-signing.jks \
+            --ks-pass "pass:${STORE_PASSWORD}" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --key-pass "pass:${KEY_PASSWORD}" \
+            --out "$DEBUG_TARGET" \
+            "$DEBUG_SOURCE"
+
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$RELEASE_TARGET" | tee dist/signing-certificate.txt
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$DEBUG_TARGET" | tee dist/signing-certificate-debug.txt
+          sha256sum "$RELEASE_TARGET" > "${RELEASE_TARGET}.sha256"
+          sha256sum "$DEBUG_TARGET" > "${DEBUG_TARGET}.sha256"
           {
             echo "repository=${GITHUB_REPOSITORY}"
             echo "branch=${GITHUB_REF_NAME}"
@@ -85,12 +97,12 @@ jobs:
             echo "versionName=${VERSION_NAME}"
             echo "versionCode=${VERSION_CODE}"
             echo "run=${GITHUB_RUN_ID}"
-            echo "build=testDebugUnitTest,assembleRelease,apksigner"
+            echo "build=testDebugUnitTest,assembleRelease,assembleDebug,apksigner"
           } > dist/build-metadata.txt
           rm -f skt-common-signing.jks skt-common-signing.jks.b64 signing-source.gradle.kts
           echo "version=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload signed APK artifact
+      - name: Upload signed release APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: NPCBrain-release
@@ -102,7 +114,19 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Record CI result and publish latest APK
+      - name: Upload signed debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NPCBrain-debug
+          path: |
+            dist/NPCBrain-debug.apk
+            dist/NPCBrain-debug.apk.sha256
+            dist/signing-certificate-debug.txt
+            dist/build-metadata.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record CI result and publish latest APKs
         if: ${{ always() && github.event_name != 'pull_request' }}
         shell: bash
         env:
@@ -117,12 +141,13 @@ jobs:
             echo "status=${JOB_STATUS}"
             echo "job_commit=${GITHUB_SHA}"
             echo "apk_path=dist/NPCBrain-release.apk"
+            echo "debug_apk_path=dist/NPCBrain-debug.apk"
             echo "versionName=${VERSION_NAME}"
           } > "$RESULT_FILE"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$RESULT_FILE"
-          if [ "$JOB_STATUS" = "success" ] && [ -f dist/NPCBrain-release.apk ]; then
+          if [ "$JOB_STATUS" = "success" ] && [ -f dist/NPCBrain-release.apk ] && [ -f dist/NPCBrain-debug.apk ]; then
             git add -A dist
           fi
           git commit -m "Record Android CI run ${GITHUB_RUN_ID} [skip ci]"

@@ -13,6 +13,7 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.List;
 
@@ -63,7 +64,7 @@ public final class NpcManagerActivity extends Activity {
         root.addView(header);
 
         TextView note = new TextView(this);
-        note.setText("Debugビルド専用。NPCの追加、全設定のLLM整合・再編集、削除ができます。");
+        note.setText("Debugビルド専用。NPCの追加、全設定のLLM整合・再編集、脳内リセット、削除ができます。");
         note.setTextColor(AppUiTheme.APP_MUTED);
         note.setTextSize(13);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
@@ -150,6 +151,15 @@ public final class NpcManagerActivity extends Activity {
                     LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
             ep.topMargin = dp(10);
             card.addView(edit, ep);
+
+            Button reset = new Button(this);
+            reset.setText("脳内をリセット");
+            reset.setAllCaps(false);
+            reset.setOnClickListener(v -> confirmBrainReset(npcId, store.displayName()));
+            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
+            rp.topMargin = dp(6);
+            card.addView(reset, rp);
         }
 
         Button delete = new Button(this);
@@ -170,6 +180,22 @@ public final class NpcManagerActivity extends Activity {
             new WorldRuntimeV040(this).syncAllNow();
             renderList();
         });
+    }
+
+    private void confirmBrainReset(String npcId, String displayName) {
+        new AlertDialog.Builder(this)
+                .setTitle("脳内をリセット")
+                .setMessage(displayName + " (" + npcId + ") の学習した記憶・内面状態・現在の脳内状態・返信タイマーを消去します。\n\n人格・プロフィール・会話履歴・ダンジョン進行は保持します。")
+                .setNegativeButton("キャンセル", null)
+                .setPositiveButton("リセット", (dialog, which) -> {
+                    if (NpcBrainResetter.reset(this, npcId)) {
+                        renderList();
+                        Toast.makeText(this, displayName + " の脳内をリセットしました。", Toast.LENGTH_SHORT).show();
+                    } else {
+                        Toast.makeText(this, "脳内をリセットできませんでした。", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .show();
     }
 
     private void confirmDelete(String npcId, String displayName) {
