@@ -1,9 +1,11 @@
 package com.sktpj.npcbrain;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.os.SystemClock;
@@ -41,9 +43,23 @@ final class DungeonBoardView extends View {
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint spritePaint = new Paint();
     private final float density;
     private final List<ImpactEffect> effects = new ArrayList<>();
+    private final Bitmap playerSpriteSheet;
+    private final Rect playerSpriteSource = new Rect();
+    private final RectF playerSpriteDestination = new RectF();
     private DungeonState state;
+    private DungeonState lastStateRef;
+    private int lastFloor = -1;
+    private int lastPlayerX;
+    private int lastPlayerY;
+    private int walkFromX;
+    private int walkFromY;
+    private int walkToX;
+    private int walkToY;
+    private int walkDirectionRow = DungeonWalkAnimationPolicy.DOWN;
+    private long walkStartedAtMs = -1L;
 
     DungeonBoardView(Context context) {
         super(context);
@@ -51,10 +67,44 @@ final class DungeonBoardView extends View {
         setBackgroundColor(Color.rgb(4, 8, 14));
         textPaint.setTypeface(Typeface.DEFAULT_BOLD);
         textPaint.setTextAlign(Paint.Align.CENTER);
+        spritePaint.setAntiAlias(false);
+        spritePaint.setDither(false);
+        spritePaint.setFilterBitmap(false);
+        playerSpriteSheet = DungeonPlayerSpriteSheet.decode(context);
     }
 
-    void setState(DungeonState state) {
-        this.state = state;
+    void setState(DungeonState nextState) {
+        if (nextState == null) {
+            state = null;
+            lastStateRef = null;
+            lastFloor = -1;
+            walkStartedAtMs = -1L;
+            invalidate();
+            return;
+        }
+
+        boolean hasPrevious = lastStateRef != null && lastFloor >= 0;
+        boolean sameState = lastStateRef == nextState;
+        boolean sameFloor = hasPrevious && lastFloor == nextState.floor;
+        int dx = hasPrevious ? nextState.playerX - lastPlayerX : 0;
+        int dy = hasPrevious ? nextState.playerY - lastPlayerY : 0;
+
+        if (hasPrevious && DungeonWalkAnimationPolicy.isSingleStep(sameState, sameFloor, dx, dy)) {
+            walkFromX = lastPlayerX;
+            walkFromY = lastPlayerY;
+            walkToX = nextState.playerX;
+            walkToY = nextState.playerY;
+            walkDirectionRow = DungeonWalkAnimationPolicy.directionRow(dx, dy, walkDirectionRow);
+            walkStartedAtMs = SystemClock.uptimeMillis();
+        } else if (!sameState || !sameFloor) {
+            walkStartedAtMs = -1L;
+        }
+
+        state = nextState;
+        lastStateRef = nextState;
+        lastFloor = nextState.floor;
+        lastPlayerX = nextState.playerX;
+        lastPlayerY = nextState.playerY;
         invalidate();
     }
 
@@ -113,7 +163,7 @@ final class DungeonBoardView extends View {
 
         drawMiniMap(canvas);
         drawFrame(canvas, left, top, boardWidth, boardHeight);
-        if (!effects.isEmpty()) postInvalidateOnAnimation();
+        if (!effects.isEmpty() || isWalkActive(now)) postInvalidateOnAnimation();
     }
 
     private void drawViewport(
@@ -146,9 +196,20 @@ final class DungeonBoardView extends View {
             drawEnemy(canvas, cx + recoil[0], cy + recoil[1], cell, enemy.hp);
         }
 
-        float playerCx = left + (state.playerX - startX + 0.5f) * cell;
-        float playerCy = top + (state.playerY - startY + 0.5f) * cell;
-        drawPlayer(canvas, playerCx, playerCy, cell);
+        long walkElapsed = walkStartedAtMs < 0L ? -1L : now - walkStartedAtMs;
+        boolean walking = DungeonWalkAnimationPolicy.isActive(walkElapsed);
+        float playerGridX = state.playerX;
+        float playerGridY = state.playerY;
+        int frame = 0;
+        if (walking) {
+            float progress = DungeonWalkAnimationPolicy.progress(walkElapsed);
+            playerGridX = walkFromX + (walkToX - walkFromX) * progress;
+            playerGridY = walkFromY + (walkToY - walkFromY) * progress;
+            frame = DungeonWalkAnimationPolicy.frameIndex(walkElapsed);
+        }
+        float playerCx = left + (playerGridX - startX + 0.5f) * cell;
+        float playerCy = top + (playerGridY - startY + 0.5f) * cell;
+        drawPlayer(canvas, playerCx, playerCy, cell, frame, walkDirectionRow);
     }
 
     private void drawTile(
@@ -220,7 +281,30 @@ final class DungeonBoardView extends View {
         canvas.drawText("E" + hp, cx, cy + cell * 0.10f, textPaint);
     }
 
-    private void drawPlayer(Canvas canvas, float cx, float cy, float cell) {
+    private void drawPlayer(Canvas canvas, float cx, float cy, float cell, int frame, int row) {
+        if (playerSpriteSheet != null) {
+            int safeFrame = Math.max(0, Math.min(DungeonPlayerSpriteSheet.COLUMNS - 1, frame));
+            int safeRow = Math.max(0, Math.min(DungeonPlayerSpriteSheet.ROWS - 1, row));
+            int sourceLeft = safeFrame * DungeonPlayerSpriteSheet.CELL_SIZE;
+            int sourceTop = safeRow * DungeonPlayerSpriteSheet.CELL_SIZE;
+            playerSpriteSource.set(
+                    sourceLeft,
+                    sourceTop,
+                    sourceLeft + DungeonPlayerSpriteSheet.CELL_SIZE,
+                    sourceTop + DungeonPlayerSpriteSheet.CELL_SIZE);
+            float side = cell * 0.96f;
+            playerSpriteDestination.set(
+                    cx - side / 2f,
+                    cy - side / 2f,
+                    cx + side / 2f,
+                    cy + side / 2f);
+            canvas.drawBitmap(playerSpriteSheet, playerSpriteSource, playerSpriteDestination, spritePaint);
+            return;
+        }
+        drawPlayerFallback(canvas, cx, cy, cell);
+    }
+
+    private void drawPlayerFallback(Canvas canvas, float cx, float cy, float cell) {
         paint.setColor(Color.argb(62, 76, 170, 255));
         canvas.drawCircle(cx, cy, cell * 0.49f, paint);
         paint.setColor(Color.rgb(76, 169, 246));
@@ -232,6 +316,11 @@ final class DungeonBoardView extends View {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.rgb(231, 249, 255));
         canvas.drawCircle(cx, cy, cell * 0.11f, paint);
+    }
+
+    private boolean isWalkActive(long now) {
+        if (walkStartedAtMs < 0L) return false;
+        return DungeonWalkAnimationPolicy.isActive(now - walkStartedAtMs);
     }
 
     private void drawImpactOverlays(
