@@ -317,28 +317,26 @@ final class DungeonBoardView extends View {
             boolean visible
     ) {
         if (!explored) {
-            paint.setColor(Color.rgb(5, 9, 15));
+            paint.setColor(DungeonBoardPalette.UNEXPLORED_FILL);
             canvas.drawRect(left, top, left + cell, top + cell, paint);
             paint.setStrokeWidth(Math.max(1f, cell * 0.02f));
-            paint.setColor(Color.rgb(10, 17, 26));
+            paint.setColor(DungeonBoardPalette.UNEXPLORED_MARK);
             canvas.drawLine(left, top + cell, left + cell, top, paint);
             return;
         }
 
         int tile = state.tileAt(x, y);
         if (tile == DungeonState.WALL) {
-            paint.setColor(visible ? Color.rgb(54, 68, 84) : Color.rgb(30, 39, 51));
+            paint.setColor(DungeonBoardPalette.wallBody(visible));
             canvas.drawRect(left, top, left + cell, top + cell, paint);
-            paint.setColor(visible ? Color.rgb(78, 96, 116) : Color.rgb(43, 54, 68));
+            paint.setColor(DungeonBoardPalette.wallTop(visible));
             canvas.drawRect(left, top, left + cell, top + cell * 0.16f, paint);
-            paint.setColor(Color.rgb(18, 27, 38));
+            paint.setColor(DungeonBoardPalette.wallBottom(visible));
             canvas.drawRect(left, top + cell * 0.84f, left + cell, top + cell, paint);
         } else {
-            int base = ((x + y) & 1) == 0 ? 45 : 49;
-            if (!visible) base -= 18;
-            paint.setColor(Color.rgb(base, base + 5, base + 9));
+            paint.setColor(DungeonBoardPalette.floorFill(visible, x, y));
             canvas.drawRect(left, top, left + cell, top + cell, paint);
-            paint.setColor(visible ? Color.rgb(59, 68, 77) : Color.rgb(35, 42, 50));
+            paint.setColor(DungeonBoardPalette.floorBorder(visible));
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(Math.max(1f, cell * 0.018f));
             canvas.drawRect(left + 1, top + 1, left + cell - 1, top + cell - 1, paint);
