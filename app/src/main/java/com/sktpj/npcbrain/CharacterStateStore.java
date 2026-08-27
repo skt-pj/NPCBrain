@@ -203,6 +203,15 @@ final class CharacterStateStore {
                 .apply();
     }
 
+    synchronized boolean resetDynamicState() {
+        if (isDead()) return false;
+        return preferences.edit()
+                .remove(VALENCE)
+                .remove(AROUSAL)
+                .remove(STRESS)
+                .commit();
+    }
+
     synchronized String dynamicStateSummary() {
         if (isDead()) return "—";
         int valence = Math.round(preferences.getFloat(VALENCE, 0.0f) * 100f);
