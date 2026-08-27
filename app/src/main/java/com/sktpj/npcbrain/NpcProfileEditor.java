@@ -189,15 +189,26 @@ final class NpcProfileEditor {
                     relations.getText().toString());
 
             save.setEnabled(false);
+            cancel.setEnabled(false);
             status.setTextColor(Color.rgb(50, 85, 135));
-            status.setText("プロフィールをLLMで整合中…");
+            status.setText("プロフィールを更新中…");
+            AlertDialog progressDialog = new AlertDialog.Builder(activity)
+                    .setTitle("プロフィール更新中")
+                    .setMessage("プロフィールをLLMで整合し、保存しています…")
+                    .setCancelable(false)
+                    .create();
+            progressDialog.setCanceledOnTouchOutside(false);
+            progressDialog.show();
 
             new Thread(() -> {
                 try {
                     NpcProfileReconciler.Result result =
                             new NpcProfileReconciler(activity).reconcile(npcId, draft);
                     activity.runOnUiThread(() -> {
-                        if (!isActive(activity, dialog, sessionActive)) return;
+                        if (!isActive(activity, dialog, sessionActive)) {
+                            dismissIfShowing(progressDialog);
+                            return;
+                        }
                         try {
                             persistValidatedProfile(
                                     activity,
@@ -207,18 +218,22 @@ final class NpcProfileEditor {
                                     result,
                                     bundle,
                                     afterProfileSaved);
+                            dismissIfShowing(progressDialog);
                             status.setTextColor(Color.rgb(35, 115, 70));
                             status.setText("保存しました。");
+                            Toast.makeText(activity, "プロフィールを保存しました。", Toast.LENGTH_SHORT).show();
                             dialog.dismiss();
                             if (onSaved != null) onSaved.onSaved();
                         } catch (Exception error) {
-                            showSaveError(status, save, error);
+                            dismissIfShowing(progressDialog);
+                            showSaveError(activity, status, save, cancel, error);
                         }
                     });
                 } catch (Exception error) {
                     activity.runOnUiThread(() -> {
+                        dismissIfShowing(progressDialog);
                         if (!isActive(activity, dialog, sessionActive)) return;
-                        showSaveError(status, save, error);
+                        showSaveError(activity, status, save, cancel, error);
                     });
                 }
             }, "npc-profile-reconcile-" + npcId).start();
@@ -291,12 +306,29 @@ final class NpcProfileEditor {
         NPCBrainApplication.requestDemoRoomRefresh();
     }
 
-    private static void showSaveError(TextView status, Button save, Exception error) {
+    private static void showSaveError(
+            Activity activity,
+            TextView status,
+            Button save,
+            Button cancel,
+            Exception error
+    ) {
         String message = error == null ? "保存できませんでした。" : error.getMessage();
         if (message == null || message.trim().isEmpty()) message = "保存できませんでした。";
+        String detail = message.trim();
         status.setTextColor(Color.rgb(178, 54, 54));
-        status.setText("保存できませんでした: " + message.trim());
+        status.setText("保存できませんでした: " + detail);
         save.setEnabled(true);
+        cancel.setEnabled(true);
+        new AlertDialog.Builder(activity)
+                .setTitle("プロフィール更新に失敗")
+                .setMessage(detail)
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
+    private static void dismissIfShowing(AlertDialog dialog) {
+        if (dialog != null && dialog.isShowing()) dialog.dismiss();
     }
 
     private static boolean isActive(
