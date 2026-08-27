@@ -1,6 +1,7 @@
 package com.sktpj.npcbrain;
 
 final class DungeonBoardPalette {
+    // Pre-filter luminance roles: keep traversable floor quiet/light so moving sprites keep edge contrast.
     static final int UNEXPLORED_FILL = gray(18);
     static final int UNEXPLORED_MARK = gray(30);
 
