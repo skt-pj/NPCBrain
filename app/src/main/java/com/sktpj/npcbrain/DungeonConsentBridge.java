@@ -1,6 +1,5 @@
 package com.sktpj.npcbrain;
 
-import android.app.AlertDialog;
 import android.graphics.Color;
 import android.view.View;
 import android.view.ViewGroup;
@@ -9,7 +8,6 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.WeakHashMap;
 
 final class DungeonConsentBridge {
@@ -29,8 +27,7 @@ final class DungeonConsentBridge {
         }
         TextView participationView = ensureParticipationView(activity);
         Button goalButton = findButtonByText(activity.findViewById(android.R.id.content), "目的設定");
-        Button pauseButton = buttonField(activity, "pauseButton");
-        BridgeState state = new BridgeState(participationView, goalButton, pauseButton);
+        BridgeState state = new BridgeState(participationView, goalButton);
         STATES.put(activity, state);
         refresh(activity, state);
         if (participationView != null) {
@@ -52,88 +49,17 @@ final class DungeonConsentBridge {
     private static void refresh(DungeonActivity activity, BridgeState bridge) {
         String npcId = stringField(activity, "selectedNpcId");
         if (npcId.isEmpty()) return;
-        DungeonParticipationStore participationStore = DungeonParticipationStore.forNpc(activity, npcId);
-        DungeonParticipationState participation = participationStore.load();
-        DungeonObjective objective = new DungeonObjectiveStore(activity).load(npcId);
-
-        // Compatibility call only. Participation/objective no longer act as Android execution gates.
-        boolean canExecute = DungeonParticipationPolicy.canAutoExecute(participation, objective);
-        boolean paused = booleanField(activity, "paused");
-        if (!canExecute) {
-            if (!paused) {
-                setBooleanField(activity, "paused", true);
-                bridge.forcedPause = true;
-            }
-        } else if (bridge.forcedPause) {
-            setBooleanField(activity, "paused", false);
-            bridge.forcedPause = false;
-        }
-
-        if (bridge.pauseButton != null) bridge.pauseButton.setEnabled(canExecute);
-        configureGoalButton(activity, bridge.goalButton, participation);
+        DungeonParticipationState participation =
+                DungeonParticipationStore.forNpc(activity, npcId).load();
+        configureGoalButton(activity, bridge.goalButton);
         renderParticipation(bridge.participationView, participation);
-        if (!canExecute) {
-            TextView action = textField(activity, "actionView");
-            if (action != null) {
-                if (!participation.isAccepted()) {
-                    action.setText("会話でダンジョン参加について相談してください");
-                } else {
-                    action.setText("参加了承済み · 目的を設定すると攻略を開始します");
-                }
-            }
-        }
     }
 
-    private static void configureGoalButton(
-            DungeonActivity activity,
-            Button button,
-            DungeonParticipationState participation
-    ) {
+    private static void configureGoalButton(DungeonActivity activity, Button button) {
         if (button == null) return;
-        if (GOAL_OVERRIDE_TAG.equals(button.getTag())) {
-            button.setTag(null);
-        }
+        if (GOAL_OVERRIDE_TAG.equals(button.getTag())) button.setTag(null);
         DungeonGoalInputBridge.install(activity);
         button.setEnabled(true);
-    }
-
-    private static void showConsentNotice(
-            DungeonActivity activity,
-            DungeonParticipationState participation
-    ) {
-        String stance = participation == null ? "未相談" : participation.label();
-        String reason = participation == null ? "" : participation.personalReason;
-        String message = "このNPCはまだダンジョン参加に同意していません。\n"
-                + "現在: " + stance
-                + (reason.isEmpty() ? "" : "\n本人の考え: " + reason)
-                + "\n\n目的を入力して強制するのではなく、会話で誘い、本人がどうしたいか相談してください。";
-        new AlertDialog.Builder(activity)
-                .setTitle("参加意思が必要です")
-                .setMessage(message)
-                .setPositiveButton("会話へ", (dialog, which) -> openConversationWithInvitation(activity))
-                .setNegativeButton("閉じる", null)
-                .show();
-    }
-
-    private static void openConversationWithInvitation(DungeonActivity activity) {
-        String npcId = stringField(activity, "selectedNpcId");
-        if (!npcId.isEmpty()) {
-            new AppUiStateStore(activity).saveConversationRoomId("direct_" + npcId);
-            DungeonState state = dungeonState(activity);
-            if (state != null) {
-                DungeonObjective objective = new DungeonObjectiveStore(activity).load(npcId);
-                DungeonInvitationContext invitation = DungeonInvitationContext.fromDungeon(
-                        npcId,
-                        state,
-                        objective,
-                        System.currentTimeMillis());
-                if (invitation != null) {
-                    new DungeonInvitationContextStore(
-                            NpcContexts.storage(activity, npcId)).save(invitation);
-                }
-            }
-        }
-        invokeNoArgs(activity, "openConversation");
     }
 
     private static void renderParticipation(TextView view, DungeonParticipationState state) {
@@ -189,34 +115,12 @@ final class DungeonConsentBridge {
         return null;
     }
 
-    private static DungeonState dungeonState(DungeonActivity activity) {
-        try {
-            Field field = DungeonActivity.class.getDeclaredField("state");
-            field.setAccessible(true);
-            Object value = field.get(activity);
-            return value instanceof DungeonState ? (DungeonState) value : null;
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
     private static TextView textField(DungeonActivity activity, String name) {
         try {
             Field field = DungeonActivity.class.getDeclaredField(name);
             field.setAccessible(true);
             Object value = field.get(activity);
             return value instanceof TextView ? (TextView) value : null;
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private static Button buttonField(DungeonActivity activity, String name) {
-        try {
-            Field field = DungeonActivity.class.getDeclaredField(name);
-            field.setAccessible(true);
-            Object value = field.get(activity);
-            return value instanceof Button ? (Button) value : null;
         } catch (Exception ignored) {
             return null;
         }
@@ -233,34 +137,6 @@ final class DungeonConsentBridge {
         }
     }
 
-    private static boolean booleanField(DungeonActivity activity, String name) {
-        try {
-            Field field = DungeonActivity.class.getDeclaredField(name);
-            field.setAccessible(true);
-            return field.getBoolean(activity);
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private static void setBooleanField(DungeonActivity activity, String name, boolean value) {
-        try {
-            Field field = DungeonActivity.class.getDeclaredField(name);
-            field.setAccessible(true);
-            field.setBoolean(activity, value);
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static void invokeNoArgs(DungeonActivity activity, String methodName) {
-        try {
-            Method method = DungeonActivity.class.getDeclaredMethod(methodName);
-            method.setAccessible(true);
-            method.invoke(activity);
-        } catch (Exception ignored) {
-        }
-    }
-
     private static int dp(DungeonActivity activity, int value) {
         return Math.round(value * activity.getResources().getDisplayMetrics().density);
     }
@@ -268,13 +144,10 @@ final class DungeonConsentBridge {
     private static final class BridgeState {
         final TextView participationView;
         final Button goalButton;
-        final Button pauseButton;
-        boolean forcedPause;
 
-        BridgeState(TextView participationView, Button goalButton, Button pauseButton) {
+        BridgeState(TextView participationView, Button goalButton) {
             this.participationView = participationView;
             this.goalButton = goalButton;
-            this.pauseButton = pauseButton;
         }
     }
 }
