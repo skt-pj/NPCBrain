@@ -56,8 +56,7 @@ final class DungeonConsentBridge {
         DungeonParticipationState participation = participationStore.load();
         DungeonObjective objective = new DungeonObjectiveStore(activity).load(npcId);
 
-        // Physical danger is grounded evidence for Brain cognition. Android code must not revoke
-        // an accepted stance from HP/enemy-distance thresholds.
+        // Compatibility call only. Participation/objective no longer act as Android execution gates.
         boolean canExecute = DungeonParticipationPolicy.canAutoExecute(participation, objective);
         boolean paused = booleanField(activity, "paused");
         if (!canExecute) {
@@ -91,18 +90,10 @@ final class DungeonConsentBridge {
             DungeonParticipationState participation
     ) {
         if (button == null) return;
-        if (participation != null && participation.isAccepted()) {
-            if (GOAL_OVERRIDE_TAG.equals(button.getTag())) {
-                button.setTag(null);
-                DungeonGoalInputBridge.install(activity);
-            }
-            button.setEnabled(true);
-            return;
+        if (GOAL_OVERRIDE_TAG.equals(button.getTag())) {
+            button.setTag(null);
         }
-        if (!GOAL_OVERRIDE_TAG.equals(button.getTag())) {
-            button.setTag(GOAL_OVERRIDE_TAG);
-            button.setOnClickListener(v -> showConsentNotice(activity, participation));
-        }
+        DungeonGoalInputBridge.install(activity);
         button.setEnabled(true);
     }
 
