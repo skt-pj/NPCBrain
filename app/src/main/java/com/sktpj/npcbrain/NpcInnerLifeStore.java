@@ -100,6 +100,13 @@ final class NpcInnerLifeStore {
         return compactSummary(state);
     }
 
+    synchronized void clear() {
+        preferences.edit()
+                .remove(STATE)
+                .remove(STREAM)
+                .commit();
+    }
+
     static String compactSummary(NpcInnerLifeState state) {
         if (state == null) return "まだ内面状態は記録されていません。";
         return state.mood + " · " + state.focus + "\n"
