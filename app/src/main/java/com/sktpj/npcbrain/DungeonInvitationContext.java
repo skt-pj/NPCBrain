@@ -71,18 +71,15 @@ final class DungeonInvitationContext {
                 goal.label(),
                 visibleCount,
                 nearest,
-                dangerBand(state.hp, state.maxHp, visibleCount, nearest));
+                "");
     }
 
+    /**
+     * Compatibility helper retained for old callers. Android no longer turns raw dungeon facts
+     * into a shared psychological danger category; the Brain interprets them per character.
+     */
     static String dangerBand(int hp, int maxHp, int visibleEnemyCount, int nearestDistance) {
-        int safeMax = Math.max(1, maxHp);
-        double hpRatio = Math.max(0.0, Math.min(1.0, hp / (double) safeMax));
-        int count = Math.max(0, visibleEnemyCount);
-        int nearest = nearestDistance < 0 ? 999 : nearestDistance;
-        if (hpRatio <= 0.20 && nearest <= 2) return CRITICAL;
-        if (hpRatio <= 0.35 || nearest <= 1) return HIGH;
-        if (hpRatio <= 0.60 || nearest <= 3 || count >= 2) return GUARDED;
-        return LOW;
+        return "";
     }
 
     JSONObject toJson() {
@@ -101,7 +98,6 @@ final class DungeonInvitationContext {
             if (nearestVisibleEnemyDistance < 999) {
                 object.put("nearest_visible_enemy_distance", nearestVisibleEnemyDistance);
             }
-            object.put("danger_band", dangerBand);
             object.put("knowledge_scope", "visible_or_explicit_dungeon_state_only");
         } catch (Exception ignored) {
         }
@@ -126,7 +122,7 @@ final class DungeonInvitationContext {
                 object.optString("objective", ""),
                 object.optInt("visible_enemy_count", 0),
                 nearest,
-                object.optString("danger_band", LOW));
+                object.optString("danger_band", ""));
     }
 
     private static String normalizeNpcId(String value) {
@@ -139,8 +135,10 @@ final class DungeonInvitationContext {
 
     private static String normalizeDanger(String value) {
         String text = clean(value).toLowerCase(java.util.Locale.US);
-        if (CRITICAL.equals(text) || HIGH.equals(text) || GUARDED.equals(text)) return text;
-        return LOW;
+        if (CRITICAL.equals(text) || HIGH.equals(text) || GUARDED.equals(text) || LOW.equals(text)) {
+            return text;
+        }
+        return "";
     }
 
     private static String clean(String value) {
