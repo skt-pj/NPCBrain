@@ -10,7 +10,7 @@ import java.io.InputStream;
 final class DungeonPlayerSpriteSheet {
     static final int ROWS = 4;
     static final int COLUMNS = 4;
-    static final int CELL_SIZE = 32;
+    static final int CELL_SIZE = 16;
     static final int SHEET_SIZE = CELL_SIZE * COLUMNS;
     static final String ASSET_NAME = "dungeon_adventurer_walk_4x4.png";
 

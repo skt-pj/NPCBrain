@@ -14,7 +14,7 @@ import static org.junit.Assert.assertTrue;
 
 public class DungeonPlayerSpriteAssetTest {
     private static final String EXPECTED_SHA256 =
-            "64bfc243bd4666bf6a8aab186583a5c65da1436c5682758e737d4b7be11a9b15";
+            "9c5b6659dbefc6867eb556a0a67c799bcdbebc2000cc874bf4d93b75b178c177";
 
     @Test
     public void spriteSheetIsCompleteExpectedFourDirectionAsset() throws Exception {
@@ -26,8 +26,8 @@ public class DungeonPlayerSpriteAssetTest {
                 java.util.Arrays.copyOfRange(bytes, 0, 8));
 
         ByteBuffer ihdr = ByteBuffer.wrap(bytes, 16, 8).order(ByteOrder.BIG_ENDIAN);
-        assertEquals(128, ihdr.getInt());
-        assertEquals(128, ihdr.getInt());
+        assertEquals(64, ihdr.getInt());
+        assertEquals(64, ihdr.getInt());
 
         byte[] iendType = java.util.Arrays.copyOfRange(bytes, bytes.length - 8, bytes.length - 4);
         assertArrayEquals(new byte[]{0x49, 0x45, 0x4e, 0x44}, iendType);
