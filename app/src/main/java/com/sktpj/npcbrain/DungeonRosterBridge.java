@@ -180,7 +180,9 @@ final class DungeonRosterBridge {
 
     private static void advanceBackgroundIfDue(DungeonActivity activity, BridgeState bridge) {
         List<String> active = bridge.store.activeNpcIds();
-        if (active.size() <= 1 || booleanField(activity, "paused")) return;
+        boolean manualPause = booleanField(activity, "paused")
+                && !DungeonConsentBridge.isParticipationPause(activity);
+        if (active.size() <= 1 || manualPause) return;
         String selected = selectedNpcId(activity);
         long now = System.currentTimeMillis();
         long interval = turnInterval(activity);
