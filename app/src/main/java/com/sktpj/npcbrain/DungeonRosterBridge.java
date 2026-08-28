@@ -86,6 +86,7 @@ final class DungeonRosterBridge {
                 new SecureApiKeyStore(activity),
                 new ModelSettingsStore(activity),
                 new DungeonBrainRuntime(activity),
+                new DungeonNpcStateCoordinator(activity),
                 title,
                 slots,
                 change);
@@ -187,7 +188,7 @@ final class DungeonRosterBridge {
         for (String npcId : active) {
             if (npcId.equals(selected)
                     || Boolean.TRUE.equals(bridge.backgroundBrainThinking.get(npcId))
-                    || !canAdvance(activity, npcId)) continue;
+                    || !canAdvance(bridge, npcId)) continue;
             long last = bridge.lastBackgroundStepMs.containsKey(npcId)
                     ? bridge.lastBackgroundStepMs.get(npcId) : 0L;
             if (now - last < interval) continue;
@@ -201,13 +202,9 @@ final class DungeonRosterBridge {
         }
     }
 
-    private static boolean canAdvance(DungeonActivity activity, String npcId) {
-        if (npcId == null || npcId.trim().isEmpty()) return false;
-        DungeonObjective objective = new DungeonObjectiveStore(activity).load(npcId);
-        DungeonState state = new DungeonStore(activity).load(npcId);
-        if (state == null) return true;
-        if (state.hp <= 0) return false;
-        return objective == null || !objective.isActive() || !objective.isComplete(state.floor);
+    private static boolean canAdvance(BridgeState bridge, String npcId) {
+        if (bridge == null || npcId == null || npcId.trim().isEmpty()) return false;
+        return bridge.npcStateCoordinator.canAdvance(npcId);
     }
 
     private static BackgroundStep advanceBackgroundNpc(
@@ -559,6 +556,7 @@ final class DungeonRosterBridge {
         final SecureApiKeyStore apiKeyStore;
         final ModelSettingsStore modelSettings;
         final DungeonBrainRuntime brainRuntime;
+        final DungeonNpcStateCoordinator npcStateCoordinator;
         final TextView title;
         final LinearLayout slots;
         final Button change;
@@ -574,6 +572,7 @@ final class DungeonRosterBridge {
                 SecureApiKeyStore apiKeyStore,
                 ModelSettingsStore modelSettings,
                 DungeonBrainRuntime brainRuntime,
+                DungeonNpcStateCoordinator npcStateCoordinator,
                 TextView title,
                 LinearLayout slots,
                 Button change
@@ -583,6 +582,7 @@ final class DungeonRosterBridge {
             this.apiKeyStore = apiKeyStore;
             this.modelSettings = modelSettings;
             this.brainRuntime = brainRuntime;
+            this.npcStateCoordinator = npcStateCoordinator;
             this.title = title;
             this.slots = slots;
             this.change = change;
