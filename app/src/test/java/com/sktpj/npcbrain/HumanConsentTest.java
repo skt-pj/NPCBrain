@@ -31,7 +31,7 @@ public class HumanConsentTest {
     }
 
     @Test
-    public void oldParticipationJsonRemainsReadableWithoutBecomingAGate() throws Exception {
+    public void oldParticipationJsonRemainsReadableWithoutChangingBrainAuthority() throws Exception {
         JSONObject old = new JSONObject()
                 .put("stance", DungeonParticipationState.HESITATE)
                 .put("willingness", 0.08)
@@ -128,15 +128,21 @@ public class HumanConsentTest {
     }
 
     @Test
-    public void executionDoesNotUseParticipationOrObjectiveAsGate() {
+    public void executionUsesSavedParticipationStanceAsGate() {
         DungeonParticipationState accepted = new DungeonParticipationState(
                 DungeonParticipationState.ACCEPT, 0.5, 0.5, 0.5, "", 1L);
         DungeonParticipationState refused = new DungeonParticipationState(
                 DungeonParticipationState.REFUSE, 0.1, 0.9, 0.1, "行かない", 2L);
+        DungeonParticipationState hesitant = new DungeonParticipationState(
+                DungeonParticipationState.HESITATE, 0.5, 0.5, 0.5, "", 2L);
+        DungeonParticipationState withdrawn = new DungeonParticipationState(
+                DungeonParticipationState.WITHDRAW, 0.5, 0.5, 0.5, "", 2L);
         assertTrue(DungeonParticipationPolicy.canAutoExecute(accepted, DungeonObjective.none()));
         assertTrue(DungeonParticipationPolicy.canAutoExecute(accepted, DungeonObjective.reachTop(2L)));
-        assertTrue(DungeonParticipationPolicy.canAutoExecute(
+        assertFalse(DungeonParticipationPolicy.canAutoExecute(
                 DungeonParticipationState.initial(), DungeonObjective.reachTop(2L)));
-        assertTrue(DungeonParticipationPolicy.canAutoExecute(refused, DungeonObjective.none()));
+        assertFalse(DungeonParticipationPolicy.canAutoExecute(refused, DungeonObjective.none()));
+        assertFalse(DungeonParticipationPolicy.canAutoExecute(hesitant, DungeonObjective.none()));
+        assertFalse(DungeonParticipationPolicy.canAutoExecute(withdrawn, DungeonObjective.none()));
     }
 }

@@ -27,7 +27,12 @@ final class DungeonConsentBridge {
         }
         TextView participationView = ensureParticipationView(activity);
         Button goalButton = findButtonByText(activity.findViewById(android.R.id.content), "目的設定");
-        BridgeState state = new BridgeState(participationView, goalButton);
+        Button pauseButton = buttonField(activity, "pauseButton");
+        BridgeState state = new BridgeState(
+                new DungeonNpcStateCoordinator(activity),
+                participationView,
+                goalButton,
+                pauseButton);
         STATES.put(activity, state);
         refresh(activity, state);
         if (participationView != null) {
@@ -46,13 +51,47 @@ final class DungeonConsentBridge {
         }
     }
 
+    static synchronized boolean isParticipationPause(DungeonActivity activity) {
+        BridgeState state = STATES.get(activity);
+        return state != null && state.pauseOwnedByParticipation;
+    }
+
     private static void refresh(DungeonActivity activity, BridgeState bridge) {
         String npcId = stringField(activity, "selectedNpcId");
         if (npcId.isEmpty()) return;
-        DungeonParticipationState participation =
-                DungeonParticipationStore.forNpc(activity, npcId).load();
+        DungeonNpcStateCoordinator.Snapshot snapshot = bridge.coordinator.snapshot(npcId);
         configureGoalButton(activity, bridge.goalButton);
-        renderParticipation(bridge.participationView, participation);
+        syncForegroundExecution(activity, bridge, snapshot);
+        renderParticipation(bridge.participationView, snapshot.participation);
+    }
+
+    private static void syncForegroundExecution(
+            DungeonActivity activity,
+            BridgeState bridge,
+            DungeonNpcStateCoordinator.Snapshot snapshot
+    ) {
+        boolean accepted = snapshot != null && snapshot.participationAccepted();
+        boolean paused = booleanField(activity, "paused");
+        if (!accepted) {
+            if (!paused) {
+                setBooleanField(activity, "paused", true);
+                bridge.pauseOwnedByParticipation = true;
+            }
+            if (bridge.pauseButton != null) {
+                bridge.pauseButton.setEnabled(false);
+                bridge.pauseButton.setText("再開");
+            }
+            return;
+        }
+
+        if (bridge.pauseButton != null) bridge.pauseButton.setEnabled(true);
+        if (bridge.pauseOwnedByParticipation) {
+            setBooleanField(activity, "paused", false);
+            bridge.pauseOwnedByParticipation = false;
+            if (bridge.pauseButton != null) bridge.pauseButton.setText("一時停止");
+        } else if (bridge.pauseButton != null) {
+            bridge.pauseButton.setText(paused ? "再開" : "一時停止");
+        }
     }
 
     private static void configureGoalButton(DungeonActivity activity, Button button) {
@@ -126,6 +165,36 @@ final class DungeonConsentBridge {
         }
     }
 
+    private static Button buttonField(DungeonActivity activity, String name) {
+        try {
+            Field field = DungeonActivity.class.getDeclaredField(name);
+            field.setAccessible(true);
+            Object value = field.get(activity);
+            return value instanceof Button ? (Button) value : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static boolean booleanField(DungeonActivity activity, String name) {
+        try {
+            Field field = DungeonActivity.class.getDeclaredField(name);
+            field.setAccessible(true);
+            return field.getBoolean(activity);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static void setBooleanField(DungeonActivity activity, String name, boolean value) {
+        try {
+            Field field = DungeonActivity.class.getDeclaredField(name);
+            field.setAccessible(true);
+            field.setBoolean(activity, value);
+        } catch (Exception ignored) {
+        }
+    }
+
     private static String stringField(DungeonActivity activity, String name) {
         try {
             Field field = DungeonActivity.class.getDeclaredField(name);
@@ -142,12 +211,22 @@ final class DungeonConsentBridge {
     }
 
     private static final class BridgeState {
+        final DungeonNpcStateCoordinator coordinator;
         final TextView participationView;
         final Button goalButton;
+        final Button pauseButton;
+        boolean pauseOwnedByParticipation;
 
-        BridgeState(TextView participationView, Button goalButton) {
+        BridgeState(
+                DungeonNpcStateCoordinator coordinator,
+                TextView participationView,
+                Button goalButton,
+                Button pauseButton
+        ) {
+            this.coordinator = coordinator;
             this.participationView = participationView;
             this.goalButton = goalButton;
+            this.pauseButton = pauseButton;
         }
     }
 }

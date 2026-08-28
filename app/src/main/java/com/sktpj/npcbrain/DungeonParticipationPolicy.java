@@ -67,14 +67,14 @@ final class DungeonParticipationPolicy {
     }
 
     /**
-     * Compatibility helper only. Participation/objective are NPC state, not Android-side
-     * psychological execution gates. Hard world/user controls are enforced by the executor.
+     * Compatibility helper retained for old callers. The saved Brain-authored stance is the
+     * execution authority; Android does not infer or threshold willingness/fear/resolve.
      */
     static boolean canAutoExecute(
             DungeonParticipationState participation,
             DungeonObjective objective
     ) {
-        return true;
+        return DungeonNpcStateCoordinator.participationAllowsExecution(participation);
     }
 
     private static String normalizeDecision(String value) {
