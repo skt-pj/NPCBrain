@@ -51,6 +51,11 @@ final class DungeonConsentBridge {
         }
     }
 
+    static synchronized boolean isParticipationPause(DungeonActivity activity) {
+        BridgeState state = STATES.get(activity);
+        return state != null && state.pauseOwnedByParticipation;
+    }
+
     private static void refresh(DungeonActivity activity, BridgeState bridge) {
         String npcId = stringField(activity, "selectedNpcId");
         if (npcId.isEmpty()) return;
