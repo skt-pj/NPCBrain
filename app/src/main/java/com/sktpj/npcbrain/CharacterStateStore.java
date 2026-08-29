@@ -149,13 +149,6 @@ final class CharacterStateStore {
             dynamic.put("stress", clamp01(preferences.getFloat(STRESS, 0.15f)));
             root.put("current_state", dynamic);
 
-            root.put("dungeon_participation",
-                    new DungeonParticipationStore(storageContext).load().toJson());
-            JSONObject invitation =
-                    new DungeonInvitationContextStore(storageContext).snapshotJson();
-            if (invitation.length() > 0) {
-                root.put("dungeon_invitation_context", invitation);
-            }
             root.put("inner_life",
                     new NpcInnerLifeStore(storageContext).snapshotForBrain(
                             System.currentTimeMillis(),
