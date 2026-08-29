@@ -113,6 +113,7 @@ final class DungeonGameBoyFilterBridge {
                 return;
             }
             ensureSource(width, height);
+            refreshSharedState();
 
             sourceBitmap.eraseColor(Color.TRANSPARENT);
             super.dispatchDraw(sourceCanvas);
@@ -143,6 +144,16 @@ final class DungeonGameBoyFilterBridge {
 
             outputRect.set(0, 0, width, height);
             canvas.drawBitmap(filteredBitmap, filteredRect, outputRect, nearestPaint);
+        }
+
+        private void refreshSharedState() {
+            try {
+                Object value = field(board, "state");
+                if (value instanceof DungeonState) {
+                    DungeonStore.refreshSharedWorldForTurn((DungeonState) value);
+                }
+            } catch (Exception ignored) {
+            }
         }
 
         private void drawVisiblePeers(Canvas canvas, int width, int height) {
