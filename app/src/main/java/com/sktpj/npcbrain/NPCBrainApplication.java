@@ -109,7 +109,6 @@ public final class NPCBrainApplication extends Application {
             DungeonGoalInputBridge.install(dungeon);
             DungeonAiStaminaBridge.install(dungeon);
             DungeonRosterBridge.install(dungeon);
-            DungeonRosterPresentationNeutralizer.install(dungeon);
         }
     }
 }
