@@ -54,10 +54,7 @@ final class DungeonParticipationPolicy {
                 nowMs);
     }
 
-    /**
-     * Compatibility method retained for old callers. Physical danger is evidence for the Brain,
-     * not authority for Android code to revoke a character's decision.
-     */
+    /** Legacy compatibility only. Dungeon-specific danger cannot revoke ordinary area access. */
     static DungeonParticipationState emergencyWithdraw(
             DungeonParticipationState previous,
             long nowMs,
@@ -67,14 +64,14 @@ final class DungeonParticipationPolicy {
     }
 
     /**
-     * Compatibility helper retained for old callers. The saved Brain-authored stance is the
-     * execution authority; Android does not infer or threshold willingness/fear/resolve.
+     * Legacy compatibility helper. Participation state is no longer an execution prerequisite;
+     * dungeon access is governed by the same ordinary NPC/world state rules as other areas.
      */
     static boolean canAutoExecute(
             DungeonParticipationState participation,
             DungeonObjective objective
     ) {
-        return DungeonNpcStateCoordinator.participationAllowsExecution(participation);
+        return true;
     }
 
     private static String normalizeDecision(String value) {
