@@ -55,12 +55,14 @@ final class DungeonEngine {
             DungeonIntent intent,
             DungeonPlan plan
     ) {
-        DungeonStore.refreshSharedWorldForTurn(state);
-        DungeonPersonalityPolicy.Direction direction = legalBrainDirection(state, intent);
-        if (direction == null) {
-            direction = DungeonPersonalityPolicy.choose(state, traits, intent, plan);
+        synchronized (DungeonStore.sharedTurnLock()) {
+            DungeonStore.refreshSharedWorldForTurn(state);
+            DungeonPersonalityPolicy.Direction direction = legalBrainDirection(state, intent);
+            if (direction == null) {
+                direction = DungeonPersonalityPolicy.choose(state, traits, intent, plan);
+            }
+            return stepDetailedInternal(state, traits, direction, false);
         }
-        return stepDetailedInternal(state, traits, direction, false);
     }
 
     /**
@@ -97,7 +99,9 @@ final class DungeonEngine {
             DungeonPersonalityPolicy.Traits traits,
             DungeonPersonalityPolicy.Direction direction
     ) {
-        return stepDetailedInternal(state, traits, direction, true);
+        synchronized (DungeonStore.sharedTurnLock()) {
+            return stepDetailedInternal(state, traits, direction, true);
+        }
     }
 
     private static DungeonStepResult stepDetailedInternal(
@@ -118,6 +122,7 @@ final class DungeonEngine {
             if (state.lastAction == null || !state.lastAction.contains("死亡")) {
                 state.lastAction = "死亡";
             }
+            DungeonStore.commitSharedTurn(state);
             return new DungeonStepResult(state, events);
         }
 
@@ -145,6 +150,7 @@ final class DungeonEngine {
                     state.playerY,
                     0,
                     Integer.toString(floorBefore)));
+            DungeonStore.commitFloorTransition(state, next);
             return new DungeonStepResult(next, events);
         }
 
@@ -155,6 +161,7 @@ final class DungeonEngine {
         if (damageTaken > 0) action.append(" / ").append(damageTaken).append("ダメージ");
         if (state.hp <= 0) action.append(" / 死亡");
         state.lastAction = action.toString();
+        DungeonStore.commitSharedTurn(state);
         return new DungeonStepResult(state, events);
     }
 
