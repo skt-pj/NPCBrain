@@ -17,6 +17,10 @@
             android:name=".ReplyTimerJobService"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+        <service
+            android:name=".NpcSocialMemoryJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
         <activity
             android:name=".NpcManagerActivity"
             android:enableOnBackInvokedCallback="true"
