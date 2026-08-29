@@ -42,10 +42,7 @@ public final class NpcSocialMemoryJobService extends JobService {
         boolean retry = false;
         try {
             String apiKey = new SecureApiKeyStore(this).load();
-            if (apiKey == null || apiKey.trim().isEmpty()) {
-                jobFinished(params, false);
-                return;
-            }
+            if (apiKey == null || apiKey.trim().isEmpty()) return;
             String key = apiKey.trim();
             String reasoning = new ModelSettingsStore(this).reasoningEffort();
             long now = System.currentTimeMillis();
