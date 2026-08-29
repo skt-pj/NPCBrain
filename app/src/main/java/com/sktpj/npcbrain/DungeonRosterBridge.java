@@ -136,34 +136,21 @@ final class DungeonRosterBridge {
     private static String slotLabel(DungeonActivity activity, BridgeState bridge, String npcId) {
         CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(activity, npcId));
         DungeonState dungeon = new DungeonStore(activity).load(npcId);
-        DungeonParticipationState participation = DungeonParticipationStore.forNpc(activity, npcId).load();
         NpcAiStaminaStore.Snapshot stamina = bridge.stamina.snapshot(npcId);
         String floor = dungeon == null ? "未開始" : dungeon.floor + "F";
         String cognition = Boolean.TRUE.equals(bridge.backgroundBrainThinking.get(npcId)) ? " · BRAIN" : "";
-        return character.displayName() + "\n" + floor + " · " + shortParticipation(participation)
-                + " · " + stamina.remainingPercent + "%" + cognition;
+        return character.displayName() + "\n" + floor + " · " + stamina.remainingPercent + "%" + cognition;
     }
 
     private static String slotDescription(DungeonActivity activity, BridgeState bridge, String npcId) {
         CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(activity, npcId));
         DungeonState dungeon = new DungeonStore(activity).load(npcId);
-        DungeonParticipationState participation = DungeonParticipationStore.forNpc(activity, npcId).load();
         NpcAiStaminaStore.Snapshot stamina = bridge.stamina.snapshot(npcId);
         return character.displayName() + "、"
                 + (dungeon == null ? "ダンジョン未開始" : dungeon.floor + "階")
-                + "、参加意思 " + participation.label()
                 + "、AI STAMINA " + stamina.remainingPercent + "%"
                 + (Boolean.TRUE.equals(bridge.backgroundBrainThinking.get(npcId))
                 ? "、Brain再評価中" : "");
-    }
-
-    private static String shortParticipation(DungeonParticipationState state) {
-        if (state == null) return "未相談";
-        if (state.isAccepted()) return "参加";
-        if (DungeonParticipationState.HESITATE.equals(state.stance)) return "迷い";
-        if (DungeonParticipationState.REFUSE.equals(state.stance)) return "拒否";
-        if (DungeonParticipationState.WITHDRAW.equals(state.stance)) return "撤回";
-        return "未相談";
     }
 
     private static void openRosterScreen(DungeonActivity activity) {
@@ -180,8 +167,7 @@ final class DungeonRosterBridge {
 
     private static void advanceBackgroundIfDue(DungeonActivity activity, BridgeState bridge) {
         List<String> active = bridge.store.activeNpcIds();
-        boolean manualPause = booleanField(activity, "paused")
-                && !DungeonConsentBridge.isParticipationPause(activity);
+        boolean manualPause = booleanField(activity, "paused");
         if (active.size() <= 1 || manualPause) return;
         String selected = selectedNpcId(activity);
         long now = System.currentTimeMillis();
