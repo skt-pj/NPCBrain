@@ -11,6 +11,7 @@ import android.view.ViewParent;
 import android.widget.FrameLayout;
 
 import java.lang.reflect.Field;
+import java.util.List;
 
 final class DungeonGameBoyFilterBridge {
     private static final String TAG = "npcbrain_dungeon_gb_filter_v0423";
@@ -34,7 +35,7 @@ final class DungeonGameBoyFilterBridge {
             ViewGroup.LayoutParams outerParams = board.getLayoutParams();
             parent.removeViewAt(index);
 
-            FilterLayout filter = new FilterLayout(activity);
+            FilterLayout filter = new FilterLayout(activity, board);
             filter.setTag(TAG);
             filter.setClipChildren(true);
             filter.setClipToPadding(true);
@@ -52,24 +53,37 @@ final class DungeonGameBoyFilterBridge {
         return field.get(target);
     }
 
+    private static int intField(Object target, String name, int fallback) {
+        try {
+            Object value = field(target, name);
+            return value instanceof Integer ? (Integer) value : fallback;
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
     private static final class FilterLayout extends FrameLayout {
         private final Paint nearestPaint = new Paint();
+        private final Paint peerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Rect filteredRect = new Rect(
                 0, 0, DungeonGameBoyFilter.TARGET_WIDTH, DungeonGameBoyFilter.TARGET_HEIGHT);
         private final Rect outputRect = new Rect();
         private final int[] pixels = new int[
                 DungeonGameBoyFilter.TARGET_WIDTH * DungeonGameBoyFilter.TARGET_HEIGHT];
+        private final DungeonBoardView board;
 
         private Bitmap sourceBitmap;
         private Canvas sourceCanvas;
         private final Bitmap filteredBitmap;
         private final Canvas filteredCanvas;
 
-        FilterLayout(DungeonActivity activity) {
+        FilterLayout(DungeonActivity activity, DungeonBoardView board) {
             super(activity);
+            this.board = board;
             nearestPaint.setAntiAlias(false);
             nearestPaint.setFilterBitmap(false);
             nearestPaint.setDither(false);
+            peerPaint.setStyle(Paint.Style.FILL);
             filteredBitmap = Bitmap.createBitmap(
                     DungeonGameBoyFilter.TARGET_WIDTH,
                     DungeonGameBoyFilter.TARGET_HEIGHT,
@@ -99,9 +113,11 @@ final class DungeonGameBoyFilterBridge {
                 return;
             }
             ensureSource(width, height);
+            refreshSharedState();
 
             sourceBitmap.eraseColor(Color.TRANSPARENT);
             super.dispatchDraw(sourceCanvas);
+            drawVisiblePeers(sourceCanvas, width, height);
 
             filteredBitmap.eraseColor(Color.TRANSPARENT);
             filteredCanvas.drawBitmap(sourceBitmap, null, filteredRect, nearestPaint);
@@ -128,6 +144,70 @@ final class DungeonGameBoyFilterBridge {
 
             outputRect.set(0, 0, width, height);
             canvas.drawBitmap(filteredBitmap, filteredRect, outputRect, nearestPaint);
+        }
+
+        private void refreshSharedState() {
+            try {
+                Object value = field(board, "state");
+                if (value instanceof DungeonState) {
+                    DungeonStore.refreshSharedWorldForTurn((DungeonState) value);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        private void drawVisiblePeers(Canvas canvas, int width, int height) {
+            DungeonState state;
+            try {
+                Object value = field(board, "state");
+                if (!(value instanceof DungeonState)) return;
+                state = (DungeonState) value;
+            } catch (Exception ignored) {
+                return;
+            }
+            List<DungeonActorContext> peers = DungeonStore.visiblePeerCandidates(state);
+            if (peers.isEmpty()) return;
+
+            float density = getResources().getDisplayMetrics().density;
+            float minCell = 32f * density;
+            float ideal = Math.min(width / 9f, height / 10.5f);
+            float cell = Math.max(minCell, Math.min(52f * density, ideal));
+            int cols = oddClamp((int) Math.floor(width / cell), 7, 13);
+            int rows = oddClamp((int) Math.floor(height / cell), 7, 13);
+            cell = Math.min(width / (float) cols, height / (float) rows);
+            int startX = intField(board, "viewportStartX",
+                    DungeonViewportPolicy.initialStart(state.playerX, cols, state.width));
+            int startY = intField(board, "viewportStartY",
+                    DungeonViewportPolicy.initialStart(state.playerY, rows, state.height));
+            int endX = Math.min(state.width, startX + cols);
+            int endY = Math.min(state.height, startY + rows);
+            float boardWidth = Math.min(state.width, cols) * cell;
+            float boardHeight = Math.min(state.height, rows) * cell;
+            float left = (width - boardWidth) / 2f;
+            float top = (height - boardHeight) / 2f;
+
+            peerPaint.setColor(Color.rgb(155, 188, 15));
+            for (DungeonActorContext peer : peers) {
+                if (!peer.alive() || peer.floor != state.floor) continue;
+                if (!DungeonPerception.isVisible(state, peer.x, peer.y)) continue;
+                if (peer.x < startX || peer.x >= endX || peer.y < startY || peer.y >= endY) continue;
+                float cx = left + (peer.x - startX + 0.5f) * cell;
+                float cy = top + (peer.y - startY + 0.5f) * cell;
+                float radius = Math.max(3f, cell * 0.23f);
+                canvas.drawCircle(cx, cy, radius, peerPaint);
+                peerPaint.setStyle(Paint.Style.STROKE);
+                peerPaint.setStrokeWidth(Math.max(2f, cell * 0.07f));
+                peerPaint.setColor(Color.rgb(15, 56, 15));
+                canvas.drawCircle(cx, cy, radius, peerPaint);
+                peerPaint.setStyle(Paint.Style.FILL);
+                peerPaint.setColor(Color.rgb(155, 188, 15));
+            }
+        }
+
+        private static int oddClamp(int value, int min, int max) {
+            int result = Math.max(min, Math.min(max, value));
+            if ((result & 1) == 0) result--;
+            return Math.max(min, result);
         }
 
         private void ensureSource(int width, int height) {
