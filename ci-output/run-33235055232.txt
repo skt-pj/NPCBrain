@@ -1,0 +1,6 @@
+run_id=33235055232
+status=success
+job_commit=e13962859d0bd4d902005abe3df7e1970ebf546e
+apk_path=dist/NPCBrain-release.apk
+debug_apk_path=dist/NPCBrain-debug.apk
+versionName=0.4.39-hotfix1
