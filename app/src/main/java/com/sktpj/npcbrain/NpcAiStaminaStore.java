@@ -4,12 +4,16 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import java.util.Calendar;
+import java.util.HashMap;
+import java.util.Map;
 
 /** NPC-wide AI usage budget shared by conversation, spontaneous messaging and dungeon cognition. */
 final class NpcAiStaminaStore {
     // Keep the v0.4.17 preference name so existing dungeon/conversation usage survives upgrades.
     private static final String PREFS = "npcbrain_dungeon_ai_stamina_v1";
     private static final String MONTH_SUFFIX = "usage_month_index";
+    private static final Object GLOBAL_BUDGET_LOCK = new Object();
+    private static final Map<String, Double> RESERVED_JPY = new HashMap<>();
 
     static final class Snapshot {
         final double spentJpy;
@@ -41,6 +45,17 @@ final class NpcAiStaminaStore {
         }
     }
 
+    static final class Reservation {
+        final String npcId;
+        final double reservedJpy;
+        private boolean released;
+
+        Reservation(String npcId, double reservedJpy) {
+            this.npcId = npcId;
+            this.reservedJpy = Math.max(0.0, reservedJpy);
+        }
+    }
+
     private final SharedPreferences preferences;
 
     NpcAiStaminaStore(Context context) {
@@ -48,35 +63,68 @@ final class NpcAiStaminaStore {
                 .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    synchronized Snapshot snapshot(String npcId) {
-        String prefix = prefix(npcId);
-        ensureCurrentPeriod(prefix, currentMonthIndex());
-        return readSnapshot(prefix);
+    Snapshot snapshot(String npcId) {
+        synchronized (GLOBAL_BUDGET_LOCK) {
+            String prefix = prefix(npcId);
+            ensureCurrentPeriod(prefix, currentMonthIndex());
+            return readSnapshot(prefix);
+        }
     }
 
-    synchronized Snapshot recordUsage(String npcId, OpenAiClient.Usage usage) {
-        String prefix = prefix(npcId);
-        ensureCurrentPeriod(prefix, currentMonthIndex());
-        Snapshot before = readSnapshot(prefix);
-        if (usage == null) return before;
+    Snapshot recordUsage(String npcId, OpenAiClient.Usage usage) {
+        synchronized (GLOBAL_BUDGET_LOCK) {
+            String prefix = prefix(npcId);
+            ensureCurrentPeriod(prefix, currentMonthIndex());
+            Snapshot before = readSnapshot(prefix);
+            if (usage == null) return before;
 
-        double added = DungeonTokenCostPolicy.costJpy(
-                usage.inputTokens,
-                usage.cachedInputTokens,
-                usage.outputTokens);
-        double spent = before.spentJpy + added;
-        long input = safeAdd(before.inputTokens, usage.inputTokens);
-        long cached = safeAdd(before.cachedInputTokens, usage.cachedInputTokens);
-        long output = safeAdd(before.outputTokens, usage.outputTokens);
-        long total = safeAdd(before.totalTokens, usage.totalTokens);
-        preferences.edit()
-                .putLong(prefix + "spent_bits", Double.doubleToLongBits(spent))
-                .putLong(prefix + "input_tokens", input)
-                .putLong(prefix + "cached_input_tokens", cached)
-                .putLong(prefix + "output_tokens", output)
-                .putLong(prefix + "total_tokens", total)
-                .commit();
-        return new Snapshot(spent, input, cached, output, total);
+            double added = DungeonTokenCostPolicy.costJpy(
+                    usage.inputTokens,
+                    usage.cachedInputTokens,
+                    usage.outputTokens);
+            double spent = before.spentJpy + added;
+            long input = safeAdd(before.inputTokens, usage.inputTokens);
+            long cached = safeAdd(before.cachedInputTokens, usage.cachedInputTokens);
+            long output = safeAdd(before.outputTokens, usage.outputTokens);
+            long total = safeAdd(before.totalTokens, usage.totalTokens);
+            preferences.edit()
+                    .putLong(prefix + "spent_bits", Double.doubleToLongBits(spent))
+                    .putLong(prefix + "input_tokens", input)
+                    .putLong(prefix + "cached_input_tokens", cached)
+                    .putLong(prefix + "output_tokens", output)
+                    .putLong(prefix + "total_tokens", total)
+                    .commit();
+            return new Snapshot(spent, input, cached, output, total);
+        }
+    }
+
+    Reservation tryReserve(String npcId, double requestJpy) {
+        String id = NpcId.of(npcId).value();
+        double requested = Math.max(0.0, requestJpy);
+        synchronized (GLOBAL_BUDGET_LOCK) {
+            String prefix = prefix(id);
+            ensureCurrentPeriod(prefix, currentMonthIndex());
+            Snapshot before = readSnapshot(prefix);
+            double outstanding = Math.max(0.0, RESERVED_JPY.getOrDefault(id, 0.0));
+            if (!NpcAiBudgetPolicy.canReserve(before.spentJpy, outstanding, requested)) {
+                return null;
+            }
+            RESERVED_JPY.put(id, outstanding + requested);
+            return new Reservation(id, requested);
+        }
+    }
+
+    void releaseReservation(Reservation reservation) {
+        if (reservation == null) return;
+        synchronized (GLOBAL_BUDGET_LOCK) {
+            if (reservation.released) return;
+            reservation.released = true;
+            double outstanding = Math.max(0.0,
+                    RESERVED_JPY.getOrDefault(reservation.npcId, 0.0));
+            double next = Math.max(0.0, outstanding - reservation.reservedJpy);
+            if (next <= 0.000000001) RESERVED_JPY.remove(reservation.npcId);
+            else RESERVED_JPY.put(reservation.npcId, next);
+        }
     }
 
     private Snapshot readSnapshot(String prefix) {
