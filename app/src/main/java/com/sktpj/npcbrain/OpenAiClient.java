@@ -149,9 +149,14 @@ final class OpenAiClient {
 
     JSONObject requestJson(String prompt) throws Exception {
         int ordinal = logicalRequestOrdinal.incrementAndGet();
-        int requestedLimit = outputLimitPolicy == null
-                ? DEFAULT_MAX_OUTPUT_TOKENS
-                : outputLimitPolicy.maxOutputTokens(ordinal);
+        int requestedLimit;
+        if (outputLimitPolicy != null) {
+            requestedLimit = outputLimitPolicy.maxOutputTokens(ordinal);
+        } else if (!attributedNpcId(prompt).isEmpty()) {
+            requestedLimit = NpcAiBudgetPolicy.npcDefaultMaxOutputTokens(prompt);
+        } else {
+            requestedLimit = DEFAULT_MAX_OUTPUT_TOKENS;
+        }
         return requestJsonInternal(prompt, normalizeMaxOutputTokens(requestedLimit));
     }
 
@@ -255,7 +260,8 @@ final class OpenAiClient {
             FunctionTool tool,
             int maxOutputTokens
     ) throws Exception {
-        JSONObject response = executeResponse(network, request, attributedNpcId);
+        JSONObject response = executeResponse(
+                network, request, attributedNpcId, maxOutputTokens);
         if (tool != null) {
             FunctionCall call = extractFunctionCall(response, tool.name());
             if (call != null) {
@@ -272,7 +278,8 @@ final class OpenAiClient {
                 JSONObject finalResponse = executeResponse(
                         network,
                         continuation.toString().getBytes(StandardCharsets.UTF_8),
-                        attributedNpcId);
+                        attributedNpcId,
+                        maxOutputTokens);
                 return parseJsonOutput(finalResponse);
             }
         }
@@ -282,8 +289,23 @@ final class OpenAiClient {
     private JSONObject executeResponse(
             Network network,
             byte[] request,
-            String attributedNpcId
+            String attributedNpcId,
+            int maxOutputTokens
     ) throws Exception {
+        NpcAiStaminaStore budgetStore = null;
+        NpcAiStaminaStore.Reservation reservation = null;
+        if (attributedNpcId != null && !attributedNpcId.isEmpty()) {
+            budgetStore = new NpcAiStaminaStore(appContext);
+            double requestReservation = NpcAiBudgetPolicy.reservationJpy(
+                    request == null ? 0 : request.length,
+                    maxOutputTokens);
+            reservation = budgetStore.tryReserve(attributedNpcId, requestReservation);
+            if (reservation == null) {
+                throw new IllegalStateException(
+                        "AI STAMINAの月額上限に達するため、OpenAI API送信を停止しました。");
+            }
+        }
+
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) (network == null
@@ -316,6 +338,9 @@ final class OpenAiClient {
             return response;
         } finally {
             if (connection != null) connection.disconnect();
+            if (budgetStore != null && reservation != null) {
+                budgetStore.releaseReservation(reservation);
+            }
         }
     }
 
