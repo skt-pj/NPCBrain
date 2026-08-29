@@ -87,9 +87,8 @@ final class DungeonStore {
             }
 
             if (enteredNewFloor) {
-                boolean[][] cleanFog = new boolean[state.height][state.width];
-                for (int y = 0; y < state.height; y++) {
-                    System.arraycopy(cleanFog[y], 0, state.visited[y], 0, state.width);
+                for (int y = 0; y < state.visited.length; y++) {
+                    java.util.Arrays.fill(state.visited[y], false);
                 }
                 state.playerX = shared.entryX;
                 state.playerY = shared.entryY;
@@ -132,17 +131,50 @@ final class DungeonStore {
         }
     }
 
-    /** Refreshes a long-lived Activity state immediately before Engine resolution. */
+    static Object sharedTurnLock() {
+        return WORLD_LOCK;
+    }
+
+    /** Refreshes a long-lived Activity/background state immediately before Engine resolution. */
     static void refreshSharedWorldForTurn(DungeonState state) {
         if (state == null) return;
         synchronized (WORLD_LOCK) {
-            DungeonStore store;
-            synchronized (STATE_STORES) {
-                store = STATE_STORES.get(state);
-            }
+            DungeonStore store = storeFor(state);
             DungeonTurnContext.Snapshot metadata = DungeonTurnContext.lookup(state);
             if (store == null || metadata == null) return;
             store.refreshForTurn(metadata.ownerNpcId, state);
+        }
+    }
+
+    /** Commits one same-floor Engine result before another NPC can start from stale enemy data. */
+    static void commitSharedTurn(DungeonState state) {
+        if (state == null) return;
+        synchronized (WORLD_LOCK) {
+            DungeonStore store = storeFor(state);
+            DungeonTurnContext.Snapshot metadata = DungeonTurnContext.lookup(state);
+            if (store == null || metadata == null) return;
+            store.save(metadata.ownerNpcId, state);
+        }
+    }
+
+    /** Connects an actor's generated next-floor proposal to the one canonical destination floor. */
+    static void commitFloorTransition(DungeonState previous, DungeonState next) {
+        if (previous == null || next == null) return;
+        synchronized (WORLD_LOCK) {
+            DungeonStore store = storeFor(previous);
+            DungeonTurnContext.Snapshot metadata = DungeonTurnContext.lookup(previous);
+            if (store == null || metadata == null) return;
+            DungeonTurnContext.register(
+                    next,
+                    metadata.ownerNpcId,
+                    0L,
+                    next.playerX,
+                    next.playerY,
+                    new ArrayList<>());
+            synchronized (STATE_STORES) {
+                STATE_STORES.put(next, store);
+            }
+            store.save(metadata.ownerNpcId, next);
         }
     }
 
@@ -164,6 +196,12 @@ final class DungeonStore {
         if (state == null) return;
         synchronized (WORLD_LOCK) {
             saveRawInternal(NpcId.of(npcId).value(), state);
+        }
+    }
+
+    private static DungeonStore storeFor(DungeonState state) {
+        synchronized (STATE_STORES) {
+            return STATE_STORES.get(state);
         }
     }
 
@@ -384,7 +422,7 @@ final class DungeonStore {
         }
     }
 
-    private static String key(String npcId) {
+    static String key(String npcId) {
         String id = NpcId.of(npcId).value();
         if ("npc1".equals(id)) return "npc1_state";
         if ("npc2".equals(id)) return "npc2_state";
