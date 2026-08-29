@@ -69,6 +69,9 @@ public final class NPCBrainApplication extends Application {
             @Override public void onActivityDestroyed(Activity activity) {
                 DemoActivityV032 current = demoActivityRef.get();
                 if (activity == current) demoActivityRef = new WeakReference<>(null);
+                if (activity instanceof NpcStatusActivity) {
+                    NpcAiUsageUiBridge.uninstall((NpcStatusActivity) activity);
+                }
             }
         });
     }
@@ -94,16 +97,16 @@ public final class NPCBrainApplication extends Application {
     private void installRuntimeBridges(Activity activity) {
         if (activity instanceof DemoActivityV032) {
             DynamicConversationUiBridge.install(activity);
-            DungeonParticipationChatBridge.install((DemoActivityV032) activity);
+            ConversationSendQueueBridge.install((DemoActivityV032) activity);
             return;
         }
         if (activity instanceof NpcStatusActivity) {
             NpcInnerLifeUiBridge.install((NpcStatusActivity) activity);
+            NpcAiUsageUiBridge.install((NpcStatusActivity) activity);
         }
         if (activity instanceof DungeonActivity) {
             DungeonActivity dungeon = (DungeonActivity) activity;
             DungeonGoalInputBridge.install(dungeon);
-            DungeonConsentBridge.install(dungeon);
             DungeonAiStaminaBridge.install(dungeon);
             DungeonRosterBridge.install(dungeon);
         }

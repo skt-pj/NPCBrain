@@ -31,7 +31,7 @@ public class HumanConsentTest {
     }
 
     @Test
-    public void oldParticipationJsonRemainsReadableWithoutChangingBrainAuthority() throws Exception {
+    public void oldParticipationJsonRemainsReadableWithoutChangingAreaAccess() throws Exception {
         JSONObject old = new JSONObject()
                 .put("stance", DungeonParticipationState.HESITATE)
                 .put("willingness", 0.08)
@@ -43,22 +43,11 @@ public class HumanConsentTest {
         assertEquals(0.08, restored.willingness, 0.000001);
         assertEquals(0.82, restored.fear, 0.000001);
         assertEquals(DungeonParticipationState.HESITATE, restored.stance);
-
-        DungeonParticipationState accepted = DungeonParticipationPolicy.apply(
-                restored,
-                new DungeonParticipationPolicy.Candidate(
-                        true,
-                        DungeonParticipationState.ACCEPT,
-                        0.10,
-                        0.95,
-                        0.10,
-                        ""),
-                2L);
-        assertTrue(accepted.isAccepted());
+        assertTrue(DungeonParticipationPolicy.canAutoExecute(restored, DungeonObjective.none()));
     }
 
     @Test
-    public void oneIntegratedAcceptIsAuthoritativeEvenWithFearAndNoReason() {
+    public void legacyParticipationUpdatesRemainReadableCompatibilityData() {
         DungeonParticipationState after = DungeonParticipationPolicy.apply(
                 DungeonParticipationState.initial(),
                 new DungeonParticipationPolicy.Candidate(
@@ -72,11 +61,10 @@ public class HumanConsentTest {
         assertEquals(DungeonParticipationState.ACCEPT, after.stance);
         assertTrue(after.isAccepted());
         assertEquals(0.92, after.fear, 0.000001);
-        assertTrue(after.personalReason.isEmpty());
     }
 
     @Test
-    public void refusalAndWithdrawAreAlsoAuthoritative() {
+    public void refusalAndWithdrawCanPersistWithoutBecomingAreaGates() {
         DungeonParticipationState refused = DungeonParticipationPolicy.apply(
                 DungeonParticipationState.initial(),
                 new DungeonParticipationPolicy.Candidate(
@@ -88,6 +76,7 @@ public class HumanConsentTest {
                         "行きたくない"),
                 10L);
         assertEquals(DungeonParticipationState.REFUSE, refused.stance);
+        assertTrue(DungeonParticipationPolicy.canAutoExecute(refused, DungeonObjective.none()));
 
         DungeonParticipationState withdrawn = DungeonParticipationPolicy.apply(
                 new DungeonParticipationState(
@@ -101,10 +90,11 @@ public class HumanConsentTest {
                         "ここでやめる"),
                 20L);
         assertEquals(DungeonParticipationState.WITHDRAW, withdrawn.stance);
+        assertTrue(DungeonParticipationPolicy.canAutoExecute(withdrawn, DungeonObjective.none()));
     }
 
     @Test
-    public void nonApplicableOutputDoesNotChangeState() {
+    public void nonApplicableOutputDoesNotChangeLegacyState() {
         DungeonParticipationState before = new DungeonParticipationState(
                 DungeonParticipationState.REFUSE, 0.15, 0.91, 0.12, "危険だから嫌だ", 5L);
         DungeonParticipationState after = DungeonParticipationPolicy.apply(
@@ -116,19 +106,17 @@ public class HumanConsentTest {
     }
 
     @Test
-    public void hpPolicyCannotAutomaticallyRevokeAcceptance() {
+    public void hpPolicyCannotAutomaticallyCreateDungeonSpecificWithdrawal() {
         DungeonParticipationState accepted = new DungeonParticipationState(
                 DungeonParticipationState.ACCEPT, 0.8, 0.9, 0.4, "", 1L);
         DungeonParticipationState after = DungeonParticipationPolicy.emergencyWithdraw(
                 accepted, 3L, "HPが低い");
         assertEquals(DungeonParticipationState.ACCEPT, after.stance);
         assertTrue(after.isAccepted());
-        assertTrue(DungeonParticipationPolicy.canAutoExecute(
-                after, DungeonObjective.reachTop(2L)));
     }
 
     @Test
-    public void executionUsesSavedParticipationStanceAsGate() {
+    public void everyLegacyStanceIsNonGatingForDungeonAreaAccess() {
         DungeonParticipationState accepted = new DungeonParticipationState(
                 DungeonParticipationState.ACCEPT, 0.5, 0.5, 0.5, "", 1L);
         DungeonParticipationState refused = new DungeonParticipationState(
@@ -138,11 +126,10 @@ public class HumanConsentTest {
         DungeonParticipationState withdrawn = new DungeonParticipationState(
                 DungeonParticipationState.WITHDRAW, 0.5, 0.5, 0.5, "", 2L);
         assertTrue(DungeonParticipationPolicy.canAutoExecute(accepted, DungeonObjective.none()));
-        assertTrue(DungeonParticipationPolicy.canAutoExecute(accepted, DungeonObjective.reachTop(2L)));
-        assertFalse(DungeonParticipationPolicy.canAutoExecute(
+        assertTrue(DungeonParticipationPolicy.canAutoExecute(
                 DungeonParticipationState.initial(), DungeonObjective.reachTop(2L)));
-        assertFalse(DungeonParticipationPolicy.canAutoExecute(refused, DungeonObjective.none()));
-        assertFalse(DungeonParticipationPolicy.canAutoExecute(hesitant, DungeonObjective.none()));
-        assertFalse(DungeonParticipationPolicy.canAutoExecute(withdrawn, DungeonObjective.none()));
+        assertTrue(DungeonParticipationPolicy.canAutoExecute(refused, DungeonObjective.none()));
+        assertTrue(DungeonParticipationPolicy.canAutoExecute(hesitant, DungeonObjective.none()));
+        assertTrue(DungeonParticipationPolicy.canAutoExecute(withdrawn, DungeonObjective.none()));
     }
 }

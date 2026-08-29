@@ -74,13 +74,13 @@ final class DungeonAiStaminaBridge {
                     }
                     String npcId = selectedNpcId(activity);
                     NpcAiStaminaStore.Snapshot snapshot = store.snapshot(npcId);
-                    label.setText(String.format(
-                            Locale.JAPAN,
-                            "AI STAMINA %d%% · 概算 ¥%.2f / ¥%.2f · 累積 %,d tokens",
-                            snapshot.remainingPercent,
-                            snapshot.remainingJpy,
-                            DungeonTokenCostPolicy.MAX_BUDGET_JPY,
-                            snapshot.totalTokens));
+                    label.setText(
+                            "AI STAMINA " + snapshot.remainingPercent + "%"
+                                    + " · 消費 " + NpcAiUsageDisplayPolicy.formatSpentJpy(snapshot.spentJpy)
+                                    + " / ¥10.00"
+                                    + " · 残額 " + NpcAiUsageDisplayPolicy.formatRemainingJpy(snapshot.remainingJpy)
+                                    + " · 累積 " + String.format(Locale.JAPAN, "%,d", snapshot.totalTokens)
+                                    + " tokens");
                     bar.setProgress(snapshot.remainingPercent);
                     stamina.setContentDescription(label.getText());
                     stamina.postDelayed(this, REFRESH_MS);

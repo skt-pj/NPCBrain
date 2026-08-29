@@ -34,6 +34,10 @@
             android:enableOnBackInvokedCallback="true"
             android:exported="false" />
         <activity
+            android:name=".AiUsageActivity"
+            android:enableOnBackInvokedCallback="true"
+            android:exported="false" />
+        <activity
             android:name=".NpcStatusActivity"
             android:enableOnBackInvokedCallback="true"
             android:exported="false" />

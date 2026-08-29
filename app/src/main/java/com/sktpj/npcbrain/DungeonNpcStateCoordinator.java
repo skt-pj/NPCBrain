@@ -4,20 +4,14 @@ import android.content.Context;
 
 import java.util.List;
 
-/**
- * Canonical read model for dungeon NPC execution state.
- *
- * Psychological decisions stay owned by the Brain and are persisted in
- * DungeonParticipationState. Android only applies the saved stance to execution.
- */
+/** Canonical read model for normal dungeon-area execution state. */
 final class DungeonNpcStateCoordinator {
-    private final Context appContext;
     private final NpcRegistryStore registryStore;
     private final DungeonObjectiveStore objectiveStore;
     private final DungeonStore dungeonStore;
 
     DungeonNpcStateCoordinator(Context context) {
-        appContext = context.getApplicationContext();
+        Context appContext = context.getApplicationContext();
         registryStore = new NpcRegistryStore(appContext);
         objectiveStore = new DungeonObjectiveStore(appContext);
         dungeonStore = new DungeonStore(appContext);
@@ -32,35 +26,27 @@ final class DungeonNpcStateCoordinator {
         }
         List<String> activeNpcIds = registryStore.activeNpcIds();
         boolean active = activeNpcIds.contains(id);
-        DungeonParticipationState participation =
-                DungeonParticipationStore.forNpc(appContext, id).load();
         DungeonObjective objective = objectiveStore.load(id);
         if (objective == null) objective = DungeonObjective.none();
         DungeonState state = dungeonStore.load(id);
         return new Snapshot(
                 id,
                 active,
-                participation,
                 objective,
                 state,
-                canAdvanceSnapshot(active, participation, objective, state));
+                canAdvanceSnapshot(active, objective, state));
     }
 
     boolean canAdvance(String npcId) {
         return snapshot(npcId).canAdvance;
     }
 
-    static boolean participationAllowsExecution(DungeonParticipationState participation) {
-        return participation != null && participation.isAccepted();
-    }
-
     static boolean canAdvanceSnapshot(
             boolean active,
-            DungeonParticipationState participation,
             DungeonObjective objective,
             DungeonState state
     ) {
-        if (!active || !participationAllowsExecution(participation)) return false;
+        if (!active) return false;
         if (state != null && state.hp <= 0) return false;
         DungeonObjective safeObjective = objective == null ? DungeonObjective.none() : objective;
         return state == null
@@ -71,7 +57,6 @@ final class DungeonNpcStateCoordinator {
     static final class Snapshot {
         final String npcId;
         final boolean active;
-        final DungeonParticipationState participation;
         final DungeonObjective objective;
         final DungeonState state;
         final boolean canAdvance;
@@ -79,32 +64,19 @@ final class DungeonNpcStateCoordinator {
         Snapshot(
                 String npcId,
                 boolean active,
-                DungeonParticipationState participation,
                 DungeonObjective objective,
                 DungeonState state,
                 boolean canAdvance
         ) {
             this.npcId = npcId == null ? "" : npcId;
             this.active = active;
-            this.participation = participation == null
-                    ? DungeonParticipationState.initial() : participation;
             this.objective = objective == null ? DungeonObjective.none() : objective;
             this.state = state;
             this.canAdvance = canAdvance;
         }
 
-        boolean participationAccepted() {
-            return participationAllowsExecution(participation);
-        }
-
         private static Snapshot invalid() {
-            return new Snapshot(
-                    "",
-                    false,
-                    DungeonParticipationState.initial(),
-                    DungeonObjective.none(),
-                    null,
-                    false);
+            return new Snapshot("", false, DungeonObjective.none(), null, false);
         }
     }
 }
