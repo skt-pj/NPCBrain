@@ -103,12 +103,10 @@ final class DungeonTurnContext {
     ) {
         if (state == null || target == null || damage <= 0) return;
         Snapshot snapshot = lookup(state);
-        String owner = snapshot == null ? "" : snapshot.ownerNpcId;
-        if (!owner.isEmpty() && owner.equals(target.npcId)) {
+        if (snapshot == null || snapshot.ownerNpcId.equals(target.npcId)) {
             state.hp = Math.max(0, state.hp - damage);
             return;
         }
-        if (snapshot == null) return;
         for (DungeonActorContext peer : snapshot.peers) {
             if (peer.npcId.equals(target.npcId)) {
                 peer.hp = Math.max(0, peer.hp - damage);
@@ -125,9 +123,9 @@ final class DungeonTurnContext {
     ) {
         if (state == null) return false;
         Snapshot snapshot = lookup(state);
-        String owner = snapshot == null ? "" : snapshot.ownerNpcId;
+        String owner = snapshot == null ? "npc1" : snapshot.ownerNpcId;
         String except = exceptNpcId == null ? "" : exceptNpcId;
-        if (!owner.isEmpty() && !owner.equals(except)
+        if (!owner.equals(except)
                 && state.hp > 0 && state.playerX == x && state.playerY == y) return true;
         if (snapshot == null) return false;
         for (DungeonActorContext peer : snapshot.peers) {
