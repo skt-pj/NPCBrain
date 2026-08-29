@@ -24,6 +24,7 @@ final class NpcBrainResetter {
         if (characterStore.isDead()) return false;
 
         new MemoryStore(storageContext).clear();
+        new SocialRelationshipStore(appContext).clearLearnedFor(id);
         characterStore.resetDynamicState();
         new NpcInnerLifeStore(storageContext).clear();
         new DungeonMindStore(appContext).clear(id);
