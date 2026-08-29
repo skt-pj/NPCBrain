@@ -89,7 +89,7 @@ final class DungeonBrainRuntime {
                 appContext,
                 apiKey,
                 reasoningEffort,
-                usage -> staminaStore.recordUsage(npcId, usage),
+                null,
                 DungeonBrainRuntime::outputLimitForOrdinal);
         BrainEngine engine = new BrainEngine(
                 client,
@@ -101,6 +101,7 @@ final class DungeonBrainRuntime {
                 triggerReason,
                 objective,
                 existingPlan);
+        runtimeJson.put("character_id", NpcId.of(npcId).value());
 
         BrainEngine.Decision decision = engine.thinkDecision(
                 runtimeJson.toString(),
