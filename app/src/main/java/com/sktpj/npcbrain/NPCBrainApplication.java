@@ -20,6 +20,7 @@ public final class NPCBrainApplication extends Application {
         super.onCreate();
         debugBuild = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         new ReplyTimerStore(this).rearmAll();
+        NpcSocialMemoryScheduler.schedule(this);
         innerLifeRuntime = new NpcInnerLifeRuntime(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityCreated(Activity activity, Bundle state) {
