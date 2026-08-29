@@ -53,7 +53,11 @@ final class DungeonTurnContext {
     }
 
     static synchronized Snapshot lookup(DungeonState state) {
-        return state == null ? null : CONTEXTS.get(state);
+        if (state == null) return null;
+        Snapshot snapshot = CONTEXTS.get(state);
+        return snapshot == null
+                ? new Snapshot("npc1", 0L, state.playerX, state.playerY, new ArrayList<>())
+                : snapshot;
     }
 
     static synchronized List<DungeonActorContext> peers(DungeonState state) {
