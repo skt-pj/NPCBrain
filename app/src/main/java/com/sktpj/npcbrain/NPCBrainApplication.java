@@ -30,8 +30,8 @@ public final class NPCBrainApplication extends Application {
                 if (activity instanceof DemoActivityV032) {
                     demoActivityRef = new WeakReference<>((DemoActivityV032) activity);
                 }
-                AppWindowChrome.apply(activity);
                 PrimaryUiCoordinator.onCreated(activity, state);
+                AppWindowChrome.apply(activity);
             }
 
             @Override public void onActivityStarted(Activity activity) {
@@ -41,6 +41,7 @@ public final class NPCBrainApplication extends Application {
                 }
                 installRuntimeBridges(activity);
                 PrimaryUiCoordinator.onStarted(activity);
+                AppWindowChrome.apply(activity);
             }
 
             @Override public void onActivityResumed(Activity activity) {
@@ -53,6 +54,7 @@ public final class NPCBrainApplication extends Application {
                 }
                 installRuntimeBridges(activity);
                 PrimaryUiCoordinator.onResumed(activity);
+                AppWindowChrome.apply(activity);
             }
 
             @Override public void onActivityPaused(Activity activity) {
