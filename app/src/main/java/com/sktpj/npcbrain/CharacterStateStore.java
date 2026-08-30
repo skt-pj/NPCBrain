@@ -149,6 +149,7 @@ final class CharacterStateStore {
             dynamic.put("stress", clamp01(preferences.getFloat(STRESS, 0.15f)));
             root.put("current_state", dynamic);
 
+            root.put("economy", economySnapshot());
             root.put("inner_life",
                     new NpcInnerLifeStore(storageContext).snapshotForBrain(
                             System.currentTimeMillis(),
@@ -253,6 +254,30 @@ final class CharacterStateStore {
 
     static String opennessKey() {
         return OPENNESS;
+    }
+
+    private JSONObject economySnapshot() {
+        JSONObject economy = new JSONObject();
+        try {
+            String npcId = storageContext instanceof NpcStorageContext
+                    ? ((NpcStorageContext) storageContext).npcId()
+                    : "npc1";
+            NpcWalletStore wallet = new NpcWalletStore(storageContext);
+            DungeonInventoryStore inventory = new DungeonInventoryStore(storageContext);
+            DungeonItem latest = inventory.latest(npcId);
+            economy.put("money", wallet.balance(npcId));
+            economy.put("inventory_count", inventory.load(npcId).size());
+            economy.put("inventory_appraised_value", inventory.totalAppraisedValue(npcId));
+            if (latest != null) {
+                economy.put("latest_item", new JSONObject()
+                        .put("name", latest.name)
+                        .put("value", latest.value)
+                        .put("source", latest.source)
+                        .put("floor", latest.floor));
+            }
+        } catch (Exception ignored) {
+        }
+        return economy;
     }
 
     private static int clampPercent(int value) {
