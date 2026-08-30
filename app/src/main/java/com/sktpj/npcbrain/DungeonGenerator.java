@@ -97,6 +97,7 @@ final class DungeonGenerator {
         int stairsY = stairRoom.centerY();
         if (playerX == stairsX && playerY == stairsY) return null;
         tiles[stairsY][stairsX] = DungeonState.STAIRS;
+        placeChests(tiles, playerX, playerY, stairsX, stairsY, floor, random);
 
         List<DungeonState.Enemy> enemies = placeEnemies(
                 tiles, playerX, playerY, stairsX, stairsY, floor, random);
@@ -116,6 +117,32 @@ final class DungeonGenerator {
                 enemies);
         state.markVisited(playerX, playerY);
         return state;
+    }
+
+    private static void placeChests(
+            int[][] tiles,
+            int playerX,
+            int playerY,
+            int stairsX,
+            int stairsY,
+            int floor,
+            Random random
+    ) {
+        int chestCount = floor % 3 == 0 ? 2 : 1;
+        Set<Integer> occupied = new HashSet<>();
+        for (int i = 0; i < chestCount; i++) {
+            for (int attempt = 0; attempt < 160; attempt++) {
+                int x = 1 + random.nextInt(WIDTH - 2);
+                int y = 1 + random.nextInt(HEIGHT - 2);
+                if (tiles[y][x] != DungeonState.FLOOR) continue;
+                if (Math.abs(x - playerX) + Math.abs(y - playerY) < 3) continue;
+                if (x == stairsX && y == stairsY) continue;
+                int key = y * WIDTH + x;
+                if (!occupied.add(key)) continue;
+                tiles[y][x] = DungeonState.CHEST;
+                break;
+            }
+        }
     }
 
     private static List<DungeonState.Enemy> placeEnemies(
@@ -165,6 +192,7 @@ final class DungeonGenerator {
         int stairsY = HEIGHT - 4;
         tiles[stairsY][stairsX] = DungeonState.STAIRS;
         Random random = new Random(mixSeed(seed, floor + 101L));
+        placeChests(tiles, playerX, playerY, stairsX, stairsY, floor, random);
         List<DungeonState.Enemy> enemies = placeEnemies(
                 tiles, playerX, playerY, stairsX, stairsY, floor, random);
         return new DungeonState(

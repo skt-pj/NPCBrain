@@ -10,6 +10,7 @@ final class DungeonState {
     static final int WALL = 0;
     static final int FLOOR = 1;
     static final int STAIRS = 2;
+    static final int CHEST = 3;
 
     static final class Enemy {
         final String id;
@@ -105,7 +106,16 @@ final class DungeonState {
 
     boolean walkable(int x, int y) {
         int tile = tileAt(x, y);
-        return tile == FLOOR || tile == STAIRS;
+        return tile == FLOOR || tile == STAIRS || tile == CHEST;
+    }
+
+    boolean hasChest() {
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                if (tiles[y][x] == CHEST) return true;
+            }
+        }
+        return false;
     }
 
     void markVisited(int x, int y) {
@@ -199,7 +209,7 @@ final class DungeonState {
                         ? visitedRows.optJSONArray(y) : null;
                 for (int x = 0; x < width; x++) {
                     int tile = tileRow.getInt(x);
-                    if (tile != WALL && tile != FLOOR && tile != STAIRS) return null;
+                    if (tile != WALL && tile != FLOOR && tile != STAIRS && tile != CHEST) return null;
                     tiles[y][x] = tile;
                     visited[y][x] = visitedRow != null && visitedRow.optBoolean(x, false);
                 }

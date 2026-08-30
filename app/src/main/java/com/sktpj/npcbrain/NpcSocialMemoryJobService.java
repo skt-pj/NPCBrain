@@ -41,11 +41,13 @@ public final class NpcSocialMemoryJobService extends JobService {
     private void runMaintenance(JobParameters params) {
         boolean retry = false;
         try {
+            long now = System.currentTimeMillis();
+            new DungeonAutonomyRuntime(this).evaluateAndJoin(now);
+
             String apiKey = new SecureApiKeyStore(this).load();
             if (apiKey == null || apiKey.trim().isEmpty()) return;
             String key = apiKey.trim();
             String reasoning = new ModelSettingsStore(this).reasoningEffort();
-            long now = System.currentTimeMillis();
             NpcRegistryStore registry = new NpcRegistryStore(this);
             List<String> active = registry.activeNpcIds();
             HumanMemoryMaintenanceEngine maintenance = new HumanMemoryMaintenanceEngine(this);
