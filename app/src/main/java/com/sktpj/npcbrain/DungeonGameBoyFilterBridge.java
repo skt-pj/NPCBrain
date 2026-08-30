@@ -1,5 +1,6 @@
 package com.sktpj.npcbrain;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -35,16 +36,32 @@ final class DungeonGameBoyFilterBridge {
             ViewGroup.LayoutParams outerParams = board.getLayoutParams();
             parent.removeViewAt(index);
 
-            FilterLayout filter = new FilterLayout(activity, board);
+            FrameLayout filter = filteredSurface(activity, board, true);
             filter.setTag(TAG);
-            filter.setClipChildren(true);
-            filter.setClipToPadding(true);
             parent.addView(filter, index, outerParams);
-            filter.addView(board, new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT));
         } catch (Exception ignored) {
         }
+    }
+
+    static FrameLayout filteredSurface(
+            Context context,
+            DungeonBoardView board,
+            boolean refreshSharedState
+    ) {
+        if (context == null || board == null) {
+            throw new IllegalArgumentException("context and board are required");
+        }
+        ViewParent parent = board.getParent();
+        if (parent instanceof ViewGroup) {
+            ((ViewGroup) parent).removeView(board);
+        }
+        FilterLayout filter = new FilterLayout(context, board, refreshSharedState);
+        filter.setClipChildren(true);
+        filter.setClipToPadding(true);
+        filter.addView(board, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+        return filter;
     }
 
     private static Object field(Object target, String name) throws Exception {
@@ -71,15 +88,17 @@ final class DungeonGameBoyFilterBridge {
         private final int[] pixels = new int[
                 DungeonGameBoyFilter.TARGET_WIDTH * DungeonGameBoyFilter.TARGET_HEIGHT];
         private final DungeonBoardView board;
+        private final boolean refreshSharedState;
 
         private Bitmap sourceBitmap;
         private Canvas sourceCanvas;
         private final Bitmap filteredBitmap;
         private final Canvas filteredCanvas;
 
-        FilterLayout(DungeonActivity activity, DungeonBoardView board) {
-            super(activity);
+        FilterLayout(Context context, DungeonBoardView board, boolean refreshSharedState) {
+            super(context);
             this.board = board;
+            this.refreshSharedState = refreshSharedState;
             nearestPaint.setAntiAlias(false);
             nearestPaint.setFilterBitmap(false);
             nearestPaint.setDither(false);
@@ -113,7 +132,7 @@ final class DungeonGameBoyFilterBridge {
                 return;
             }
             ensureSource(width, height);
-            refreshSharedState();
+            if (refreshSharedState) refreshSharedState();
 
             sourceBitmap.eraseColor(Color.TRANSPARENT);
             super.dispatchDraw(sourceCanvas);
