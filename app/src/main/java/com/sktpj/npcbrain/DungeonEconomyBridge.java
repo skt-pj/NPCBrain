@@ -2,7 +2,10 @@ package com.sktpj.npcbrain;
 
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewParent;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -23,6 +26,7 @@ final class DungeonEconomyBridge {
     static void install(DungeonActivity activity) {
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         try {
+            installChestOverlay(activity);
             Object hpValue = field(activity, "hpBar");
             if (!(hpValue instanceof android.widget.ProgressBar)) return;
             android.widget.ProgressBar hpBar = (android.widget.ProgressBar) hpValue;
@@ -109,10 +113,46 @@ final class DungeonEconomyBridge {
                             : "直近取得: " + last.name + "（" + yen(last.value) + "）");
                     panel.setContentDescription(summary.getText() + "。" + latest.getText());
                     if (selectedChanged) invokeRender(activity);
+                    invalidateChestOverlay(activity);
                     panel.postDelayed(this, REFRESH_MS);
                 }
             };
             panel.post(refresh);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void installChestOverlay(DungeonActivity activity) {
+        try {
+            Object value = field(activity, "boardView");
+            if (!(value instanceof DungeonBoardView)) return;
+            DungeonBoardView board = (DungeonBoardView) value;
+            ViewParent parent = board.getParent();
+            if (!(parent instanceof FrameLayout)) return;
+            FrameLayout frame = (FrameLayout) parent;
+            for (int i = 0; i < frame.getChildCount(); i++) {
+                if (DungeonChestOverlayView.TAG.equals(frame.getChildAt(i).getTag())) return;
+            }
+            DungeonChestOverlayView overlay = new DungeonChestOverlayView(activity, board);
+            overlay.setTag(DungeonChestOverlayView.TAG);
+            frame.addView(overlay, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void invalidateChestOverlay(DungeonActivity activity) {
+        try {
+            Object value = field(activity, "boardView");
+            if (!(value instanceof DungeonBoardView)) return;
+            ViewParent parent = ((DungeonBoardView) value).getParent();
+            if (!(parent instanceof ViewGroup)) return;
+            ViewGroup group = (ViewGroup) parent;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View child = group.getChildAt(i);
+                if (DungeonChestOverlayView.TAG.equals(child.getTag())) child.invalidate();
+            }
         } catch (Exception ignored) {
         }
     }
