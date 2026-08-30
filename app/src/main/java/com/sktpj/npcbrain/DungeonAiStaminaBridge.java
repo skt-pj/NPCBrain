@@ -23,6 +23,7 @@ final class DungeonAiStaminaBridge {
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         DungeonRosterBridge.install(activity);
         DungeonGameBoyFilterBridge.install(activity);
+        DungeonEconomyBridge.install(activity);
         try {
             ProgressBar hpBar = (ProgressBar) field(activity, "hpBar");
             if (hpBar == null) return;
