@@ -1,7 +1,9 @@
 package com.sktpj.npcbrain;
 
 final class DungeonTokenCostPolicy {
-    static final double MAX_BUDGET_JPY = 10.0;
+    static final double DEFAULT_BUDGET_JPY = 10.0;
+    // Compatibility alias for older tests/UI. New budget checks use the NPC-specific limit.
+    static final double MAX_BUDGET_JPY = DEFAULT_BUDGET_JPY;
     static final double INPUT_USD_PER_MILLION = 0.20;
     static final double CACHED_INPUT_USD_PER_MILLION = 0.02;
     static final double OUTPUT_USD_PER_MILLION = 1.20;
@@ -22,10 +24,21 @@ final class DungeonTokenCostPolicy {
     }
 
     static double remainingJpy(double spentJpy) {
-        return Math.max(0.0, Math.min(MAX_BUDGET_JPY, MAX_BUDGET_JPY - Math.max(0.0, spentJpy)));
+        return remainingJpy(spentJpy, DEFAULT_BUDGET_JPY);
+    }
+
+    static double remainingJpy(double spentJpy, double budgetLimitJpy) {
+        double limit = NpcAiBudgetPolicy.normalizeBudgetLimitJpy(budgetLimitJpy);
+        return Math.max(0.0, Math.min(limit, limit - Math.max(0.0, spentJpy)));
     }
 
     static int remainingPercent(double spentJpy) {
-        return (int) Math.round(remainingJpy(spentJpy) / MAX_BUDGET_JPY * 100.0);
+        return remainingPercent(spentJpy, DEFAULT_BUDGET_JPY);
+    }
+
+    static int remainingPercent(double spentJpy, double budgetLimitJpy) {
+        double limit = NpcAiBudgetPolicy.normalizeBudgetLimitJpy(budgetLimitJpy);
+        if (limit <= 0.0) return 0;
+        return (int) Math.round(remainingJpy(spentJpy, limit) / limit * 100.0);
     }
 }

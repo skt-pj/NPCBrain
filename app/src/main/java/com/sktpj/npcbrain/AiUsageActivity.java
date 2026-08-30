@@ -14,7 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** Read-only current-month AI usage summary for all active NPCs. */
+/** Read-only current-window AI usage summary for all active NPCs. */
 public final class AiUsageActivity extends Activity {
     private LinearLayout content;
     private NpcRegistryStore registryStore;
@@ -67,7 +67,7 @@ public final class AiUsageActivity extends Activity {
         header.addView(back, new LinearLayout.LayoutParams(dp(88), dp(46)));
         content.addView(header);
 
-        TextView note = text("当月 · Responses API usage の概算", 11,
+        TextView note = text("現在の予算枠 + リセットされない生涯累計 · Responses API usage の概算", 11,
                 Color.rgb(132, 157, 190), false);
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -115,10 +115,12 @@ public final class AiUsageActivity extends Activity {
                     : name.trim() + "  (" + npcId + ")";
             TextView row = text(
                     label + "\n"
-                            + "消費 " + NpcAiUsageDisplayPolicy.formatSpentJpy(snapshot.spentJpy)
-                            + " / 上限 ¥10.00"
+                            + "現在枠 " + NpcAiUsageDisplayPolicy.formatSpentJpy(snapshot.spentJpy)
+                            + " / 上限 " + NpcAiUsageDisplayPolicy.formatRemainingJpy(snapshot.budgetLimitJpy)
                             + " · 残額 " + NpcAiUsageDisplayPolicy.formatRemainingJpy(snapshot.remainingJpy)
-                            + "\ninput " + String.format(Locale.JAPAN, "%,d", snapshot.inputTokens)
+                            + "\n累計 " + NpcAiUsageDisplayPolicy.formatSpentJpy(snapshot.lifetimeSpentJpy)
+                            + " · total token " + String.format(Locale.JAPAN, "%,d", snapshot.lifetimeTotalTokens)
+                            + "\n現在枠 token: input " + String.format(Locale.JAPAN, "%,d", snapshot.inputTokens)
                             + " · cached " + String.format(Locale.JAPAN, "%,d", snapshot.cachedInputTokens)
                             + " · output " + String.format(Locale.JAPAN, "%,d", snapshot.outputTokens)
                             + " · total " + String.format(Locale.JAPAN, "%,d", snapshot.totalTokens),
@@ -136,7 +138,7 @@ public final class AiUsageActivity extends Activity {
     }
 
     private static String totalText(NpcAiUsageDisplayPolicy.Aggregate aggregate) {
-        return "今月の全NPC合計  " + aggregate.npcCount + "人\n"
+        return "現在枠の全NPC合計  " + aggregate.npcCount + "人\n"
                 + "消費 " + NpcAiUsageDisplayPolicy.formatSpentJpy(aggregate.spentJpy)
                 + " / 総予算 " + String.format(Locale.JAPAN, "¥%.2f", aggregate.budgetJpy)
                 + "\n残額 " + NpcAiUsageDisplayPolicy.formatRemainingJpy(aggregate.remainingJpy)

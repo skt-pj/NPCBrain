@@ -11,14 +11,17 @@ final class PrimaryNavigationPolicy {
     static final String STATUS = "status";
     static final String DUNGEON = "dungeon";
     static final String CODEX = "codex";
+    static final String SETTINGS = "settings";
     static final String MANAGER = "manager";
 
     private static final List<String> RELEASE_IDS = Collections.unmodifiableList(Arrays.asList(
-            CONVERSATION, STATUS, DUNGEON, CODEX));
+            CONVERSATION, STATUS, DUNGEON, CODEX, SETTINGS));
     private static final List<String> DEBUG_IDS = Collections.unmodifiableList(Arrays.asList(
-            CONVERSATION, STATUS, DUNGEON, CODEX, MANAGER));
+            CONVERSATION, STATUS, DUNGEON, CODEX, SETTINGS, MANAGER));
+    private static final List<String> ALL_IDS = Collections.unmodifiableList(Arrays.asList(
+            CONVERSATION, STATUS, DUNGEON, CODEX, SETTINGS, MANAGER));
     private static final List<String> LABELS = Collections.unmodifiableList(Arrays.asList(
-            "会話", "NPC状況", "ダンジョン", "図鑑", "NPC管理"));
+            "会話", "NPC状況", "ダンジョン", "図鑑", "設定", "NPC管理"));
 
     private PrimaryNavigationPolicy() {}
 
@@ -35,12 +38,12 @@ final class PrimaryNavigationPolicy {
     }
 
     static String labelFor(String id) {
-        int index = DEBUG_IDS.indexOf(id);
+        int index = ALL_IDS.indexOf(id);
         return index < 0 ? "" : LABELS.get(index);
     }
 
     static boolean isDestination(String id) {
-        return DEBUG_IDS.contains(id);
+        return ALL_IDS.contains(id);
     }
 
     static int intentFlags() {

@@ -60,6 +60,7 @@ final class NpcAiUsageDisplayPolicy {
         }
         double spent = 0.0;
         double remaining = 0.0;
+        double budget = 0.0;
         long input = 0L;
         long cached = 0L;
         long output = 0L;
@@ -70,6 +71,7 @@ final class NpcAiUsageDisplayPolicy {
             count++;
             spent += snapshot.spentJpy;
             remaining += snapshot.remainingJpy;
+            budget += snapshot.budgetLimitJpy;
             input = safeAdd(input, snapshot.inputTokens);
             cached = safeAdd(cached, snapshot.cachedInputTokens);
             output = safeAdd(output, snapshot.outputTokens);
@@ -79,7 +81,7 @@ final class NpcAiUsageDisplayPolicy {
                 count,
                 spent,
                 remaining,
-                count * DungeonTokenCostPolicy.MAX_BUDGET_JPY,
+                budget,
                 input,
                 cached,
                 output,
