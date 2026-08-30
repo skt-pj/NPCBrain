@@ -17,6 +17,10 @@ final class NpcStorageContext extends ContextWrapper {
         return super.getSharedPreferences(name + "_" + suffix, mode);
     }
 
+    String npcId() {
+        return suffix;
+    }
+
     private static String sanitize(String value) {
         if (value == null || value.trim().isEmpty()) return "npc";
         return value.trim().toLowerCase().replaceAll("[^a-z0-9_-]", "_");
