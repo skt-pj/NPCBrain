@@ -79,7 +79,10 @@ final class DungeonPartyCoordinator {
             for (int y = Math.max(0, leaderY - radius); y <= Math.min(state.height - 1, leaderY + radius); y++) {
                 for (int x = Math.max(0, leaderX - radius); x <= Math.min(state.width - 1, leaderX + radius); x++) {
                     if (Math.abs(x - leaderX) + Math.abs(y - leaderY) != radius) continue;
-                    if (!state.walkable(x, y) || state.tileAt(x, y) == DungeonState.STAIRS) continue;
+                    int tile = state.tileAt(x, y);
+                    if (!state.walkable(x, y)
+                            || tile == DungeonState.STAIRS
+                            || tile == DungeonState.CHEST) continue;
                     if (state.enemyAt(x, y) != null || DungeonTurnContext.occupiedByPeer(state, x, y)) continue;
                     candidates.add(new int[]{x, y});
                 }
