@@ -30,14 +30,11 @@ final class DungeonAutonomyRuntime {
             if (roster.contains(npcId)) continue;
             CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(appContext, npcId));
             if (character.isDead()) continue;
+            if (preferences.getLong(dayKey(npcId), -1L) == bucket) continue;
+            preferences.edit().putLong(dayKey(npcId), bucket).commit();
+
             DungeonParticipationStore participationStore = DungeonParticipationStore.forNpc(appContext, npcId);
             DungeonParticipationState participation = participationStore.load();
-            if (!participation.isAccepted() && preferences.getLong(dayKey(npcId), -1L) == bucket) {
-                continue;
-            }
-            if (!participation.isAccepted()) {
-                preferences.edit().putLong(dayKey(npcId), bucket).commit();
-            }
             DungeonPersonalityPolicy.Traits traits = new DungeonPersonalityPolicy.Traits(
                     character.traitPercent(CharacterStateStore.extraversionKey()),
                     character.traitPercent(CharacterStateStore.neuroticismKey()),
