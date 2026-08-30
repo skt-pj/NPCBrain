@@ -4,15 +4,14 @@ final class DungeonAutonomyPolicy {
     private DungeonAutonomyPolicy() {
     }
 
-    static boolean shouldSelfJoin(
+    static boolean shouldSelfDive(
             DungeonParticipationState participation,
             DungeonPersonalityPolicy.Traits traits,
             boolean alive,
-            int rosterSize,
             String npcId,
             long dayBucket
     ) {
-        if (!alive || rosterSize >= DungeonRosterPolicy.MAX_ACTIVE) return false;
+        if (!alive) return false;
         DungeonParticipationState state = participation == null
                 ? DungeonParticipationState.initial() : participation;
         if (DungeonParticipationState.REFUSE.equals(state.stance)
@@ -39,6 +38,19 @@ final class DungeonAutonomyPolicy {
                 - 0.14 * fear;
         if (DungeonParticipationState.HESITATE.equals(state.stance)) drive -= 0.05;
         return drive >= 0.50;
+    }
+
+    /** Legacy v0.4.42 party helper retained only for compatibility tests/callers. */
+    static boolean shouldSelfJoin(
+            DungeonParticipationState participation,
+            DungeonPersonalityPolicy.Traits traits,
+            boolean alive,
+            int rosterSize,
+            String npcId,
+            long dayBucket
+    ) {
+        if (rosterSize >= DungeonRosterPolicy.MAX_ACTIVE) return false;
+        return shouldSelfDive(participation, traits, alive, npcId, dayBucket);
     }
 
     static long dayBucket(long nowMs) {
