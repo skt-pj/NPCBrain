@@ -32,6 +32,7 @@ public final class NPCBrainApplication extends Application {
                 }
                 PrimaryUiCoordinator.onCreated(activity, state);
                 AppWindowChrome.apply(activity);
+                PrimaryFooterBridge.install(activity);
             }
 
             @Override public void onActivityStarted(Activity activity) {
@@ -42,6 +43,7 @@ public final class NPCBrainApplication extends Application {
                 installRuntimeBridges(activity);
                 PrimaryUiCoordinator.onStarted(activity);
                 AppWindowChrome.apply(activity);
+                PrimaryFooterBridge.install(activity);
             }
 
             @Override public void onActivityResumed(Activity activity) {
@@ -55,6 +57,7 @@ public final class NPCBrainApplication extends Application {
                 installRuntimeBridges(activity);
                 PrimaryUiCoordinator.onResumed(activity);
                 AppWindowChrome.apply(activity);
+                PrimaryFooterBridge.install(activity);
             }
 
             @Override public void onActivityPaused(Activity activity) {
