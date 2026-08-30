@@ -20,6 +20,23 @@ public class NpcAiBudgetPolicyTest {
     }
 
     @Test
+    public void configurableBudgetChangesReservationBoundaryPerNpc() {
+        assertTrue(NpcAiBudgetPolicy.canReserve(18.0, 1.0, 1.0, 20.0));
+        assertFalse(NpcAiBudgetPolicy.canReserve(18.0, 1.0, 1.0001, 20.0));
+        assertFalse(NpcAiBudgetPolicy.canReserve(9.5, 0.0, 0.6, 10.0));
+        assertTrue(NpcAiBudgetPolicy.canReserve(9.5, 0.0, 0.5, 10.0));
+    }
+
+    @Test
+    public void budgetLimitNormalizationHasSafeBoundsAndLegacyDefault() {
+        assertEquals(10.0, NpcAiBudgetPolicy.normalizeBudgetLimitJpy(0.0), 0.0);
+        assertEquals(10.0, NpcAiBudgetPolicy.normalizeBudgetLimitJpy(Double.NaN), 0.0);
+        assertEquals(0.01, NpcAiBudgetPolicy.normalizeBudgetLimitJpy(0.001), 0.0);
+        assertEquals(100000.0, NpcAiBudgetPolicy.normalizeBudgetLimitJpy(200000.0), 0.0);
+        assertEquals(42.5, NpcAiBudgetPolicy.normalizeBudgetLimitJpy(42.5), 0.0);
+    }
+
+    @Test
     public void requestReservationGrowsWithInputAndMaximumOutput() {
         double base = NpcAiBudgetPolicy.reservationJpy(1000, 256);
         double largerInput = NpcAiBudgetPolicy.reservationJpy(5000, 256);
