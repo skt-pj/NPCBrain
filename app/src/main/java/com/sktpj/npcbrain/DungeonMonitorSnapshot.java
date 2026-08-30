@@ -38,6 +38,16 @@ final class DungeonMonitorSnapshot {
                     other.hp,
                     other.maxHp));
         }
+
+        // Read-only render metadata: lets DungeonBoardView's existing Game Boy peer overlay
+        // use the same same-floor actor context as the party board without advancing or saving.
+        DungeonTurnContext.register(
+                state,
+                owner,
+                shared == null ? 0L : shared.revision,
+                state.playerX,
+                state.playerY,
+                peers);
         return new DungeonMonitorSnapshot(state, peers);
     }
 }

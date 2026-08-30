@@ -9,6 +9,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -81,7 +82,7 @@ public final class IndividualDungeonActivity extends Activity {
         root.addView(header);
 
         TextView note = text(
-                "同じダンジョン世界をNPCごとの視点で同時監視 · party外の単独探索も表示",
+                "同じダンジョン世界を8人までキャラ視点GB画面で同時監視 · party外の単独探索も表示",
                 10,
                 Color.rgb(137, 161, 187),
                 false);
@@ -147,7 +148,8 @@ public final class IndividualDungeonActivity extends Activity {
         final LinearLayout root;
         final TextView name;
         final TextView status;
-        final DungeonMiniMapView map;
+        final DungeonBoardView board;
+        final FrameLayout filteredBoard;
 
         Panel(int index) {
             root = new LinearLayout(IndividualDungeonActivity.this);
@@ -169,24 +171,30 @@ public final class IndividualDungeonActivity extends Activity {
             statusParams.topMargin = dp(1);
             root.addView(status, statusParams);
 
-            map = new DungeonMiniMapView(IndividualDungeonActivity.this);
-            LinearLayout.LayoutParams mapParams = new LinearLayout.LayoutParams(
+            board = new DungeonBoardView(IndividualDungeonActivity.this);
+            board.setClickable(false);
+            board.setFocusable(false);
+            filteredBoard = DungeonGameBoyFilterBridge.filteredSurface(
+                    IndividualDungeonActivity.this,
+                    board,
+                    false);
+            LinearLayout.LayoutParams boardParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-            mapParams.topMargin = dp(3);
-            root.addView(map, mapParams);
+            boardParams.topMargin = dp(3);
+            root.addView(filteredBoard, boardParams);
         }
 
         void bind(String displayName, String stateText, DungeonMonitorSnapshot snapshot) {
             name.setText(displayName);
             status.setText(stateText);
-            map.setSnapshot(snapshot);
-            root.setContentDescription(displayName + "、" + stateText);
+            board.setState(snapshot == null ? null : snapshot.state);
+            root.setContentDescription(displayName + "、" + stateText + "、GBダンジョン画面");
         }
 
         void bindEmpty(int slot) {
             name.setText("空き " + slot);
             status.setText("探索中NPCなし");
-            map.setSnapshot(null);
+            board.setState(null);
             root.setContentDescription("空きスロット " + slot);
         }
     }
