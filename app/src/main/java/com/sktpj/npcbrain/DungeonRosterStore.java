@@ -12,14 +12,17 @@ final class DungeonRosterStore {
     private static final String PREFS = "npcbrain_dungeon_roster_v1";
     private static final String ACTIVE = "active_npc_ids";
     private static final String INITIALIZED = "initialized";
+    private static final String USER_PARTY_043 = "user_party_043_migrated";
 
+    private final Context appContext;
     private final SharedPreferences preferences;
     private final NpcRegistryStore registry;
 
     DungeonRosterStore(Context context) {
-        Context app = context.getApplicationContext();
-        preferences = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        registry = new NpcRegistryStore(app);
+        appContext = context.getApplicationContext();
+        preferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        registry = new NpcRegistryStore(appContext);
+        migrateToUserOnlyParty();
     }
 
     synchronized List<String> activeNpcIds() {
@@ -43,7 +46,18 @@ final class DungeonRosterStore {
     synchronized List<String> save(List<String> requested) {
         List<String> normalized = DungeonRosterPolicy.normalize(requested, registry.activeNpcIds());
         persist(normalized, true);
+        DungeonPresenceStore presence = new DungeonPresenceStore(appContext);
+        for (String npcId : normalized) presence.setPresent(npcId, true);
         return normalized;
+    }
+
+    private void migrateToUserOnlyParty() {
+        if (preferences.getBoolean(USER_PARTY_043, false)) return;
+        preferences.edit()
+                .putString(ACTIVE, "[]")
+                .putBoolean(INITIALIZED, true)
+                .putBoolean(USER_PARTY_043, true)
+                .commit();
     }
 
     private List<String> readIds() {
