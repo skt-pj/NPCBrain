@@ -22,6 +22,10 @@
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
         <activity
+            android:name=".SettingsActivity"
+            android:enableOnBackInvokedCallback="true"
+            android:exported="false" />
+        <activity
             android:name=".NpcManagerActivity"
             android:enableOnBackInvokedCallback="true"
             android:exported="false" />
