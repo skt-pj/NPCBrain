@@ -21,6 +21,9 @@ public final class NPCBrainApplication extends Application {
         debugBuild = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         new ReplyTimerStore(this).rearmAll();
         NpcSocialMemoryScheduler.schedule(this);
+        // Snapshot legacy dungeon participants before DungeonActivity can generate a new selected
+        // actor. From v0.4.43 presence is independent from the user-invited party roster.
+        new DungeonPresenceStore(this).activePresentNpcIds();
         innerLifeRuntime = new NpcInnerLifeRuntime(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityCreated(Activity activity, Bundle state) {
@@ -110,6 +113,8 @@ public final class NPCBrainApplication extends Application {
             DungeonGoalInputBridge.install(dungeon);
             DungeonAiStaminaBridge.install(dungeon);
             DungeonRosterBridge.install(dungeon);
+            DungeonModeSwitchBridge.install(dungeon);
+            DungeonSoloProgressBridge.install(dungeon);
         }
     }
 }
