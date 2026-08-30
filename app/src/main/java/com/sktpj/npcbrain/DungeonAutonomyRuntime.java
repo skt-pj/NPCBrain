@@ -3,64 +3,61 @@ package com.sktpj.npcbrain;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-import java.util.ArrayList;
-import java.util.List;
-
 final class DungeonAutonomyRuntime {
-    private static final String PREFS = "npcbrain_dungeon_autonomy_v042";
+    private static final String PREFS = "npcbrain_dungeon_autonomy_v043";
 
     private final Context appContext;
     private final SharedPreferences preferences;
     private final NpcRegistryStore registryStore;
-    private final DungeonRosterStore rosterStore;
+    private final DungeonPresenceStore presenceStore;
+    private final DungeonStore dungeonStore;
 
     DungeonAutonomyRuntime(Context context) {
         appContext = context.getApplicationContext();
         preferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         registryStore = new NpcRegistryStore(appContext);
-        rosterStore = new DungeonRosterStore(appContext);
+        presenceStore = new DungeonPresenceStore(appContext);
+        dungeonStore = new DungeonStore(appContext);
     }
 
-    synchronized int evaluateAndJoin(long nowMs) {
-        List<String> roster = new ArrayList<>(rosterStore.activeNpcIds());
-        int joined = 0;
+    synchronized int evaluateAndEnter(long nowMs) {
+        int entered = 0;
         long bucket = DungeonAutonomyPolicy.dayBucket(nowMs);
         for (String npcId : registryStore.activeNpcIds()) {
-            if (roster.size() >= DungeonRosterPolicy.MAX_ACTIVE) break;
-            if (roster.contains(npcId)) continue;
             CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(appContext, npcId));
-            if (character.isDead()) continue;
+            if (character.isDead() || presenceStore.isPresent(npcId)) continue;
             if (preferences.getLong(dayKey(npcId), -1L) == bucket) continue;
             preferences.edit().putLong(dayKey(npcId), bucket).commit();
 
-            DungeonParticipationStore participationStore = DungeonParticipationStore.forNpc(appContext, npcId);
-            DungeonParticipationState participation = participationStore.load();
+            DungeonParticipationState participation =
+                    DungeonParticipationStore.forNpc(appContext, npcId).load();
             DungeonPersonalityPolicy.Traits traits = new DungeonPersonalityPolicy.Traits(
                     character.traitPercent(CharacterStateStore.extraversionKey()),
                     character.traitPercent(CharacterStateStore.neuroticismKey()),
                     character.traitPercent(CharacterStateStore.agreeablenessKey()),
                     character.traitPercent(CharacterStateStore.conscientiousnessKey()),
                     character.traitPercent(CharacterStateStore.opennessKey()));
-            if (!DungeonAutonomyPolicy.shouldSelfJoin(
-                    participation, traits, true, roster.size(), npcId, bucket)) continue;
+            if (!DungeonAutonomyPolicy.shouldSelfDive(
+                    participation, traits, true, npcId, bucket)) continue;
 
-            if (!participation.isAccepted()) {
-                participationStore.save(new DungeonParticipationState(
-                        DungeonParticipationState.ACCEPT,
-                        Math.max(0.62, participation.willingness),
-                        participation.fear,
-                        Math.max(0.58, participation.resolve),
-                        "自分の意思でダンジョンへ行くことにした",
-                        nowMs));
+            DungeonState state = dungeonStore.loadRaw(npcId);
+            if (state == null) {
+                long seed = System.nanoTime()
+                        ^ nowMs
+                        ^ ((long) npcId.hashCode() << 17);
+                state = DungeonGenerator.generate(seed, 1);
+                state.lastAction = "自分の意思で単独ダンジョン探索を開始";
+                dungeonStore.save(npcId, state);
             }
-            roster.add(npcId);
-            rosterStore.save(roster);
-            joined++;
+            presenceStore.setPresent(npcId, true);
+            entered++;
         }
-        if (!roster.isEmpty()) {
-            new DungeonPartyCoordinator(appContext).reconcile(roster.get(0));
-        }
-        return joined;
+        return entered;
+    }
+
+    /** Compatibility name retained for existing foreground/job call sites. */
+    synchronized int evaluateAndJoin(long nowMs) {
+        return evaluateAndEnter(nowMs);
     }
 
     private static String dayKey(String npcId) {
