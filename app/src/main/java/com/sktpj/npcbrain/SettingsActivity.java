@@ -194,11 +194,12 @@ public final class SettingsActivity extends Activity {
     private View buildBudgetCard(String npcId) {
         NpcAiStaminaStore.Snapshot snapshot = staminaStore.snapshot(npcId);
         CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(this, npcId));
-        String displayName = character.displayName();
-        if (displayName == null || displayName.trim().isEmpty() || "NPC".equals(displayName.trim())) {
-            displayName = npcId.toUpperCase(Locale.US);
+        String name = character.displayName();
+        if (name == null || name.trim().isEmpty() || "NPC".equals(name.trim())) {
+            name = npcId.toUpperCase(Locale.US);
         }
-        if (character.isDead()) displayName += "（死亡）";
+        if (character.isDead()) name += "（死亡）";
+        final String displayName = name;
 
         LinearLayout card = card();
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
