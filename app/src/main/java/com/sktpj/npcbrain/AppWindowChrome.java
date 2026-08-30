@@ -32,12 +32,31 @@ final class AppWindowChrome {
         }
         decor.setSystemUiVisibility(flags);
 
-        applySafeArea(activity);
-        disableLegacyPrimaryNavigationInset(activity);
+        if (!usesLocalSafeAreaOwner(activity)) {
+            normalizeRootFitsSystemWindows(activity);
+            applySafeArea(activity);
+            disableLegacyPrimaryNavigationInset(activity);
+        }
 
         if (activity instanceof NpcManagerActivity) {
             hideLegacyPeerBack(activity.findViewById(android.R.id.content));
         }
+    }
+
+    private static boolean usesLocalSafeAreaOwner(Activity activity) {
+        return activity instanceof DemoActivityV032
+                || activity instanceof NpcStatusActivity
+                || activity instanceof DungeonActivity
+                || activity instanceof CodexActivity;
+    }
+
+    private static void normalizeRootFitsSystemWindows(Activity activity) {
+        View content = activity.findViewById(android.R.id.content);
+        if (!(content instanceof ViewGroup)) return;
+        ViewGroup group = (ViewGroup) content;
+        if (group.getChildCount() == 0) return;
+        View root = group.getChildAt(0);
+        if (root != null && root.getFitsSystemWindows()) root.setFitsSystemWindows(false);
     }
 
     private static void applySafeArea(Activity activity) {
