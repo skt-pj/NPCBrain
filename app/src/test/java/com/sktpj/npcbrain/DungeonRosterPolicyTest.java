@@ -18,16 +18,16 @@ public class DungeonRosterPolicyTest {
     }
 
     @Test
-    public void initialPreservesLegacyNpc1Npc2WithoutAutoAddingNewNpc() {
+    public void initialPartyIsEmptyUntilUserInvitesMembers() {
         assertEquals(
-                Arrays.asList("npc1", "npc2"),
+                Collections.emptyList(),
                 DungeonRosterPolicy.initial(Arrays.asList("npc1", "npc2", "npc3", "npc4")));
     }
 
     @Test
-    public void initialFallsBackToFirstAvailableWhenLegacyNpcsAreGone() {
+    public void initialRemainsEmptyWithAnyRegistryShape() {
         assertEquals(
-                Collections.singletonList("npc4"),
+                Collections.emptyList(),
                 DungeonRosterPolicy.initial(Arrays.asList("npc4", "npc5")));
     }
 

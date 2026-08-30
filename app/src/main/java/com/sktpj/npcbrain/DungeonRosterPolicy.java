@@ -28,24 +28,9 @@ final class DungeonRosterPolicy {
         return result;
     }
 
+    /** Party membership starts empty and is populated only by explicit user selection. */
     static List<String> initial(List<String> activeRegistry) {
-        List<String> result = new ArrayList<>();
-        Set<String> allowed = allowedIds(activeRegistry);
-        if (allowed.contains("npc1")) result.add("npc1");
-        if (allowed.contains("npc2")) result.add("npc2");
-        if (result.isEmpty() && activeRegistry != null) {
-            for (String raw : activeRegistry) {
-                try {
-                    String id = NpcId.of(raw).value();
-                    if (allowed.contains(id)) {
-                        result.add(id);
-                        break;
-                    }
-                } catch (Exception ignored) {
-                }
-            }
-        }
-        return result;
+        return new ArrayList<>();
     }
 
     static List<String> toggle(List<String> current, String npcId, List<String> activeRegistry) {
