@@ -29,6 +29,9 @@ public final class SettingsActivity extends Activity {
     private NpcAiStaminaStore staminaStore;
     private TextView apiKeyStatus;
     private LinearLayout budgetContainer;
+    private Button cacheProbeButton;
+    private TextView cacheProbeStatus;
+    private volatile boolean cacheProbeRunning;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -79,6 +82,13 @@ public final class SettingsActivity extends Activity {
         scroll.addView(body);
 
         body.addView(buildAiSettingsCard());
+        if (isDebuggableBuild()) {
+            LinearLayout.LayoutParams cacheParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            cacheParams.topMargin = dp(12);
+            body.addView(buildPromptCacheDebugCard(), cacheParams);
+        }
 
         TextView budgetTitle = text("NPC別 AI費用", 18, AppUiTheme.APP_TEXT, true);
         LinearLayout.LayoutParams budgetTitleParams = new LinearLayout.LayoutParams(
@@ -169,6 +179,91 @@ public final class SettingsActivity extends Activity {
         });
         card.addView(efforts);
         return card;
+    }
+
+    private View buildPromptCacheDebugCard() {
+        LinearLayout card = card();
+        card.addView(text("Prompt Cache Test", 18, AppUiTheme.APP_TEXT, true));
+
+        TextView note = text(
+                "Debug専用。固定prefixを共有した実APIを3回逐次実行し、OpenAI usageのcached tokensからヒット率を測定します。実API費用は発生しますがNPC別AI費用台帳には加算しません。",
+                11,
+                AppUiTheme.APP_MUTED,
+                false);
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        noteParams.topMargin = dp(5);
+        card.addView(note, noteParams);
+
+        cacheProbeButton = actionButton("3回テストを実行");
+        cacheProbeButton.setOnClickListener(v -> startPromptCacheProbe());
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(48));
+        buttonParams.topMargin = dp(9);
+        card.addView(cacheProbeButton, buttonParams);
+
+        cacheProbeStatus = text(
+                "未実行。Call 1をwarm-up、Call 2+3をReuseとして集計します。",
+                11,
+                AppUiTheme.APP_TEXT,
+                false);
+        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        statusParams.topMargin = dp(8);
+        card.addView(cacheProbeStatus, statusParams);
+        return card;
+    }
+
+    private void startPromptCacheProbe() {
+        if (!isDebuggableBuild() || cacheProbeRunning) return;
+        final String apiKey;
+        try {
+            apiKey = apiKeyStore.load().trim();
+        } catch (Exception error) {
+            showCacheProbeError("APIキーを読み込めませんでした。");
+            return;
+        }
+        if (apiKey.isEmpty()) {
+            showCacheProbeError("OpenAI APIキーを設定してから実行してください。");
+            return;
+        }
+
+        cacheProbeRunning = true;
+        if (cacheProbeButton != null) cacheProbeButton.setEnabled(false);
+        if (cacheProbeStatus != null) cacheProbeStatus.setText("実行中… 3回の実APIを逐次送信しています。");
+
+        new Thread(() -> {
+            try {
+                PromptCacheDebugProbe.Result result = new PromptCacheDebugProbe(apiKey).run();
+                runOnUiThread(() -> finishCacheProbe(result.displayText()));
+            } catch (Exception error) {
+                String detail = error.getMessage();
+                if (detail == null || detail.trim().isEmpty()) {
+                    detail = error.getClass().getSimpleName();
+                }
+                final String message = detail;
+                runOnUiThread(() -> showCacheProbeError(message));
+            }
+        }, "prompt-cache-debug-probe").start();
+    }
+
+    private void finishCacheProbe(String result) {
+        cacheProbeRunning = false;
+        if (isFinishing() || isDestroyed()) return;
+        if (cacheProbeButton != null) cacheProbeButton.setEnabled(true);
+        if (cacheProbeStatus != null) cacheProbeStatus.setText(result == null ? "" : result);
+    }
+
+    private void showCacheProbeError(String message) {
+        cacheProbeRunning = false;
+        if (isFinishing() || isDestroyed()) return;
+        if (cacheProbeButton != null) cacheProbeButton.setEnabled(true);
+        if (cacheProbeStatus != null) {
+            cacheProbeStatus.setText("ERROR: " + (message == null ? "不明なエラー" : message));
+        }
     }
 
     private void refresh() {
@@ -347,6 +442,11 @@ public final class SettingsActivity extends Activity {
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    private boolean isDebuggableBuild() {
+        return (getApplicationInfo().flags
+                & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
     }
 
     private LinearLayout card() {
