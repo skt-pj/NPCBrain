@@ -1,5 +1,7 @@
 package com.sktpj.npcbrain;
 
+import java.util.Locale;
+
 final class NpcInnerLifePolicy {
     static final long HEARTBEAT_MS = 60_000L;
     static final long LOCAL_STREAM_INTERVAL_MS = 15L * 60L * 1000L;
@@ -22,9 +24,9 @@ final class NpcInnerLifePolicy {
     }
 
     /**
-     * Advances bounded need/signal values only. Text activities and hard thresholds do not decide
-     * mood, focus or intention; those remain the last integrated AI values until the next ambient
-     * Brain update.
+     * Advances bounded physiological/need signals only. Canonical schedule activity may satisfy
+     * hunger or sleep pressure, but local code never chooses mood, focus, intention, consent,
+     * relationship or an in-world action. Those remain integrated Brain decisions.
      */
     static AdvanceResult advance(
             NpcInnerLifeState current,
@@ -45,9 +47,23 @@ final class NpcInnerLifePolicy {
 
         long elapsedMs = Math.max(0L, now - base.updatedAtMs);
         double hours = Math.min(12.0, elapsedMs / 3_600_000.0);
+        String canonicalActivity = canonicalActivity(activity);
+        boolean sleeping = "sleep".equals(canonicalActivity);
+        boolean eatingMeal = "meal".equals(canonicalActivity);
 
-        double energy = clamp01(base.energy - 0.035 * hours);
-        double hunger = clamp01(base.hunger + 0.055 * hours);
+        double energy = sleeping
+                ? clamp01(base.energy + 0.12 * hours)
+                : clamp01(base.energy - 0.035 * hours);
+        double hunger = eatingMeal
+                ? clamp01(base.hunger - 0.45 * base.hungerSensitivity * hours)
+                : clamp01(base.hunger + 0.055 * base.hungerSensitivity * hours);
+        double sleepPressure = sleeping
+                ? clamp01(base.sleepPressure - 0.14 * base.sleepSensitivity * hours)
+                : clamp01(base.sleepPressure + 0.045 * base.sleepSensitivity * hours);
+        double reproductiveReturn = Math.min(1.0, 0.08 * hours);
+        double reproductiveDrive = clamp01(base.reproductiveDrive
+                + (base.reproductiveSetPoint - base.reproductiveDrive) * reproductiveReturn);
+
         double socialNeed = clamp01(base.socialNeed
                 + (0.020 + 0.018 * clamp01(extraversion)) * hours);
         double boredom = clamp01(base.boredom
@@ -72,6 +88,8 @@ final class NpcInnerLifePolicy {
                 now,
                 energy,
                 hunger,
+                sleepPressure,
+                reproductiveDrive,
                 socialNeed,
                 boredom,
                 curiosity,
@@ -132,10 +150,16 @@ final class NpcInnerLifePolicy {
         if (state == null) return "";
         return "ENERGY " + percent(state.energy)
                 + "% · HUNGER " + percent(state.hunger)
+                + "% · SLEEP " + percent(state.sleepPressure)
+                + "% · REPRODUCTIVE " + percent(state.reproductiveDrive)
                 + "% · SOCIAL " + percent(state.socialNeed)
                 + "% · BOREDOM " + percent(state.boredom)
                 + "% · CURIOSITY " + percent(state.curiosity)
                 + "% · SAFETY " + percent(state.safetyConcern) + "%";
+    }
+
+    private static String canonicalActivity(String activity) {
+        return activity == null ? "" : activity.trim().toLowerCase(Locale.ROOT);
     }
 
     private static int percent(double value) {
