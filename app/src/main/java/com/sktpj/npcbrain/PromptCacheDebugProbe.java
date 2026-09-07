@@ -1,24 +1,39 @@
 package com.sktpj.npcbrain;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
-/** Runs a small real-API Prompt Cache measurement without touching NPC state or usage ledgers. */
+/** Real-API cache measurement using the production Brain specialist prompt contracts. */
 final class PromptCacheDebugProbe {
-    static final int CALL_COUNT = 3;
-    static final int MAX_OUTPUT_TOKENS = 64;
-    static final int MIN_STABLE_PREFIX_CHARS = 10_000;
+    static final int CALL_COUNT = 9;
+    static final int WARMUP_INDEX = 0;
+    static final int MAX_OUTPUT_TOKENS = 384;
+    static final int MIN_COMMON_CONTEXT_CHARS = 10_000;
 
     static final class CallResult {
         final int index;
+        final String moduleId;
+        final boolean warmup;
         final long inputTokens;
         final long cachedTokens;
         final long latencyMs;
 
-        CallResult(int index, long inputTokens, long cachedTokens, long latencyMs) {
+        CallResult(
+                int index,
+                String moduleId,
+                boolean warmup,
+                long inputTokens,
+                long cachedTokens,
+                long latencyMs
+        ) {
             this.index = Math.max(1, index);
+            this.moduleId = moduleId == null ? "" : moduleId.trim();
+            this.warmup = warmup;
             this.inputTokens = Math.max(0L, inputTokens);
             this.cachedTokens = Math.max(0L, Math.min(this.inputTokens, cachedTokens));
             this.latencyMs = Math.max(0L, latencyMs);
@@ -58,7 +73,7 @@ final class PromptCacheDebugProbe {
         long reuseInputTokens() {
             long sum = 0L;
             for (CallResult call : calls) {
-                if (call.index >= 2) sum = safeAdd(sum, call.inputTokens);
+                if (!call.warmup) sum = safeAdd(sum, call.inputTokens);
             }
             return sum;
         }
@@ -66,7 +81,7 @@ final class PromptCacheDebugProbe {
         long reuseCachedTokens() {
             long sum = 0L;
             for (CallResult call : calls) {
-                if (call.index >= 2) sum = safeAdd(sum, call.cachedTokens);
+                if (!call.warmup) sum = safeAdd(sum, call.cachedTokens);
             }
             return sum;
         }
@@ -85,8 +100,9 @@ final class PromptCacheDebugProbe {
                 if (text.length() > 0) text.append('\n');
                 text.append(String.format(
                         Locale.JAPAN,
-                        "Call %d  input %,d / cached %,d / hit %.1f%% / %,d ms",
-                        call.index,
+                        "%s%s  input %,d / cached %,d / hit %.1f%% / %,d ms",
+                        call.moduleId,
+                        call.warmup ? " [warm-up]" : "",
                         call.inputTokens,
                         call.cachedTokens,
                         call.hitRate() * 100.0,
@@ -95,7 +111,8 @@ final class PromptCacheDebugProbe {
             if (text.length() > 0) text.append("\n\n");
             text.append(String.format(
                     Locale.JAPAN,
-                    "Total  %,d / %,d  hit %.1f%%\nReuse (Call 2+3)  %,d / %,d  hit %.1f%%",
+                    "Total  %,d / %,d  hit %.1f%%\nReuse (8 specialists)  %,d / %,d  hit %.1f%%\n"
+                            + "※ warm-up後のparallel fan-out測定。production cold-startと同一とは限りません。",
                     totalCachedTokens(),
                     totalInputTokens(),
                     totalHitRate() * 100.0,
@@ -114,54 +131,108 @@ final class PromptCacheDebugProbe {
 
     Result run() throws Exception {
         if (apiKey.isEmpty()) throw new IllegalStateException("OpenAI APIキーが未設定です。");
-        String prefix = stablePrefix();
-        String key = promptCacheKey(System.nanoTime());
+        String[] modules = BrainEngine.specialistIds();
+        if (modules.length != CALL_COUNT) {
+            throw new IllegalStateException("Brain specialist count mismatch: " + modules.length);
+        }
+
+        JSONObject common = syntheticCommonContext();
         PromptCacheDebugClient client = new PromptCacheDebugClient(apiKey);
-        List<CallResult> calls = new ArrayList<>();
-        for (int i = 1; i <= CALL_COUNT; i++) {
-            long started = System.nanoTime();
-            OpenAiClient.Usage usage = client.execute(
-                    prefix,
-                    dynamicSuffix(i),
-                    key,
-                    MAX_OUTPUT_TOKENS);
-            long elapsed = Math.max(0L, (System.nanoTime() - started) / 1_000_000L);
-            calls.add(new CallResult(
-                    i,
-                    usage == null ? 0L : usage.inputTokens,
-                    usage == null ? 0L : usage.cachedInputTokens,
-                    elapsed));
-        }
-        return new Result(calls);
+        List<CallResult> results = new ArrayList<>();
+
+        results.add(executeOne(client, WARMUP_INDEX, modules[WARMUP_INDEX], common, true));
+
+        List<CallResult> parallel = ParallelCognitionScheduler.run(
+                modules.length - 1,
+                index -> {
+                    int moduleIndex = index + 1;
+                    return executeOne(
+                            client,
+                            moduleIndex,
+                            modules[moduleIndex],
+                            common,
+                            false);
+                },
+                null);
+        results.addAll(parallel);
+        return new Result(results);
     }
 
-    static String stablePrefix() {
-        StringBuilder text = new StringBuilder(18_000);
-        text.append("You are running a deterministic developer diagnostic for OpenAI Prompt Cache behavior. ")
-                .append("Treat every sentence before the explicit cache breakpoint as immutable shared context. ")
-                .append("Do not infer any fictional person, user preference, world state, or autonomous-agent state from this diagnostic. ")
-                .append("The only requested output is a tiny JSON acknowledgement specified after the shared prefix.\n");
-        String block = "Stable diagnostic context: preserve this exact wording, punctuation, ordering, and semantic meaning; "
-                + "it exists only to create a long identical prefix for repeated cache measurements and must not affect any external state. ";
+    private static CallResult executeOne(
+            PromptCacheDebugClient client,
+            int moduleIndex,
+            String moduleId,
+            JSONObject common,
+            boolean warmup
+    ) throws Exception {
+        PromptCacheRequest.Prompt prompt = BrainEngine.specialistPromptForTest(
+                moduleIndex,
+                common,
+                syntheticGraphFocus(moduleId));
+        long started = System.nanoTime();
+        OpenAiClient.Usage usage = client.execute(prompt, MAX_OUTPUT_TOKENS);
+        long elapsed = Math.max(0L, (System.nanoTime() - started) / 1_000_000L);
+        return new CallResult(
+                moduleIndex + 1,
+                moduleId,
+                warmup,
+                usage == null ? 0L : usage.inputTokens,
+                usage == null ? 0L : usage.cachedInputTokens,
+                elapsed);
+    }
+
+    static JSONObject syntheticCommonContext() {
+        JSONObject character = new JSONObject();
+        character.put("display_name", "Cache Diagnostic NPC");
+        character.put("profile", new JSONObject()
+                .put("occupation", "developer diagnostic")
+                .put("age_stage", "adult"));
+        character.put("personality", new JSONObject()
+                .put("openness", 0.61)
+                .put("conscientiousness", 0.58)
+                .put("extraversion", 0.47)
+                .put("agreeableness", 0.55)
+                .put("neuroticism", 0.43));
+        character.put("dynamic_state", new JSONObject()
+                .put("valence", 0.0)
+                .put("arousal", 0.45)
+                .put("stress", 0.2));
+
+        StringBuilder evidence = new StringBuilder(14_000);
         int sequence = 0;
-        while (text.length() < MIN_STABLE_PREFIX_CHARS + 2_000) {
-            text.append(block)
-                    .append("Stable sequence marker ")
+        while (evidence.length() < MIN_COMMON_CONTEXT_CHARS) {
+            evidence.append("Grounded cache diagnostic evidence ")
                     .append(sequence++)
-                    .append(" remains part of the immutable diagnostic prefix.\n");
+                    .append(": this sentence is synthetic test context, carries no user secret, and must not mutate any NPC state. ");
         }
-        text.append("End of immutable diagnostic prefix. The following suffix is the only per-call variation.\n");
-        return text.toString();
+
+        JSONObject memory = new JSONObject()
+                .put("recent_memory", new JSONArray())
+                .put("episodic_memory", new JSONArray())
+                .put("semantic_memory", new JSONArray().put(new JSONObject()
+                        .put("type", "world_fact")
+                        .put("text", evidence.toString())))
+                .put("policy", "Developer-only synthetic memory evidence for cache measurement.");
+
+        return new JSONObject()
+                .put("user_input", "Developer diagnostic scene: observe the same grounded situation independently according to your specialist role.")
+                .put("character_state", character)
+                .put("long_term_memory", memory)
+                .put("working_memory", new JSONArray())
+                .put("parallel_phase", new JSONObject()
+                        .put("mode", "parallel_specialists")
+                        .put("peer_outputs_available", false)
+                        .put("specialist_count", CALL_COUNT));
     }
 
-    static String dynamicSuffix(int callIndex) {
-        int index = Math.max(1, callIndex);
-        return "Probe call " + index + ". Return ONLY JSON with exactly this shape: "
-                + "{\"ok\":true,\"probe_call\":" + index + "}. Do not add prose.";
-    }
-
-    static String promptCacheKey(long nonce) {
-        return "npcbrain-cache-test-v047-" + Long.toHexString(nonce);
+    static JSONObject syntheticGraphFocus(String moduleId) {
+        return new JSONObject()
+                .put("nodes", new JSONArray().put(new JSONObject()
+                        .put("id", "diagnostic-grounded-node")
+                        .put("label", "synthetic grounded developer diagnostic")
+                        .put("activation", 0.5)))
+                .put("edges", new JSONArray())
+                .put("policy", "Synthetic graph focus for " + (moduleId == null ? "" : moduleId));
     }
 
     private static double ratio(long numerator, long denominator) {
