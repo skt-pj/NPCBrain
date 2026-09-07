@@ -183,10 +183,10 @@ public final class SettingsActivity extends Activity {
 
     private View buildPromptCacheDebugCard() {
         LinearLayout card = card();
-        card.addView(text("Prompt Cache Test", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text("Brain Prompt Cache Test", 18, AppUiTheme.APP_TEXT, true));
 
         TextView note = text(
-                "Debug専用。固定prefixを共有した実APIを3回逐次実行し、OpenAI usageのcached tokensからヒット率を測定します。実API費用は発生しますがNPC別AI費用台帳には加算しません。",
+                "Debug専用。本番Brainと同じ9専門役割・Prompt Cache構造を使います。1専門をwarm-up後、残り8専門を並列実API実行し、cached tokensを測定します。実API費用は発生しますがNPC別AI費用台帳には加算しません。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false);
@@ -196,7 +196,7 @@ public final class SettingsActivity extends Activity {
         noteParams.topMargin = dp(5);
         card.addView(note, noteParams);
 
-        cacheProbeButton = actionButton("3回テストを実行");
+        cacheProbeButton = actionButton("脳9専門 Cacheテストを実行");
         cacheProbeButton.setOnClickListener(v -> startPromptCacheProbe());
         LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -205,7 +205,7 @@ public final class SettingsActivity extends Activity {
         card.addView(cacheProbeButton, buttonParams);
 
         cacheProbeStatus = text(
-                "未実行。Call 1をwarm-up、Call 2+3をReuseとして集計します。",
+                "未実行。perceptionをwarm-upし、残り8専門のparallel reuseを集計します。",
                 11,
                 AppUiTheme.APP_TEXT,
                 false);
@@ -233,7 +233,9 @@ public final class SettingsActivity extends Activity {
 
         cacheProbeRunning = true;
         if (cacheProbeButton != null) cacheProbeButton.setEnabled(false);
-        if (cacheProbeStatus != null) cacheProbeStatus.setText("実行中… 3回の実APIを逐次送信しています。");
+        if (cacheProbeStatus != null) {
+            cacheProbeStatus.setText("実行中… warm-up 1件 → 8専門parallel実APIを送信しています。");
+        }
 
         new Thread(() -> {
             try {
