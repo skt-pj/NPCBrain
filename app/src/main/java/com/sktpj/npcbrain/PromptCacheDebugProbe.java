@@ -181,7 +181,7 @@ final class PromptCacheDebugProbe {
                 elapsed);
     }
 
-    static JSONObject syntheticCommonContext() {
+    static JSONObject syntheticCommonContext() throws Exception {
         JSONObject character = new JSONObject();
         character.put("display_name", "Cache Diagnostic NPC");
         character.put("profile", new JSONObject()
@@ -225,7 +225,7 @@ final class PromptCacheDebugProbe {
                         .put("specialist_count", CALL_COUNT));
     }
 
-    static JSONObject syntheticGraphFocus(String moduleId) {
+    static JSONObject syntheticGraphFocus(String moduleId) throws Exception {
         return new JSONObject()
                 .put("nodes", new JSONArray().put(new JSONObject()
                         .put("id", "diagnostic-grounded-node")
