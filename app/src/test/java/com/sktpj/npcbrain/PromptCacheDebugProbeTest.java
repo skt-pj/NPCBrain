@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
 
 public class PromptCacheDebugProbeTest {
     @Test
-    public void explicitCacheRequestHasStableBreakpointAndSharedKey() {
+    public void explicitCacheRequestHasStableBreakpointAndSharedKey() throws Exception {
         JSONObject body = PromptCacheDebugClient.buildRequestBody(
                 "stable-prefix",
                 "dynamic-suffix",
@@ -84,7 +84,7 @@ public class PromptCacheDebugProbeTest {
     }
 
     @Test
-    public void usageReadsAndClampsCachedInputTokens() {
+    public void usageReadsAndClampsCachedInputTokens() throws Exception {
         JSONObject response = new JSONObject()
                 .put("usage", new JSONObject()
                         .put("input_tokens", 100L)
