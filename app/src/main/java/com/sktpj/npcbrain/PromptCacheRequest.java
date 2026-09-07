@@ -1,7 +1,6 @@
 package com.sktpj.npcbrain;
 
 import org.json.JSONArray;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -67,31 +66,35 @@ final class PromptCacheRequest {
             String reasoningEffort,
             int maxOutputTokens,
             Prompt prompt
-    ) throws JSONException {
+    ) {
         if (prompt == null) throw new IllegalArgumentException("prompt is required");
-        JSONObject body = new JSONObject();
-        body.put("model", model == null ? "" : model);
-        body.put("reasoning", new JSONObject().put("effort", reasoningEffort == null ? "" : reasoningEffort));
-        body.put("max_output_tokens", maxOutputTokens);
-        body.put("prompt_cache_key", prompt.promptCacheKey());
-        body.put("prompt_cache_options", new JSONObject().put("mode", EXPLICIT_MODE));
+        try {
+            JSONObject body = new JSONObject();
+            body.put("model", model == null ? "" : model);
+            body.put("reasoning", new JSONObject().put("effort", reasoningEffort == null ? "" : reasoningEffort));
+            body.put("max_output_tokens", maxOutputTokens);
+            body.put("prompt_cache_key", prompt.promptCacheKey());
+            body.put("prompt_cache_options", new JSONObject().put("mode", EXPLICIT_MODE));
 
-        JSONArray content = new JSONArray();
-        for (String segment : prompt.cacheSegments()) {
-            content.put(new JSONObject()
-                    .put("type", "input_text")
-                    .put("text", segment)
-                    .put("prompt_cache_breakpoint", new JSONObject().put("mode", EXPLICIT_MODE)));
+            JSONArray content = new JSONArray();
+            for (String segment : prompt.cacheSegments()) {
+                content.put(new JSONObject()
+                        .put("type", "input_text")
+                        .put("text", segment)
+                        .put("prompt_cache_breakpoint", new JSONObject().put("mode", EXPLICIT_MODE)));
+            }
+            if (!prompt.dynamicSuffix().isEmpty()) {
+                content.put(new JSONObject()
+                        .put("type", "input_text")
+                        .put("text", prompt.dynamicSuffix()));
+            }
+            body.put("input", new JSONArray().put(new JSONObject()
+                    .put("type", "message")
+                    .put("role", "user")
+                    .put("content", content)));
+            return body;
+        } catch (Exception error) {
+            throw new IllegalStateException("Failed to build Prompt Cache request body", error);
         }
-        if (!prompt.dynamicSuffix().isEmpty()) {
-            content.put(new JSONObject()
-                    .put("type", "input_text")
-                    .put("text", prompt.dynamicSuffix()));
-        }
-        body.put("input", new JSONArray().put(new JSONObject()
-                .put("type", "message")
-                .put("role", "user")
-                .put("content", content)));
-        return body;
     }
 }
