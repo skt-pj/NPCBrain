@@ -150,12 +150,13 @@ final class CharacterStateStore {
             root.put("current_state", dynamic);
 
             root.put("economy", economySnapshot());
-            root.put("inner_life",
-                    new NpcInnerLifeStore(storageContext).snapshotForBrain(
-                            System.currentTimeMillis(),
-                            extraversion,
-                            neuroticism,
-                            openness));
+            JSONObject innerLife = new NpcInnerLifeStore(storageContext).snapshotForBrain(
+                    System.currentTimeMillis(),
+                    extraversion,
+                    neuroticism,
+                    openness);
+            root.put("inner_life", innerLife);
+            root.put("neuroanatomy", NeuroanatomyModel.fullContext(root));
         } catch (Exception ignored) {
         }
         return root;
