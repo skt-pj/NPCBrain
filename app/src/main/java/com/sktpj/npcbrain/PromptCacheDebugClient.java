@@ -1,7 +1,6 @@
 package com.sktpj.npcbrain;
 
 import org.json.JSONArray;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -11,6 +10,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 /** Debug-only diagnostic transport for explicit Prompt Cache measurements. */
 final class PromptCacheDebugClient {
@@ -30,12 +30,20 @@ final class PromptCacheDebugClient {
             String promptCacheKey,
             int maxOutputTokens
     ) throws Exception {
-        if (apiKey.isEmpty()) throw new IllegalStateException("OpenAI APIキーが未設定です。");
-        JSONObject body = buildRequestBody(
-                stablePrefix,
-                dynamicSuffix,
-                promptCacheKey,
+        return execute(
+                new PromptCacheRequest.Prompt(
+                        Arrays.asList(stablePrefix == null ? "" : stablePrefix),
+                        dynamicSuffix,
+                        promptCacheKey),
                 maxOutputTokens);
+    }
+
+    OpenAiClient.Usage execute(
+            PromptCacheRequest.Prompt prompt,
+            int maxOutputTokens
+    ) throws Exception {
+        if (apiKey.isEmpty()) throw new IllegalStateException("OpenAI APIキーが未設定です。");
+        JSONObject body = buildRequestBody(prompt, maxOutputTokens);
         byte[] request = body.toString().getBytes(StandardCharsets.UTF_8);
 
         HttpURLConnection connection = null;
@@ -76,31 +84,24 @@ final class PromptCacheDebugClient {
             String dynamicSuffix,
             String promptCacheKey,
             int maxOutputTokens
-    ) throws JSONException {
-        String prefix = stablePrefix == null ? "" : stablePrefix;
-        String suffix = dynamicSuffix == null ? "" : dynamicSuffix;
-        String cacheKey = promptCacheKey == null ? "" : promptCacheKey.trim();
-        if (cacheKey.isEmpty()) throw new IllegalArgumentException("promptCacheKey is required");
+    ) {
+        return buildRequestBody(
+                new PromptCacheRequest.Prompt(
+                        Arrays.asList(stablePrefix == null ? "" : stablePrefix),
+                        dynamicSuffix,
+                        promptCacheKey),
+                maxOutputTokens);
+    }
 
-        JSONObject stable = new JSONObject()
-                .put("type", "input_text")
-                .put("text", prefix)
-                .put("prompt_cache_breakpoint", new JSONObject().put("mode", "explicit"));
-        JSONObject dynamic = new JSONObject()
-                .put("type", "input_text")
-                .put("text", suffix);
-        JSONObject message = new JSONObject()
-                .put("type", "message")
-                .put("role", "user")
-                .put("content", new JSONArray().put(stable).put(dynamic));
-
-        return new JSONObject()
-                .put("model", OpenAiClient.MODEL)
-                .put("reasoning", new JSONObject().put("effort", "low"))
-                .put("max_output_tokens", OpenAiClient.normalizeMaxOutputTokens(maxOutputTokens))
-                .put("prompt_cache_key", cacheKey)
-                .put("prompt_cache_options", new JSONObject().put("mode", "explicit"))
-                .put("input", new JSONArray().put(message));
+    static JSONObject buildRequestBody(
+            PromptCacheRequest.Prompt prompt,
+            int maxOutputTokens
+    ) {
+        return PromptCacheRequest.buildBody(
+                OpenAiClient.MODEL,
+                "low",
+                OpenAiClient.normalizeMaxOutputTokens(maxOutputTokens),
+                prompt);
     }
 
     private static void validateJsonOutput(JSONObject response) {
