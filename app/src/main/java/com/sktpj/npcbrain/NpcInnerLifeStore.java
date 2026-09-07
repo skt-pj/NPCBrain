@@ -17,8 +17,12 @@ final class NpcInnerLifeStore {
     private static final int MAX_STREAM = 120;
 
     private final SharedPreferences preferences;
+    private final String npcId;
 
     NpcInnerLifeStore(Context storageContext) {
+        npcId = storageContext instanceof NpcStorageContext
+                ? ((NpcStorageContext) storageContext).npcId()
+                : "npc1";
         preferences = storageContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
@@ -28,7 +32,7 @@ final class NpcInnerLifeStore {
         try {
             JSONObject json = new JSONObject(raw);
             long initialized = json.optLong("initialized_at_ms", 0L);
-            return NpcInnerLifeState.fromJson(json, initialized, 0.5, 0.5, 0.5);
+            return NpcInnerLifeState.fromJson(json, initialized, 0.5, 0.5, 0.5, npcId);
         } catch (Exception ignored) {
             return null;
         }
@@ -43,7 +47,7 @@ final class NpcInnerLifeStore {
         NpcInnerLifeState existing = loadExisting();
         if (existing != null) return existing;
         NpcInnerLifeState state = NpcInnerLifeState.initial(
-                nowMs, extraversion, neuroticism, openness);
+                nowMs, extraversion, neuroticism, openness, npcId);
         save(state);
         return state;
     }
