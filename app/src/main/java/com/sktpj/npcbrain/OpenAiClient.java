@@ -165,6 +165,27 @@ final class OpenAiClient {
         return requestJsonInternal(prompt, normalizeMaxOutputTokens(maxOutputTokens));
     }
 
+    JSONObject requestJson(PromptCacheRequest.Prompt prompt) throws Exception {
+        if (prompt == null) throw new IllegalArgumentException("prompt is required");
+        String fullPrompt = prompt.fullText();
+        int ordinal = logicalRequestOrdinal.incrementAndGet();
+        int requestedLimit;
+        if (outputLimitPolicy != null) {
+            requestedLimit = outputLimitPolicy.maxOutputTokens(ordinal);
+        } else if (!attributedNpcId(fullPrompt).isEmpty()) {
+            requestedLimit = NpcAiBudgetPolicy.npcDefaultMaxOutputTokens(fullPrompt);
+        } else {
+            requestedLimit = DEFAULT_MAX_OUTPUT_TOKENS;
+        }
+        return requestJsonInternal(prompt, normalizeMaxOutputTokens(requestedLimit));
+    }
+
+    JSONObject requestJson(PromptCacheRequest.Prompt prompt, int maxOutputTokens) throws Exception {
+        if (prompt == null) throw new IllegalArgumentException("prompt is required");
+        logicalRequestOrdinal.incrementAndGet();
+        return requestJsonInternal(prompt, normalizeMaxOutputTokens(maxOutputTokens));
+    }
+
     static int normalizeMaxOutputTokens(int value) {
         return Math.max(1, Math.min(DEFAULT_MAX_OUTPUT_TOKENS, value));
     }
@@ -175,6 +196,18 @@ final class OpenAiClient {
 
     static String toolChoice(OpenAiClient.FunctionTool tool) {
         return tool != null && tool.requiredInvocation() ? "required" : "auto";
+    }
+
+    static JSONObject cachedRequestBodyForTest(
+            PromptCacheRequest.Prompt prompt,
+            String reasoningEffort,
+            int maxOutputTokens
+    ) {
+        return PromptCacheRequest.buildBody(
+                MODEL,
+                ModelSettingsStore.normalizeReasoningEffort(reasoningEffort),
+                normalizeMaxOutputTokens(maxOutputTokens),
+                prompt);
     }
 
     private JSONObject requestJsonInternal(String prompt, int maxOutputTokens) throws Exception {
@@ -189,10 +222,37 @@ final class OpenAiClient {
             body.put("tool_choice", toolChoice(tool));
             body.put("parallel_tool_calls", false);
         }
+        return executeLogicalRequest(body, prompt, tool, maxOutputTokens);
+    }
 
+    private JSONObject requestJsonInternal(
+            PromptCacheRequest.Prompt prompt,
+            int maxOutputTokens
+    ) throws Exception {
+        String fullPrompt = prompt.fullText();
+        FunctionTool tool = isGlobalWorkspacePrompt(fullPrompt) ? FUNCTION_TOOL.get() : null;
+        JSONObject body = PromptCacheRequest.buildBody(
+                MODEL,
+                reasoningEffort,
+                maxOutputTokens,
+                prompt);
+        if (tool != null) {
+            body.put("tools", new JSONArray().put(tool.definition()));
+            body.put("tool_choice", toolChoice(tool));
+            body.put("parallel_tool_calls", false);
+        }
+        return executeLogicalRequest(body, fullPrompt, tool, maxOutputTokens);
+    }
+
+    private JSONObject executeLogicalRequest(
+            JSONObject body,
+            String attributionPrompt,
+            FunctionTool tool,
+            int maxOutputTokens
+    ) throws Exception {
         byte[] request = body.toString().getBytes(StandardCharsets.UTF_8);
         IOException firstFailure = null;
-        String attributedNpcId = attributedNpcId(prompt);
+        String attributedNpcId = attributedNpcId(attributionPrompt);
 
         for (int pass = 0; pass < CONNECTION_RETRY_PASSES; pass++) {
             if (pass > 0) {
