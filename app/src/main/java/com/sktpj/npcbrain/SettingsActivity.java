@@ -82,7 +82,7 @@ public final class SettingsActivity extends Activity {
         scroll.addView(body);
 
         body.addView(buildAiSettingsCard());
-        if (BuildConfig.DEBUG) {
+        if (isDebuggableBuild()) {
             LinearLayout.LayoutParams cacheParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -218,7 +218,7 @@ public final class SettingsActivity extends Activity {
     }
 
     private void startPromptCacheProbe() {
-        if (!BuildConfig.DEBUG || cacheProbeRunning) return;
+        if (!isDebuggableBuild() || cacheProbeRunning) return;
         final String apiKey;
         try {
             apiKey = apiKeyStore.load().trim();
@@ -442,6 +442,11 @@ public final class SettingsActivity extends Activity {
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    private boolean isDebuggableBuild() {
+        return (getApplicationInfo().flags
+                & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
     }
 
     private LinearLayout card() {
