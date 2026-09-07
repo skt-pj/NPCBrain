@@ -1,6 +1,7 @@
 package com.sktpj.npcbrain;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -75,7 +76,7 @@ final class PromptCacheDebugClient {
             String dynamicSuffix,
             String promptCacheKey,
             int maxOutputTokens
-    ) {
+    ) throws JSONException {
         String prefix = stablePrefix == null ? "" : stablePrefix;
         String suffix = dynamicSuffix == null ? "" : dynamicSuffix;
         String cacheKey = promptCacheKey == null ? "" : promptCacheKey.trim();
