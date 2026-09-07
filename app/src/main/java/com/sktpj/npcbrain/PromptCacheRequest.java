@@ -1,6 +1,7 @@
 package com.sktpj.npcbrain;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -66,7 +67,7 @@ final class PromptCacheRequest {
             String reasoningEffort,
             int maxOutputTokens,
             Prompt prompt
-    ) {
+    ) throws JSONException {
         if (prompt == null) throw new IllegalArgumentException("prompt is required");
         JSONObject body = new JSONObject();
         body.put("model", model == null ? "" : model);
