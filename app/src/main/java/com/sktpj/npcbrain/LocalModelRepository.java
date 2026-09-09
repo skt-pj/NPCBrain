@@ -12,9 +12,14 @@ import java.net.URL;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Downloads the fixed LiteRT-LM model artifacts into app-private storage. */
 final class LocalModelRepository {
+    interface ProgressListener {
+        void onProgress(long downloadedBytes, long totalBytes);
+    }
+
     static final class ModelSpec {
         final String modelId;
         final String repository;
@@ -42,6 +47,7 @@ final class LocalModelRepository {
     }
 
     private static final Map<String, ModelSpec> SPECS;
+    private static final Map<String, Object> DOWNLOAD_LOCKS = new ConcurrentHashMap<>();
 
     static {
         Map<String, ModelSpec> specs = new LinkedHashMap<>();
@@ -87,52 +93,84 @@ final class LocalModelRepository {
         return new File(directory, spec.fileName);
     }
 
-    File ensureModel(String modelId) throws IOException {
+    boolean isDownloaded(String modelId) {
         ModelSpec spec = spec(modelId);
-        File target = modelFile(spec.modelId);
-        if (isUsable(target, spec.expectedSizeBytes)) return target;
+        return isUsable(modelFile(spec.modelId), spec.expectedSizeBytes);
+    }
 
-        File parent = target.getParentFile();
-        if (parent == null || (!parent.exists() && !parent.mkdirs())) {
-            throw new IOException("ローカルLLM保存先を作成できません: " + target);
-        }
-        File part = new File(parent, spec.fileName + ".part");
-        if (part.exists() && !part.delete()) {
-            throw new IOException("ローカルLLMの一時ファイルを削除できません: " + part);
-        }
+    long installedBytes(String modelId) {
+        File file = modelFile(modelId);
+        return isDownloaded(modelId) ? file.length() : 0L;
+    }
 
-        HttpURLConnection connection = openFollowingRedirects(new URL(spec.downloadUrl()));
-        long contentLength = connection.getContentLengthLong();
-        long written = 0L;
-        try (InputStream input = new BufferedInputStream(connection.getInputStream());
-             FileOutputStream output = new FileOutputStream(part, false)) {
-            byte[] buffer = new byte[1024 * 1024];
-            int count;
-            while ((count = input.read(buffer)) >= 0) {
-                if (count == 0) continue;
-                output.write(buffer, 0, count);
-                written += count;
+    File ensureModel(String modelId) throws IOException {
+        return ensureModel(modelId, null);
+    }
+
+    File ensureModel(String modelId, ProgressListener listener) throws IOException {
+        ModelSpec spec = spec(modelId);
+        Object lock = DOWNLOAD_LOCKS.computeIfAbsent(spec.modelId, ignored -> new Object());
+        synchronized (lock) {
+            File target = modelFile(spec.modelId);
+            if (isUsable(target, spec.expectedSizeBytes)) {
+                notifyProgress(listener, target.length(), target.length());
+                return target;
             }
-            output.getFD().sync();
-        } finally {
-            connection.disconnect();
-        }
 
-        long required = spec.expectedSizeBytes > 0L ? spec.expectedSizeBytes : contentLength;
-        if (written <= 0L || (required > 0L && written != required)) {
-            part.delete();
-            throw new IOException("ローカルLLMのdownload sizeが不正です: " + written
-                    + (required > 0L ? " / expected " + required : ""));
+            File parent = target.getParentFile();
+            if (parent == null || (!parent.exists() && !parent.mkdirs())) {
+                throw new IOException("ローカルLLM保存先を作成できません: " + target);
+            }
+            File part = new File(parent, spec.fileName + ".part");
+            if (part.exists() && !part.delete()) {
+                throw new IOException("ローカルLLMの一時ファイルを削除できません: " + part);
+            }
+
+            HttpURLConnection connection = openFollowingRedirects(new URL(spec.downloadUrl()));
+            long contentLength = connection.getContentLengthLong();
+            long required = spec.expectedSizeBytes > 0L ? spec.expectedSizeBytes : contentLength;
+            long written = 0L;
+            notifyProgress(listener, 0L, required);
+            try (InputStream input = new BufferedInputStream(connection.getInputStream());
+                 FileOutputStream output = new FileOutputStream(part, false)) {
+                byte[] buffer = new byte[1024 * 1024];
+                int count;
+                while ((count = input.read(buffer)) >= 0) {
+                    if (count == 0) continue;
+                    output.write(buffer, 0, count);
+                    written += count;
+                    notifyProgress(listener, written, required);
+                }
+                output.getFD().sync();
+            } finally {
+                connection.disconnect();
+            }
+
+            if (written <= 0L || (required > 0L && written != required)) {
+                part.delete();
+                throw new IOException("ローカルLLMのdownload sizeが不正です: " + written
+                        + (required > 0L ? " / expected " + required : ""));
+            }
+            if (target.exists() && !target.delete()) {
+                part.delete();
+                throw new IOException("既存ローカルLLMを置換できません: " + target);
+            }
+            if (!part.renameTo(target)) {
+                part.delete();
+                throw new IOException("ローカルLLMを確定保存できません: " + target);
+            }
+            notifyProgress(listener, target.length(), target.length());
+            return target;
         }
-        if (target.exists() && !target.delete()) {
-            part.delete();
-            throw new IOException("既存ローカルLLMを置換できません: " + target);
+    }
+
+    private static void notifyProgress(ProgressListener listener, long downloaded, long total) {
+        if (listener == null) return;
+        try {
+            listener.onProgress(Math.max(0L, downloaded), total);
+        } catch (RuntimeException ignored) {
+            // Progress reporting must never abort the actual model download.
         }
-        if (!part.renameTo(target)) {
-            part.delete();
-            throw new IOException("ローカルLLMを確定保存できません: " + target);
-        }
-        return target;
     }
 
     private static boolean isUsable(File file, long expectedSizeBytes) {
