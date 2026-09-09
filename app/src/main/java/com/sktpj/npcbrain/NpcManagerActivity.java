@@ -7,6 +7,8 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -20,6 +22,14 @@ import java.util.List;
 public final class NpcManagerActivity extends Activity {
     private NpcRegistryStore registry;
     private LinearLayout list;
+    private final Handler downloadHandler = new Handler(Looper.getMainLooper());
+    private final Runnable downloadRefresh = new Runnable() {
+        @Override
+        public void run() {
+            if (isFinishing() || isDestroyed()) return;
+            renderList();
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,6 +46,12 @@ public final class NpcManagerActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (NPCBrainApplication.isDebugBuild()) renderList();
+    }
+
+    @Override
+    protected void onDestroy() {
+        downloadHandler.removeCallbacks(downloadRefresh);
+        super.onDestroy();
     }
 
     private View buildContent() {
@@ -64,7 +80,7 @@ public final class NpcManagerActivity extends Activity {
         root.addView(header);
 
         TextView note = new TextView(this);
-        note.setText("Debugビルド専用。NPCの追加、全設定のLLM整合・再編集、脳内リセット、削除ができます。");
+        note.setText("Debugビルド専用。NPCの追加、全設定のLLM整合・再編集、脳内リセット、削除ができます。ローカルモデルは選択後に明示ダウンロードできます。同じモデルはNPC間で共有されます。");
         note.setTextColor(AppUiTheme.APP_MUTED);
         note.setTextSize(13);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
@@ -97,6 +113,7 @@ public final class NpcManagerActivity extends Activity {
 
     private void renderList() {
         if (list == null || registry == null) return;
+        downloadHandler.removeCallbacks(downloadRefresh);
         list.removeAllViews();
         List<String> ids = registry.npcIds();
         for (String npcId : ids) {
@@ -109,6 +126,9 @@ public final class NpcManagerActivity extends Activity {
             empty.setTextColor(AppUiTheme.APP_MUTED);
             empty.setTextSize(14);
             list.addView(empty);
+        }
+        if (LocalModelDownloadManager.anyDownloading()) {
+            downloadHandler.postDelayed(downloadRefresh, 500L);
         }
     }
 
@@ -143,8 +163,9 @@ public final class NpcManagerActivity extends Activity {
         card.addView(meta, mp);
 
         NpcModelStore modelStore = new NpcModelStore(this, npcId);
+        String selectedModel = modelStore.selectedModel();
         TextView inference = new TextView(this);
-        inference.setText("推論モデル  " + NpcInferenceModel.displayLabel(modelStore.selectedModel()));
+        inference.setText("推論モデル  " + NpcInferenceModel.displayLabel(selectedModel));
         inference.setTextColor(Color.rgb(52, 67, 101));
         inference.setTextSize(13);
         inference.setTypeface(Typeface.DEFAULT_BOLD);
@@ -152,6 +173,46 @@ public final class NpcManagerActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         ip.topMargin = dp(9);
         card.addView(inference, ip);
+
+        if (NpcInferenceModel.isLocal(selectedModel)) {
+            LocalModelDownloadManager.Snapshot snapshot =
+                    LocalModelDownloadManager.snapshot(this, selectedModel);
+            TextView modelState = new TextView(this);
+            modelState.setText(snapshot.displayText());
+            modelState.setTextColor(snapshot.errorMessage.isEmpty()
+                    ? Color.rgb(78, 92, 111)
+                    : Color.rgb(170, 46, 46));
+            modelState.setTextSize(12);
+            LinearLayout.LayoutParams stateParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            stateParams.topMargin = dp(5);
+            card.addView(modelState, stateParams);
+
+            Button download = new Button(this);
+            download.setAllCaps(false);
+            if (snapshot.downloaded) {
+                download.setText("モデルデータ · ダウンロード済み");
+                download.setEnabled(false);
+            } else if (snapshot.downloading) {
+                download.setText("モデルをダウンロード中…");
+                download.setEnabled(false);
+            } else {
+                download.setText(snapshot.errorMessage.isEmpty()
+                        ? "モデルをダウンロード"
+                        : "モデルを再ダウンロード");
+                download.setEnabled(true);
+                download.setOnClickListener(v -> {
+                    LocalModelDownloadManager.startDownload(this, selectedModel);
+                    Toast.makeText(this, "ローカルモデルのダウンロードを開始しました。", Toast.LENGTH_SHORT).show();
+                    renderList();
+                });
+            }
+            LinearLayout.LayoutParams downloadParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
+            downloadParams.topMargin = dp(7);
+            card.addView(download, downloadParams);
+        }
 
         if (!store.isDead()) {
             Button model = new Button(this);
