@@ -13,7 +13,7 @@ android {
 
     defaultConfig {
         applicationId 'com.sktpj.npcbrain'
-        minSdk 23
+        minSdk 24
         targetSdk 36
         versionCode versionProps.getProperty('VERSION_CODE').toInteger()
         versionName versionProps.getProperty('VERSION_NAME')
@@ -32,6 +32,7 @@ android {
 }
 
 dependencies {
+    implementation 'com.google.ai.edge.litertlm:litertlm-android:0.11.0'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'
 }
