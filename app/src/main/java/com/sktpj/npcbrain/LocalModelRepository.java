@@ -51,12 +51,14 @@ final class LocalModelRepository {
 
     static {
         Map<String, ModelSpec> specs = new LinkedHashMap<>();
+        // Light must be anonymously downloadable. Gemma3-1B-IT is gated by license acceptance,
+        // so it cannot be used by the app's no-account download flow.
         specs.put(NpcInferenceModel.LOCAL_LIGHT, new ModelSpec(
                 NpcInferenceModel.LOCAL_LIGHT,
-                "litert-community/Gemma3-1B-IT",
-                "42d538a932e8d5b12e6b3b455f5572560bd60b2c",
-                "gemma3-1b-it-int4.litertlm",
-                -1L));
+                "litert-community/Qwen2-0.5B-Instruct",
+                "0e209e163e1bc302c19d0fb67101e6ca2cdd1fcb",
+                "Qwen2_0.5B_Instruct.litertlm",
+                647377840L));
         specs.put(NpcInferenceModel.LOCAL_MEDIUM, new ModelSpec(
                 NpcInferenceModel.LOCAL_MEDIUM,
                 "litert-community/Qwen2.5-1.5B-Instruct",
@@ -196,6 +198,12 @@ final class LocalModelRepository {
                 }
                 current = new URL(current, location);
                 continue;
+            }
+            if (status == HttpURLConnection.HTTP_UNAUTHORIZED
+                    || status == HttpURLConnection.HTTP_FORBIDDEN) {
+                connection.disconnect();
+                throw new IOException("モデル配布元が認証またはライセンス同意を要求しています (HTTP "
+                        + status + ")");
             }
             if (status < 200 || status >= 300) {
                 connection.disconnect();

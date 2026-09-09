@@ -25,9 +25,11 @@ public final class NpcInferenceModelTest {
     @Test
     public void localModelSpecsArePinned() {
         LocalModelRepository.ModelSpec light = LocalModelRepository.spec(NpcInferenceModel.LOCAL_LIGHT);
-        assertEquals("litert-community/Gemma3-1B-IT", light.repository);
-        assertEquals("42d538a932e8d5b12e6b3b455f5572560bd60b2c", light.revision);
-        assertEquals("gemma3-1b-it-int4.litertlm", light.fileName);
+        assertEquals("litert-community/Qwen2-0.5B-Instruct", light.repository);
+        assertEquals("0e209e163e1bc302c19d0fb67101e6ca2cdd1fcb", light.revision);
+        assertEquals("Qwen2_0.5B_Instruct.litertlm", light.fileName);
+        assertEquals(647377840L, light.expectedSizeBytes);
+        assertTrue(light.downloadUrl().contains(light.revision));
 
         LocalModelRepository.ModelSpec medium = LocalModelRepository.spec(NpcInferenceModel.LOCAL_MEDIUM);
         assertEquals("litert-community/Qwen2.5-1.5B-Instruct", medium.repository);
