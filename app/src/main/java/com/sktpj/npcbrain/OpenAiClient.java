@@ -212,6 +212,8 @@ final class OpenAiClient {
 
     private JSONObject requestJsonInternal(String prompt, int maxOutputTokens) throws Exception {
         FunctionTool tool = isGlobalWorkspacePrompt(prompt) ? FUNCTION_TOOL.get() : null;
+        JSONObject local = requestLocalIfSelected(prompt, maxOutputTokens, tool);
+        if (local != null) return local;
         JSONObject body = new JSONObject();
         body.put("model", MODEL);
         body.put("reasoning", new JSONObject().put("effort", reasoningEffort));
@@ -231,6 +233,8 @@ final class OpenAiClient {
     ) throws Exception {
         String fullPrompt = prompt.fullText();
         FunctionTool tool = isGlobalWorkspacePrompt(fullPrompt) ? FUNCTION_TOOL.get() : null;
+        JSONObject local = requestLocalIfSelected(fullPrompt, maxOutputTokens, tool);
+        if (local != null) return local;
         JSONObject body = PromptCacheRequest.buildBody(
                 MODEL,
                 reasoningEffort,
@@ -242,6 +246,19 @@ final class OpenAiClient {
             body.put("parallel_tool_calls", false);
         }
         return executeLogicalRequest(body, fullPrompt, tool, maxOutputTokens);
+    }
+
+    private JSONObject requestLocalIfSelected(
+            String fullPrompt,
+            int maxOutputTokens,
+            FunctionTool tool
+    ) throws Exception {
+        String npcId = attributedNpcId(fullPrompt);
+        if (npcId.isEmpty()) return null;
+        String selectedModel = new NpcModelStore(appContext, npcId).selectedModel();
+        if (NpcInferenceModel.usesOpenAi(selectedModel)) return null;
+        return new LocalLlmRuntime(appContext).requestJson(
+                npcId, selectedModel, fullPrompt, maxOutputTokens, tool);
     }
 
     private JSONObject executeLogicalRequest(

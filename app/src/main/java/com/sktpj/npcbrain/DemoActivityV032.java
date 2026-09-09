@@ -423,13 +423,8 @@ public final class DemoActivityV032 extends Activity {
         String apiKey;
         try {
             apiKey = apiKeyStore.load();
-        } catch (Exception error) {
-            showErrorDialog("APIキーを読み出せません: " + error.getMessage(), false);
-            return;
-        }
-        if (apiKey.isEmpty()) {
-            showMissingApiKeyDialog();
-            return;
+        } catch (Exception ignored) {
+            apiKey = "";
         }
 
         hideKeyboard();
@@ -533,13 +528,13 @@ public final class DemoActivityV032 extends Activity {
 
     private void maybeStartSpontaneousProcessing() {
         if (processing || currentRoomId != null || demoRuntime == null || apiKeyStore == null) return;
-        final String apiKey;
+        String apiKey;
         try {
             apiKey = apiKeyStore.load().trim();
         } catch (Exception ignored) {
-            return;
+            apiKey = "";
         }
-        if (apiKey.isEmpty() || !demoRuntime.hasDueSpontaneousEvents()) return;
+        if (!demoRuntime.hasDueSpontaneousEvents()) return;
         startSpontaneousProcessing(apiKey);
     }
 
@@ -666,13 +661,8 @@ public final class DemoActivityV032 extends Activity {
         String apiKey;
         try {
             apiKey = apiKeyStore.load();
-        } catch (Exception error) {
-            showErrorDialog("APIキーを読み出せません: " + error.getMessage(), false);
-            return;
-        }
-        if (apiKey.isEmpty()) {
-            showMissingApiKeyDialog();
-            return;
+        } catch (Exception ignored) {
+            apiKey = "";
         }
         JSONObject event = retryUserMessage;
         String room = retryRoomId;
@@ -1196,7 +1186,7 @@ public final class DemoActivityV032 extends Activity {
     }
 
     private String currentModelSummary() {
-        return "GPT-5.6 Luna · reasoning "
+        return "NPC別推論モデル · OpenAI Luna reasoning "
                 + ModelSettingsStore.displayLabel(modelSettingsStore.reasoningEffort())
                 + " · APIキー " + (hasApiKey() ? "設定済み" : "未設定");
     }

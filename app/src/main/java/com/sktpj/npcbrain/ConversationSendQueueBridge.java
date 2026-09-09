@@ -101,19 +101,6 @@ final class ConversationSendQueueBridge {
         String text = input.getText().toString().trim();
         if (text.isEmpty()) return;
 
-        SecureApiKeyStore apiKeyStore = objectField(activity, "apiKeyStore", SecureApiKeyStore.class);
-        String apiKey;
-        try {
-            apiKey = apiKeyStore == null ? "" : apiKeyStore.load().trim();
-        } catch (Exception error) {
-            invokeError(activity, "APIキーを読み出せません: " + safeMessage(error), false);
-            return;
-        }
-        if (apiKey.isEmpty()) {
-            invokeNoArgs(activity, "showMissingApiKeyDialog");
-            return;
-        }
-
         invokeNoArgs(activity, "hideKeyboard");
         ConversationStore conversations = objectField(activity, "conversationStore", ConversationStore.class);
         if (conversations == null) conversations = new ConversationStore(activity);
@@ -141,15 +128,8 @@ final class ConversationSendQueueBridge {
         String apiKey;
         try {
             apiKey = apiKeyStore == null ? "" : apiKeyStore.load().trim();
-        } catch (Exception error) {
-            setRetry(activity, queuedRoom, queuedMessage);
-            invokeError(activity, "送信待ちメッセージの処理を開始できません: " + safeMessage(error), true);
-            return;
-        }
-        if (apiKey.isEmpty()) {
-            setRetry(activity, queuedRoom, queuedMessage);
-            invokeError(activity, "APIキーが未設定のため、送信待ちメッセージの返信処理を開始できません。", true);
-            return;
+        } catch (Exception ignored) {
+            apiKey = "";
         }
 
         try {

@@ -59,14 +59,15 @@ public final class ReplyTimerJobService extends JobService {
         ReplyTimerExecutionScope.enter(sourceKey);
         try {
             String apiKey = new SecureApiKeyStore(this).load();
-            if (apiKey == null || apiKey.trim().isEmpty()) {
+            String key = apiKey == null ? "" : apiKey.trim();
+            if (!NpcInferenceAccess.canRun(this, task.npcId, key)) {
                 retry = true;
                 return;
             }
             DemoRuntimeV032 runtime = new DemoRuntimeV032(this, new ConversationStore(this));
             runtime.processReplyTimer(
                     task,
-                    apiKey.trim(),
+                    key,
                     new ModelSettingsStore(this).reasoningEffort(),
                     null);
 

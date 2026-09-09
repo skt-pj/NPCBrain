@@ -36,11 +36,12 @@ final class NpcProfileReconciler {
 
     Result reconcile(String npcId, NpcProfileDraft draft) throws Exception {
         String apiKey = new SecureApiKeyStore(appContext).load();
-        if (apiKey == null || apiKey.trim().isEmpty()) {
-            throw new IllegalStateException("AI設定でOpenAI APIキーを設定してください。");
+        String key = apiKey == null ? "" : apiKey.trim();
+        if (NpcInferenceAccess.usesOpenAi(appContext, npcId) && key.isEmpty()) {
+            throw new IllegalStateException("OpenAI Lunaを使うNPCにはAPIキーを設定してください。");
         }
         String effort = new ModelSettingsStore(appContext).reasoningEffort();
-        OpenAiClient client = new OpenAiClient(appContext, apiKey.trim(), effort);
+        OpenAiClient client = new OpenAiClient(appContext, key, effort);
         JSONObject response = client.requestJson(buildPrompt(npcId, draft), MAX_OUTPUT_TOKENS);
         return parseResponse(npcId, response);
     }

@@ -142,7 +142,26 @@ public final class NpcManagerActivity extends Activity {
         mp.topMargin = dp(8);
         card.addView(meta, mp);
 
+        NpcModelStore modelStore = new NpcModelStore(this, npcId);
+        TextView inference = new TextView(this);
+        inference.setText("推論モデル  " + NpcInferenceModel.displayLabel(modelStore.selectedModel()));
+        inference.setTextColor(Color.rgb(52, 67, 101));
+        inference.setTextSize(13);
+        inference.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        ip.topMargin = dp(9);
+        card.addView(inference, ip);
+
         if (!store.isDead()) {
+            Button model = new Button(this);
+            model.setText("モデルを変更");
+            model.setAllCaps(false);
+            model.setOnClickListener(v -> showModelDialog(npcId));
+            LinearLayout.LayoutParams modelParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
+            modelParams.topMargin = dp(8);
+            card.addView(model, modelParams);
             Button edit = new Button(this);
             edit.setText("設定を編集");
             edit.setAllCaps(false);
@@ -180,6 +199,30 @@ public final class NpcManagerActivity extends Activity {
             new WorldRuntimeV040(this).syncAllNow();
             renderList();
         });
+    }
+
+    private void showModelDialog(String npcId) {
+        NpcModelStore store = new NpcModelStore(this, npcId);
+        String current = store.selectedModel();
+        String[] values = NpcInferenceModel.supportedValues();
+        String[] labels = new String[values.length];
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            labels[i] = NpcInferenceModel.displayLabel(values[i]);
+            if (values[i].equals(current)) checked = i;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("推論モデル")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    if (which >= 0 && which < values.length) {
+                        store.setSelectedModel(values[which]);
+                        dialog.dismiss();
+                        renderList();
+                        Toast.makeText(this, "推論モデルを保存しました。", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("キャンセル", null)
+                .show();
     }
 
     private void confirmBrainReset(String npcId, String displayName) {

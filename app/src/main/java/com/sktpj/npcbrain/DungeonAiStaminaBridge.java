@@ -74,6 +74,14 @@ final class DungeonAiStaminaBridge {
                         return;
                     }
                     String npcId = selectedNpcId(activity);
+                    if (!NpcInferenceAccess.usesOpenAi(activity, npcId)) {
+                        label.setText("AI STAMINA  ローカル · 上限なし");
+                        bar.setVisibility(View.GONE);
+                        stamina.setContentDescription(label.getText());
+                        stamina.postDelayed(this, REFRESH_MS);
+                        return;
+                    }
+                    bar.setVisibility(View.VISIBLE);
                     NpcAiStaminaStore.Snapshot snapshot = store.snapshot(npcId);
                     label.setText(
                             "AI STAMINA " + snapshot.remainingPercent + "%"
