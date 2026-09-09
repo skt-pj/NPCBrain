@@ -39,4 +39,32 @@ public final class NpcInferenceModelTest {
         assertEquals("6e5c4f1e395deb959c494953478fa5cec4b8008f", heavy.revision);
         assertEquals("gemma-4-E2B-it.litertlm", heavy.fileName);
     }
+
+    @Test
+    public void downloadStatusTextDistinguishesAllStates() {
+        LocalModelDownloadManager.Snapshot missing = new LocalModelDownloadManager.Snapshot(
+                false, false, 0L, -1L, "");
+        assertEquals("モデルデータ  未ダウンロード", missing.displayText());
+
+        LocalModelDownloadManager.Snapshot downloading = new LocalModelDownloadManager.Snapshot(
+                false, true, 50L, 100L, "");
+        assertTrue(downloading.displayText().contains("ダウンロード中 50%"));
+
+        LocalModelDownloadManager.Snapshot ready = new LocalModelDownloadManager.Snapshot(
+                true, false, 1024L, 1024L, "");
+        assertTrue(ready.displayText().contains("ダウンロード済み"));
+
+        LocalModelDownloadManager.Snapshot failed = new LocalModelDownloadManager.Snapshot(
+                false, false, 0L, -1L, "network failed");
+        assertTrue(failed.displayText().contains("ERROR"));
+        assertTrue(failed.displayText().contains("network failed"));
+    }
+
+    @Test
+    public void byteFormattingIsReadable() {
+        assertEquals("0 B", LocalModelDownloadManager.formatBytes(0L));
+        assertEquals("1.0 KiB", LocalModelDownloadManager.formatBytes(1024L));
+        assertEquals("1.0 MiB", LocalModelDownloadManager.formatBytes(1024L * 1024L));
+        assertEquals("1.00 GiB", LocalModelDownloadManager.formatBytes(1024L * 1024L * 1024L));
+    }
 }
