@@ -90,7 +90,7 @@ public final class SettingsActivity extends Activity {
             body.addView(buildPromptCacheDebugCard(), cacheParams);
         }
 
-        TextView budgetTitle = text("NPC別 AI費用", 18, AppUiTheme.APP_TEXT, true);
+        TextView budgetTitle = text("NPC別 OpenAI Luna費用", 18, AppUiTheme.APP_TEXT, true);
         LinearLayout.LayoutParams budgetTitleParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -119,7 +119,7 @@ public final class SettingsActivity extends Activity {
 
     private View buildAiSettingsCard() {
         LinearLayout card = card();
-        card.addView(text("AI設定", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text("OpenAI Luna設定", 18, AppUiTheme.APP_TEXT, true));
 
         TextView model = text("モデル  gpt-5.6-luna", 12, AppUiTheme.APP_MUTED, false);
         LinearLayout.LayoutParams modelParams = new LinearLayout.LayoutParams(
@@ -281,11 +281,17 @@ public final class SettingsActivity extends Activity {
         if (budgetContainer == null) return;
         budgetContainer.removeAllViews();
         List<String> ids = registryStore.npcIds();
-        if (ids.isEmpty()) {
-            budgetContainer.addView(text("NPCがありません。", 12, AppUiTheme.APP_MUTED, false));
-            return;
+        int shown = 0;
+        for (String npcId : ids) {
+            if (!NpcInferenceAccess.usesOpenAi(this, npcId)) continue;
+            budgetContainer.addView(buildBudgetCard(npcId));
+            shown++;
         }
-        for (String npcId : ids) budgetContainer.addView(buildBudgetCard(npcId));
+        if (shown == 0) {
+            budgetContainer.addView(text(
+                    "OpenAI Lunaを選択中のNPCはいません。",
+                    12, AppUiTheme.APP_MUTED, false));
+        }
     }
 
     private View buildBudgetCard(String npcId) {

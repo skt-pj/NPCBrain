@@ -79,9 +79,9 @@ final class DungeonBrainRuntime {
             Listener listener
     ) throws Exception {
         if (state == null) throw new IllegalArgumentException("DungeonState is required");
-        DungeonAiStaminaStore staminaStore = new DungeonAiStaminaStore(appContext);
-        if (staminaStore.snapshot(npcId).exhausted()) {
-            throw new IllegalStateException("AI STAMINA exhausted");
+        if (NpcInferenceAccess.usesOpenAi(appContext, npcId)
+                && new DungeonAiStaminaStore(appContext).snapshot(npcId).exhausted()) {
+            throw new IllegalStateException("OpenAI Luna AI STAMINA exhausted");
         }
 
         Context storageContext = NpcContexts.storage(appContext, npcId);

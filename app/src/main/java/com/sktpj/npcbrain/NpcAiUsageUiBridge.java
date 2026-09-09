@@ -85,6 +85,10 @@ final class NpcAiUsageUiBridge {
 
     private static void refresh(NpcStatusActivity activity, State state) {
         String npcId = selectedNpcId(activity);
+        if (!NpcInferenceAccess.usesOpenAi(activity, npcId)) {
+            state.value.setText("ローカル · 上限なし");
+            return;
+        }
         NpcAiStaminaStore.Snapshot snapshot = state.store.snapshot(npcId);
         state.value.setText(
                 snapshot.remainingPercent + "%"

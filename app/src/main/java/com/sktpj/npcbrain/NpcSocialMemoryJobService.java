@@ -45,8 +45,7 @@ public final class NpcSocialMemoryJobService extends JobService {
             new DungeonAutonomyRuntime(this).evaluateAndJoin(now);
 
             String apiKey = new SecureApiKeyStore(this).load();
-            if (apiKey == null || apiKey.trim().isEmpty()) return;
-            String key = apiKey.trim();
+            String key = apiKey == null ? "" : apiKey.trim();
             String reasoning = new ModelSettingsStore(this).reasoningEffort();
             NpcRegistryStore registry = new NpcRegistryStore(this);
             List<String> active = registry.activeNpcIds();
@@ -55,8 +54,7 @@ public final class NpcSocialMemoryJobService extends JobService {
             for (String npcId : active) {
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                 if (!maintenance.isDue(npcId, now)) continue;
-                NpcAiStaminaStore.Snapshot budget = new NpcAiStaminaStore(this).snapshot(npcId);
-                if (budget.exhausted()) continue;
+                if (!NpcInferenceAccess.canRun(this, npcId, key)) continue;
                 try {
                     maintenance.runForNpc(npcId, key, reasoning, now);
                 } catch (IllegalStateException budgetOrApiFailure) {
@@ -68,7 +66,7 @@ public final class NpcSocialMemoryJobService extends JobService {
 
             if (active.size() >= 2 && isSocialOpportunityDue(now)) {
                 String actor = PeriodicSocialPolicy.initiator(active, now);
-                if (!actor.isEmpty() && !new NpcAiStaminaStore(this).snapshot(actor).exhausted()) {
+                if (!actor.isEmpty() && NpcInferenceAccess.canRun(this, actor, key)) {
                     try {
                         new PeriodicNpcSocialRuntime(this).runOneOpportunity(key, reasoning, now);
                         markSocialOpportunityAttempted(now);

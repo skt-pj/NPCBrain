@@ -149,7 +149,7 @@ final class NpcInnerLifeRuntime {
         } catch (Exception error) {
             apiKey = "";
         }
-        if (apiKey == null || apiKey.trim().isEmpty() || staminaStore.snapshot(npcId).exhausted()) {
+        if (!NpcInferenceAccess.canRun(appContext, npcId, apiKey)) {
             recordAmbientFallback(store, state, now);
             return;
         }

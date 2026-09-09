@@ -164,10 +164,6 @@ final class LocalLlmRuntime {
                 if (!"sendMessage".equals(method.getName())) continue;
                 Class<?>[] types = method.getParameterTypes();
                 if (types.length == 0 || types[0] != String.class) continue;
-                if (types.length == 1) {
-                    candidate = method;
-                    break;
-                }
                 if (candidate == null || types.length > candidate.getParameterCount()) candidate = method;
             }
             if (candidate == null) throw new NoSuchMethodException("Conversation.sendMessage(String)");
