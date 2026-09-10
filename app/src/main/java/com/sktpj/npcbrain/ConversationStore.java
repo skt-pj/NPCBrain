@@ -12,25 +12,21 @@ final class ConversationStore {
     private static final String DECISION_PREFIX = "decision_";
     private static final String RUNTIME_DECISION_PREFIX = "runtime_decision_";
 
+    private final Context appContext;
     private final SharedPreferences preferences;
 
     ConversationStore(Context context) {
+        appContext = context.getApplicationContext();
         preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
     synchronized JSONObject appendUserMessage(String roomId, String text, long timeMs) {
+        if (!WorldProjectionScopeV210.active()) {
+            return safeResult(new WorldConversationGatewayV210(appContext).postMessage(
+                    "", roomId, "user", "あなた", text, "", timeMs, "", new JSONArray()));
+        }
         return append(
-                "",
-                roomId,
-                "user",
-                "あなた",
-                text,
-                "",
-                timeMs,
-                "",
-                new JSONArray(),
-                false
-        );
+                "", roomId, "user", "あなた", text, "", timeMs, "", new JSONArray(), false);
     }
 
     synchronized JSONObject appendNpcMessage(
@@ -43,18 +39,13 @@ final class ConversationStore {
             String causeEventId,
             JSONArray brainTrace
     ) {
+        if (!WorldProjectionScopeV210.active()) {
+            return safeResult(new WorldConversationGatewayV210(appContext).postMessage(
+                    "", roomId, senderId, senderName, text, action, timeMs, causeEventId, brainTrace));
+        }
         return append(
-                "",
-                roomId,
-                senderId,
-                senderName,
-                text,
-                action,
-                timeMs,
-                causeEventId,
-                brainTrace,
-                false
-        );
+                "", roomId, senderId, senderName, text, action, timeMs,
+                causeEventId, brainTrace, false);
     }
 
     synchronized JSONObject appendNpcMessageWithId(
@@ -68,18 +59,14 @@ final class ConversationStore {
             String causeEventId,
             JSONArray brainTrace
     ) {
+        if (!WorldProjectionScopeV210.active()) {
+            return safeResult(new WorldConversationGatewayV210(appContext).postMessage(
+                    messageId, roomId, senderId, senderName, text, action,
+                    timeMs, causeEventId, brainTrace));
+        }
         return append(
-                messageId,
-                roomId,
-                senderId,
-                senderName,
-                text,
-                action,
-                timeMs,
-                causeEventId,
-                brainTrace,
-                true
-        );
+                messageId, roomId, senderId, senderName, text, action, timeMs,
+                causeEventId, brainTrace, true);
     }
 
     synchronized JSONObject appendNpcSilentDecision(
@@ -91,6 +78,11 @@ final class ConversationStore {
             String causeEventId,
             JSONArray brainTrace
     ) {
+        if (!WorldProjectionScopeV210.active()) {
+            return safeResult(new WorldConversationGatewayV210(appContext).postDecision(
+                    "", roomId, npcId, senderName,
+                    BrainCommunicationDecision.SKIP, action, timeMs, causeEventId, brainTrace));
+        }
         return append(
                 "",
                 roomId,
@@ -117,6 +109,11 @@ final class ConversationStore {
             String causeEventId,
             JSONArray brainTrace
     ) {
+        if (!WorldProjectionScopeV210.active()) {
+            return safeResult(new WorldConversationGatewayV210(appContext).postDecision(
+                    messageId, roomId, npcId, senderName,
+                    decision, action, timeMs, causeEventId, brainTrace));
+        }
         String normalizedDecision = decision == null ? "" : decision.trim().toLowerCase(java.util.Locale.US);
         boolean deferred = BrainCommunicationDecision.DEFER.equals(normalizedDecision);
         String baseName = senderName == null || senderName.trim().isEmpty()
@@ -262,24 +259,11 @@ final class ConversationStore {
                     CognitiveGraphLiveBus.currentThreadSnapshot());
             JSONObject message = (normalizedId.isEmpty()
                     ? Message.create(
-                            roomId,
-                            senderId,
-                            senderName,
-                            text,
-                            action,
-                            timeMs,
-                            causeEventId,
-                            persistedTrace)
+                            roomId, senderId, senderName, text, action, timeMs,
+                            causeEventId, persistedTrace)
                     : Message.createWithId(
-                            normalizedId,
-                            roomId,
-                            senderId,
-                            senderName,
-                            text,
-                            action,
-                            timeMs,
-                            causeEventId,
-                            persistedTrace)).toJson();
+                            normalizedId, roomId, senderId, senderName, text, action,
+                            timeMs, causeEventId, persistedTrace)).toJson();
 
             JSONArray updated = new JSONArray();
             int start = Math.max(0, source.length() - (MAX_MESSAGES_PER_ROOM - 1));
@@ -317,6 +301,10 @@ final class ConversationStore {
         } catch (Exception ignored) {
             return new JSONArray();
         }
+    }
+
+    private static JSONObject safeResult(JSONObject result) {
+        return result == null ? new JSONObject() : result;
     }
 
     private static String key(String roomId) {
