@@ -1,0 +1,137 @@
+name: v0.4.63 memory JSON fix
+
+on:
+  push:
+    branches:
+      - fix/v0.4.63-memory-json-truncation-final
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/v0.4.63-memory-json-truncation-final
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.13'
+      - name: Apply focused fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f"missing patch anchor in {path}: {old[:120]!r}")
+              p.write_text(s.replace(old, new, 1))
+
+          schema = 'app/src/main/java/com/sktpj/npcbrain/LocalJsonSchema.java'
+          replace_exact(schema,
+          '''    private static final String AMBIENT_MARKER = "one brief PUBLIC inner-life monitor update";\n''',
+          '''    private static final String AMBIENT_MARKER = "one brief PUBLIC inner-life monitor update";\n    private static final String MEMORY_APPRAISAL_MARKER =\n            "You are the encoding/appraisal pass of a memory-maintenance system.";\n    private static final String MEMORY_CONSOLIDATION_MARKER =\n            "You are the consolidation/schema pass.";\n    private static final String MEMORY_RETENTION_MARKER =\n            "You are the retention/forgetting pass.";\n''')
+
+          replace_exact(schema,
+          '''            if (source.contains(AMBIENT_MARKER)) {\n                return ambientSchema().toString();\n            }\n            return genericObjectSchema().toString();\n''',
+          '''            if (source.contains(MEMORY_APPRAISAL_MARKER)) {\n                return memoryAppraisalSchema().toString();\n            }\n            if (source.contains(MEMORY_CONSOLIDATION_MARKER)) {\n                return memoryConsolidationSchema().toString();\n            }\n            if (source.contains(MEMORY_RETENTION_MARKER)) {\n                return memoryRetentionSchema().toString();\n            }\n            if (source.contains(AMBIENT_MARKER)) {\n                return ambientSchema().toString();\n            }\n            return genericObjectSchema().toString();\n''')
+
+          anchor = '''    private static JSONObject toolEnvelopeSchema(String toolName) throws Exception {\n'''
+          methods = '''    private static JSONObject memoryAppraisalSchema() throws Exception {\n        JSONObject item = new JSONObject();\n        item.put("candidate_id", stringSchema(64));\n        item.put("importance", numberSchema(0.0, 1.0));\n        item.put("emotionality", numberSchema(0.0, 1.0));\n        item.put("social_relevance", numberSchema(0.0, 1.0));\n        item.put("repetition", numberSchema(0.0, 1.0));\n        item.put("gist", stringSchema(80));\n        JSONObject properties = new JSONObject();\n        properties.put("items", arraySchema(objectSchema(\n                item, "candidate_id", "importance", "emotionality",\n                "social_relevance", "repetition", "gist"), 4));\n        return objectSchema(properties, "items");\n    }\n\n    private static JSONObject memoryConsolidationSchema() throws Exception {\n        JSONObject episode = new JSONObject();\n        episode.put("candidate_id", stringSchema(64));\n        episode.put("gist", stringSchema(80));\n\n        JSONObject semantic = new JSONObject();\n        semantic.put("type", enumStringSchema(\n                "world_fact", "self_belief", "goal", "value", "fear",\n                "relationship", "habit_strategy", "role_identity"));\n        semantic.put("text", stringSchema(100));\n        semantic.put("confidence", numberSchema(0.0, 1.0));\n\n        JSONObject relationship = new JSONObject();\n        relationship.put("other_id", stringSchema(64));\n        relationship.put("familiarity_delta", numberSchema(-0.15, 0.15));\n        relationship.put("trust_delta", numberSchema(-0.15, 0.15));\n        relationship.put("affinity_delta", numberSchema(-0.15, 0.15));\n        relationship.put("summary", stringSchema(80));\n\n        JSONObject properties = new JSONObject();\n        properties.put("episodic", arraySchema(\n                objectSchema(episode, "candidate_id", "gist"), 4));\n        properties.put("semantic_updates", arraySchema(\n                objectSchema(semantic, "type", "text", "confidence"), 3));\n        properties.put("relationship_updates", arraySchema(\n                objectSchema(relationship, "other_id", "familiarity_delta",\n                        "trust_delta", "affinity_delta", "summary"), 3));\n        return objectSchema(properties,\n                "episodic", "semantic_updates", "relationship_updates");\n    }\n\n    private static JSONObject memoryRetentionSchema() throws Exception {\n        JSONObject item = new JSONObject();\n        item.put("memory_id", stringSchema(64));\n        item.put("decision", enumStringSchema("detail", "gist", "forget"));\n        item.put("gist", stringSchema(80));\n        JSONObject properties = new JSONObject();\n        properties.put("retention", arraySchema(\n                objectSchema(item, "memory_id", "decision", "gist"), 8));\n        return objectSchema(properties, "retention");\n    }\n\n'''
+          replace_exact(schema, anchor, methods + anchor)
+
+          client = 'app/src/main/java/com/sktpj/npcbrain/OpenAiClient.java'
+          replace_exact(client,
+          '''        return "specialist";\n    }\n\n    private void completeDiagnosticLlmRequest(String queueId) {\n''',
+          '''        if (source.contains("encoding/appraisal pass of a memory-maintenance system")) {\n            return "memory_appraisal";\n        }\n        if (source.contains("consolidation/schema pass")) {\n            return "memory_consolidation";\n        }\n        if (source.contains("retention/forgetting pass")) {\n            return "memory_retention";\n        }\n        return "local_request";\n    }\n\n    private void completeDiagnosticLlmRequest(String queueId) {\n''')
+
+          vm = 'app/src/main/java/com/sktpj/npcbrain/NpcBrainQueueViewModel.java'
+          replace_exact(vm,
+          '''            String stageId = stageId(entry.detail);\n            if ("global_workspace".equals(stageId)) return "Global Workspace";\n            if (!stageId.isEmpty() && !"specialist".equals(stageId)) {\n''',
+          '''            String stageId = stageId(entry.detail);\n            if ("global_workspace".equals(stageId)) return "Global Workspace";\n            if ("memory_appraisal".equals(stageId)) return "記憶メンテナンス · 評価";\n            if ("memory_consolidation".equals(stageId)) return "記憶メンテナンス · 統合";\n            if ("memory_retention".equals(stageId)) return "記憶メンテナンス · 保持/忘却";\n            if ("local_request".equals(stageId)) return "LLM処理";\n            if (!stageId.isEmpty() && !"specialist".equals(stageId)) {\n''')
+
+          version = Path('version.properties')
+          v = version.read_text()
+          v = v.replace('VERSION_NAME=0.4.62', 'VERSION_NAME=0.4.63')
+          v = v.replace('VERSION_CODE=82', 'VERSION_CODE=83')
+          version.write_text(v)
+
+          test = Path('app/src/test/java/com/sktpj/npcbrain/LocalMemoryJsonSchemaTest.java')
+          test.write_text(r'''package com.sktpj.npcbrain;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+import org.json.JSONObject;
+import org.junit.Test;
+
+public class LocalMemoryJsonSchemaTest {
+    @Test
+    public void appraisalUsesBoundedDedicatedSchema() throws Exception {
+        String prompt = "character_id=npc10\n"
+                + "You are the encoding/appraisal pass of a memory-maintenance system. "
+                + "Return JSON only.\nGrounded JSON:\n"
+                + "{\"character_id\":\"npc10\",\"now_ms\":1,\"character\":{\"name\":\"NPC10\"},\"memory_candidates\":[]}";
+        JSONObject schema = LocalJsonSchema.schemaObjectForTest(prompt, null);
+        assertFalse(schema.getBoolean("additionalProperties"));
+        JSONObject properties = schema.getJSONObject("properties");
+        assertTrue(properties.has("items"));
+        assertFalse(properties.has("character_id"));
+        assertEquals(4, properties.getJSONObject("items").getInt("maxItems"));
+        JSONObject item = properties.getJSONObject("items").getJSONObject("items");
+        assertFalse(item.getBoolean("additionalProperties"));
+        assertTrue(item.getJSONObject("properties").has("candidate_id"));
+    }
+
+    @Test
+    public void allMemoryMaintenancePassesAreClassifiedAndConstrained() throws Exception {
+        String appraisal = "You are the encoding/appraisal pass of a memory-maintenance system.";
+        String consolidation = "You are the consolidation/schema pass.";
+        String retention = "You are the retention/forgetting pass.";
+        assertEquals("memory_appraisal", OpenAiClient.diagnosticBrainStage(appraisal));
+        assertEquals("memory_consolidation", OpenAiClient.diagnosticBrainStage(consolidation));
+        assertEquals("memory_retention", OpenAiClient.diagnosticBrainStage(retention));
+        assertEquals("local_request", OpenAiClient.diagnosticBrainStage("character_id=npc1\nother local task"));
+        assertTrue(LocalJsonSchema.schemaObjectForTest(consolidation, null)
+                .getJSONObject("properties").has("semantic_updates"));
+        assertTrue(LocalJsonSchema.schemaObjectForTest(retention, null)
+                .getJSONObject("properties").has("retention"));
+    }
+
+    @Test
+    public void debugLabelDoesNotMisreportMemoryMaintenanceAsSpecialistBrain() {
+        ProcessingQueueRegistry.Entry entry = new ProcessingQueueRegistry.Entry(
+                "q1", "llm_request", "npc10",
+                "local_light · brain_stage=memory_appraisal",
+                ProcessingQueueRegistry.Status.FAILED,
+                1L, 2L, 3L, "bad json");
+        assertEquals("記憶メンテナンス · 評価", NpcBrainQueueViewModel.internalLabel(entry));
+    }
+}
+''')
+
+          wf = Path('.github/workflows/v0463-memory-json-fix.yml')
+          if wf.exists():
+              wf.unlink()
+          PY
+      - name: Unit test and Debug compile
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "v0.4.63 constrain local memory maintenance JSON"
+          git push origin HEAD:fix/v0.4.63-memory-json-truncation-final
