@@ -30,9 +30,14 @@ final class DungeonAutonomyRuntime {
     }
 
     synchronized int evaluateAndEnter(long nowMs) {
-        String apiKey = new SecureApiKeyStore(appContext).load();
+        String apiKey = "";
+        try {
+            String loaded = new SecureApiKeyStore(appContext).load();
+            apiKey = loaded == null ? "" : loaded.trim();
+        } catch (Exception ignored) {
+        }
         String reasoning = new ModelSettingsStore(appContext).reasoningEffort();
-        return evaluateAndEnter(nowMs, apiKey == null ? "" : apiKey.trim(), reasoning);
+        return evaluateAndEnter(nowMs, apiKey, reasoning);
     }
 
     synchronized int evaluateAndEnter(long nowMs, String apiKey, String reasoningEffort) {
