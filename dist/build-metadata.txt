@@ -1,7 +1,7 @@
 repository=skt-pj/NPCBrain
 branch=main
-commit=b9d19f8e4929700bdc1068f541c9778e784b8bed
-versionName=0.4.59
-versionCode=79
-run=34432047968
+commit=511f076aa2abeb5278a5364d7b2cbfdfae148cb2
+versionName=0.4.60
+versionCode=80
+run=34433902259
 build=testDebugUnitTest,assembleRelease,assembleDebug,apksigner
