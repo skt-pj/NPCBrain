@@ -8,8 +8,6 @@ import com.google.ai.edge.litertlm.ConversationConfig;
 import com.google.ai.edge.litertlm.Engine;
 import com.google.ai.edge.litertlm.EngineConfig;
 import com.google.ai.edge.litertlm.Message;
-import com.google.ai.edge.litertlm.NoRepeatNgramConfig;
-import com.google.ai.edge.litertlm.RepetitionPenaltyConfig;
 import com.google.ai.edge.litertlm.ResponseFormat;
 import com.google.ai.edge.litertlm.SamplerConfig;
 
@@ -37,10 +35,6 @@ final class LocalLlmRuntime {
     private static final int JSON_GENERATION_ATTEMPTS = 2;
     private static final SamplerConfig JSON_SAMPLER =
             new SamplerConfig(20, 0.90d, 0.10d, 0);
-    private static final RepetitionPenaltyConfig JSON_REPETITION =
-            new RepetitionPenaltyConfig(1.10f, 0.05f, 0.03f, 256);
-    private static final NoRepeatNgramConfig JSON_NO_REPEAT =
-            new NoRepeatNgramConfig(12, 256);
 
     private final Context appContext;
     private final LocalModelRepository modelRepository;
@@ -316,11 +310,14 @@ final class LocalLlmRuntime {
         try {
             conversation = holder.engine.createConversation(conversationConfig);
             ResponseFormat responseFormat = ResponseFormat.json(responseSchema);
+            // Qwen LiteRT artifacts can expose non-unit sequence logits during parts of generation.
+            // LiteRT-LM's optional repetition/no-repeat logits processors require [batch, 1, vocab],
+            // so leave both processors disabled and retain JSON Schema constrained decoding instead.
             Message result = conversation.sendMessage(
                     prompt,
                     Collections.emptyMap(),
-                    JSON_REPETITION,
-                    JSON_NO_REPEAT,
+                    null,
+                    null,
                     null,
                     outputLimit,
                     null,
