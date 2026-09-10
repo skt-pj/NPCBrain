@@ -28,14 +28,14 @@ final class NpcWorldStateCoordinator {
     }
 
     NpcWorldSnapshot snapshot(String npcId) {
-        return snapshot(npcId, clock.now());
+        return snapshot(npcId, 0L);
     }
 
     NpcWorldSnapshot snapshot(String npcId, long requestedWorldTimeMs) {
         String id = NpcId.of(npcId).value();
-        long worldTimeMs = requestedWorldTimeMs > 0L
-                ? clock.advanceTo(requestedWorldTimeMs)
-                : clock.now();
+        // A snapshot is an observation. It must never advance the world clock just because a tab,
+        // prompt builder, or diagnostic asks to read it. World progression belongs to runtimes.
+        long worldTimeMs = clock.now();
         List<String> activeIds = registry.activeNpcIds();
         boolean active = activeIds.contains(id);
         Context storage = NpcContexts.storage(appContext, id);
