@@ -42,11 +42,12 @@ public final class NpcSocialMemoryJobService extends JobService {
         boolean retry = false;
         try {
             long now = System.currentTimeMillis();
-            new DungeonAutonomyRuntime(this).evaluateAndJoin(now);
-
             String apiKey = new SecureApiKeyStore(this).load();
             String key = apiKey == null ? "" : apiKey.trim();
             String reasoning = new ModelSettingsStore(this).reasoningEffort();
+
+            new NpcWorldRuntimeV200(this).runBackgroundOpportunity(key, reasoning, now);
+
             NpcRegistryStore registry = new NpcRegistryStore(this);
             List<String> active = registry.activeNpcIds();
             HumanMemoryMaintenanceEngine maintenance = new HumanMemoryMaintenanceEngine(this);
