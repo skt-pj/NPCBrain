@@ -142,6 +142,10 @@ final class NpcBrainQueueViewModel {
         if (isLlm(entry)) {
             String stageId = stageId(entry.detail);
             if ("global_workspace".equals(stageId)) return "Global Workspace";
+            if ("memory_appraisal".equals(stageId)) return "記憶メンテナンス · 評価";
+            if ("memory_consolidation".equals(stageId)) return "記憶メンテナンス · 統合";
+            if ("memory_retention".equals(stageId)) return "記憶メンテナンス · 保持/忘却";
+            if ("local_request".equals(stageId)) return "LLM処理";
             if (!stageId.isEmpty() && !"specialist".equals(stageId)) {
                 return "専門Brain · " + BrainEngine.stageLabel(stageId);
             }
