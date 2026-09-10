@@ -39,7 +39,8 @@ final class PrimaryFooterBridge {
 
     private static boolean ownsFooter(Activity activity) {
         return activity instanceof SettingsActivity
-                || activity instanceof IndividualDungeonActivity;
+                || activity instanceof IndividualDungeonActivity
+                || activity instanceof ProcessingQueueActivity;
     }
 
     private static View createFooter(Activity activity, FrameLayout content) {
@@ -153,6 +154,9 @@ final class PrimaryFooterBridge {
         if (PrimaryNavigationPolicy.CODEX.equals(destination)) return CodexActivity.class;
         if (PrimaryNavigationPolicy.SETTINGS.equals(destination)) return SettingsActivity.class;
         if (PrimaryNavigationPolicy.MANAGER.equals(destination)) return NpcManagerActivity.class;
+        if (PrimaryNavigationPolicy.QUEUE.equals(destination) && NPCBrainApplication.isDebugBuild()) {
+            return ProcessingQueueActivity.class;
+        }
         return null;
     }
 
@@ -165,6 +169,7 @@ final class PrimaryFooterBridge {
         if (activity instanceof CodexActivity) return PrimaryNavigationPolicy.CODEX;
         if (activity instanceof SettingsActivity) return PrimaryNavigationPolicy.SETTINGS;
         if (activity instanceof NpcManagerActivity) return PrimaryNavigationPolicy.MANAGER;
+        if (activity instanceof ProcessingQueueActivity) return PrimaryNavigationPolicy.QUEUE;
         return "";
     }
 
