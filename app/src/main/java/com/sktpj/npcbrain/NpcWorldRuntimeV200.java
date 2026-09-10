@@ -13,6 +13,7 @@ final class NpcWorldRuntimeV200 {
     private final DungeonWorldEventSynchronizer dungeonEvents;
     private final DungeonAutonomyRuntime dungeonAutonomy;
     private final WorldSimulationCheckpointStore checkpoint;
+    private final WorldEventMemoryIngestor memoryIngestor;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean running;
 
@@ -32,6 +33,7 @@ final class NpcWorldRuntimeV200 {
         dungeonEvents = new DungeonWorldEventSynchronizer(app);
         dungeonAutonomy = new DungeonAutonomyRuntime(app);
         checkpoint = new WorldSimulationCheckpointStore(app);
+        memoryIngestor = new WorldEventMemoryIngestor(app);
         prepareObservationState(System.currentTimeMillis());
     }
 
@@ -56,6 +58,7 @@ final class NpcWorldRuntimeV200 {
         prepareObservationState(nowMs);
         dungeonProgress.advancePresentOnce(nowMs);
         dungeonEvents.syncAll(nowMs);
+        memoryIngestor.ingestPending();
         checkpoint.mark(nowMs);
     }
 
@@ -70,6 +73,7 @@ final class NpcWorldRuntimeV200 {
             dungeonProgress.advancePresentCatchUpOnce(simulatedTime);
             dungeonEvents.syncAll(simulatedTime);
         }
+        memoryIngestor.ingestPending();
         checkpoint.mark(nowMs);
     }
 
