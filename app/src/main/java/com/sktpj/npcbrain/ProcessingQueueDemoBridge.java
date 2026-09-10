@@ -64,9 +64,9 @@ final class ProcessingQueueDemoBridge {
     private static void startObserved(DemoActivityV032 activity, State state, String roomId) {
         state.roomId = roomId == null ? "" : roomId;
         state.type = state.roomId.isEmpty() ? "spontaneous_cognition" : "conversation_reply";
-        String npcId = state.roomId.isEmpty()
-                ? stringField(activity, "liveNpcId")
-                : npcForRoom(state.roomId);
+        // During spontaneous cognition DemoActivity.liveNpcId is not a reliable attribution for
+        // the logical parent operation; the actual NPC is visible on its child LLM requests.
+        String npcId = state.roomId.isEmpty() ? "" : npcForRoom(state.roomId);
         if ("conversation_reply".equals(state.type)) {
             state.entryId = ProcessingQueueRegistry.claimConversation(
                     state.roomId,
