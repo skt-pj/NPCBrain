@@ -107,6 +107,7 @@ public final class NPCBrainApplication extends Application {
         if (activity instanceof DemoActivityV032) {
             DynamicConversationUiBridge.install(activity);
             ConversationSendQueueBridge.install((DemoActivityV032) activity);
+            ProcessingQueueDemoBridge.install((DemoActivityV032) activity);
             return;
         }
         if (activity instanceof NpcStatusActivity) {
