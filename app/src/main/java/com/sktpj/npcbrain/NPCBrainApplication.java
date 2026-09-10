@@ -24,6 +24,8 @@ public final class NPCBrainApplication extends Application {
         NpcSocialMemoryScheduler.schedule(this);
         new DungeonPresenceStore(this).activePresentNpcIds();
         innerLifeRuntime = new NpcInnerLifeRuntime(this);
+        // Constructed at process start so canonical world/dungeon observation state exists before
+        // any top-level Activity can attempt to display it.
         worldRuntime = new NpcWorldRuntimeV200(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityCreated(Activity activity, Bundle state) {
@@ -61,7 +63,16 @@ public final class NPCBrainApplication extends Application {
                 PrimaryFooterBridge.install(activity);
             }
 
+            @Override public void onActivityPrePaused(Activity activity) {
+                if (activity instanceof DungeonActivity) {
+                    DungeonWorldObserverBridge.beforeActivityPause((DungeonActivity) activity);
+                }
+            }
+
             @Override public void onActivityPaused(Activity activity) {
+                if (activity instanceof DungeonActivity) {
+                    DungeonWorldObserverBridge.afterActivityPause((DungeonActivity) activity);
+                }
                 PrimaryUiCoordinator.onPaused(activity);
             }
 
@@ -118,11 +129,13 @@ public final class NPCBrainApplication extends Application {
         }
         if (activity instanceof DungeonActivity) {
             DungeonActivity dungeon = (DungeonActivity) activity;
+            // Install observation ownership first. Later UI bridges may read/operate on the same
+            // canonical state, but none of them owns autonomous turn execution.
+            DungeonWorldObserverBridge.install(dungeon);
             DungeonGoalInputBridge.install(dungeon);
             DungeonAiStaminaBridge.install(dungeon);
-            DungeonRosterBridge.install(dungeon);
+            DungeonRosterUiBridge.install(dungeon);
             DungeonModeSwitchBridge.install(dungeon);
-            DungeonSoloProgressBridge.install(dungeon);
         }
     }
 }
