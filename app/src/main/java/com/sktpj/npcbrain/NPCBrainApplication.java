@@ -12,7 +12,6 @@ public final class NPCBrainApplication extends Application {
     private static volatile boolean demoRoomRefreshRequested;
     private static volatile boolean debugBuild;
 
-    private NpcInnerLifeRuntime innerLifeRuntime;
     private NpcWorldRuntimeV200 worldRuntime;
     private int startedActivityCount;
 
@@ -23,7 +22,6 @@ public final class NPCBrainApplication extends Application {
         new ReplyTimerStore(this).rearmAll();
         NpcSocialMemoryScheduler.schedule(this);
         new DungeonPresenceStore(this).activePresentNpcIds();
-        innerLifeRuntime = new NpcInnerLifeRuntime(this);
         worldRuntime = new NpcWorldRuntimeV200(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityCreated(Activity activity, Bundle state) {
@@ -37,9 +35,8 @@ public final class NPCBrainApplication extends Application {
 
             @Override public void onActivityStarted(Activity activity) {
                 startedActivityCount++;
-                if (startedActivityCount == 1) {
-                    if (innerLifeRuntime != null) innerLifeRuntime.onForeground();
-                    if (worldRuntime != null) worldRuntime.start();
+                if (startedActivityCount == 1 && worldRuntime != null) {
+                    worldRuntime.start();
                 }
                 installRuntimeBridges(activity);
                 PrimaryUiCoordinator.onStarted(activity);
@@ -67,9 +64,8 @@ public final class NPCBrainApplication extends Application {
 
             @Override public void onActivityStopped(Activity activity) {
                 startedActivityCount = Math.max(0, startedActivityCount - 1);
-                if (startedActivityCount == 0) {
-                    if (innerLifeRuntime != null) innerLifeRuntime.onBackground();
-                    if (worldRuntime != null) worldRuntime.stop();
+                if (startedActivityCount == 0 && worldRuntime != null) {
+                    worldRuntime.stop();
                 }
             }
 
@@ -99,6 +95,24 @@ public final class NPCBrainApplication extends Application {
         demoRoomRefreshRequested = true;
     }
 
+    static WorldKernelV210 worldKernel() {
+        NPCBrainApplication app = currentApplication();
+        return app == null || app.worldRuntime == null ? null : app.worldRuntime.kernel();
+    }
+
+    static WorldQueryServiceV210 worldQuery() {
+        NPCBrainApplication app = currentApplication();
+        return app == null || app.worldRuntime == null ? null : app.worldRuntime.query();
+    }
+
+    private static NPCBrainApplication currentApplication() {
+        DemoActivityV032 activity = currentDemoActivity();
+        if (activity != null && activity.getApplication() instanceof NPCBrainApplication) {
+            return (NPCBrainApplication) activity.getApplication();
+        }
+        return null;
+    }
+
     private static boolean consumeDemoRoomRefreshRequest() {
         if (!demoRoomRefreshRequested) return false;
         demoRoomRefreshRequested = false;
@@ -118,6 +132,7 @@ public final class NPCBrainApplication extends Application {
         }
         if (activity instanceof DungeonActivity) {
             DungeonActivity dungeon = (DungeonActivity) activity;
+            DungeonObserverModeV210.install(dungeon);
             DungeonGoalInputBridge.install(dungeon);
             DungeonAiStaminaBridge.install(dungeon);
             DungeonRosterBridge.install(dungeon);
