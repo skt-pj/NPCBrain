@@ -4,7 +4,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
-/** Single runtime entry that keeps life, dungeon and observable world state synchronized. */
+/** Single runtime entry that owns life/dungeon progression and observable world synchronization. */
 final class NpcWorldRuntimeV200 {
     private static final long FOREGROUND_TICK_MS = 650L;
 
@@ -12,6 +12,7 @@ final class NpcWorldRuntimeV200 {
     private final DungeonWorldProgressRuntime dungeonProgress;
     private final DungeonWorldEventSynchronizer dungeonEvents;
     private final DungeonAutonomyRuntime dungeonAutonomy;
+    private final WorldSimulationCheckpointStore checkpoint;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean running;
 
@@ -30,6 +31,7 @@ final class NpcWorldRuntimeV200 {
         dungeonProgress = new DungeonWorldProgressRuntime(app);
         dungeonEvents = new DungeonWorldEventSynchronizer(app);
         dungeonAutonomy = new DungeonAutonomyRuntime(app);
+        checkpoint = new WorldSimulationCheckpointStore(app);
     }
 
     synchronized void start() {
@@ -46,14 +48,27 @@ final class NpcWorldRuntimeV200 {
 
     void syncForegroundOnce(long nowMs) {
         lifeRuntime.syncAllNow();
-        dungeonProgress.advanceSoloPresentOnce(nowMs);
+        dungeonProgress.advancePresentOnce(nowMs);
         dungeonEvents.syncAll(nowMs);
+        checkpoint.mark(nowMs);
     }
 
     void runBackgroundOpportunity(String apiKey, String reasoningEffort, long nowMs) {
+        long previous = checkpoint.lastSimulationMs();
+        int catchUpSteps = WorldSimulationCatchUpPolicy.backgroundSteps(previous, nowMs);
         lifeRuntime.syncAllNow();
         dungeonAutonomy.evaluateAndJoin(nowMs, apiKey, reasoningEffort);
-        dungeonProgress.advanceSoloPresentOnce(nowMs);
-        dungeonEvents.syncAll(nowMs);
+        for (int i = 0; i < catchUpSteps; i++) {
+            long simulatedTime = backgroundStepTime(previous, nowMs, i, catchUpSteps);
+            dungeonProgress.advancePresentCatchUpOnce(simulatedTime);
+            dungeonEvents.syncAll(simulatedTime);
+        }
+        checkpoint.mark(nowMs);
+    }
+
+    static long backgroundStepTime(long previousMs, long nowMs, int index, int totalSteps) {
+        if (previousMs <= 0L || totalSteps <= 1) return nowMs;
+        long candidate = previousMs + (long) (index + 1) * WorldSimulationCatchUpPolicy.BACKGROUND_STEP_MS;
+        return Math.min(nowMs, Math.max(previousMs, candidate));
     }
 }
