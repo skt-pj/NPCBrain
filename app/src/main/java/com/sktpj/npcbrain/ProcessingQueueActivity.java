@@ -13,14 +13,13 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Date;
-import java.util.List;
 import java.util.Locale;
 
-/** Debug-only read-only view of logical orchestration and the real local-LLM FIFO queue. */
+/** Debug-only read-only view of user-meaningful processing queue items. */
 public final class ProcessingQueueActivity extends Activity {
     private static final long REFRESH_MS = 500L;
+    private static final int MAX_RECENT_VISIBLE = 20;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private LinearLayout list;
@@ -82,7 +81,7 @@ public final class ProcessingQueueActivity extends Activity {
         root.addView(title);
 
         TextView description = new TextView(this);
-        description.setText("ローカルLLMはFIFOで1件ずつ実行します。各項目には、キュー投入・デキュー・待機時間・実処理時間を実測値で表示します。");
+        description.setText("会話返信・自発送信判断・記憶整理など、実際の処理単位だけを表示します。Brain内部のLLM呼び出しは表示しません。");
         description.setTextSize(12f);
         description.setTextColor(AppUiTheme.APP_MUTED);
         LinearLayout.LayoutParams descriptionParams = new LinearLayout.LayoutParams(
@@ -109,146 +108,54 @@ public final class ProcessingQueueActivity extends Activity {
         list.removeAllViews();
         ProcessingQueueRegistry.Snapshot snapshot = ProcessingQueueRegistry.snapshot();
 
-        List<ProcessingQueueRegistry.Entry> parentProcesses = new ArrayList<>();
-        List<ProcessingQueueRegistry.Entry> localLlm = new ArrayList<>();
-        List<ProcessingQueueRegistry.Entry> openAi = new ArrayList<>();
+        addSectionTitle("現在の処理");
+        int waitingPosition = 0;
+        boolean hasActive = false;
         for (ProcessingQueueRegistry.Entry entry : snapshot.active) {
-            if (isLocalLlm(entry)) localLlm.add(entry);
-            else if (isLlm(entry)) openAi.add(entry);
-            else parentProcesses.add(entry);
+            if (!isVisibleProcess(entry)) continue;
+            if (entry.status == ProcessingQueueRegistry.Status.QUEUED) waitingPosition++;
+            list.addView(processCard(entry, waitingPosition));
+            hasActive = true;
+        }
+        if (!hasActive) {
+            addEmpty("現在、待機中・実処理中の処理はありません");
         }
 
-        addSectionTitle("親処理");
-        addHint("会話返信や自発判断など、複数の子処理をまとめるオーケストレーションです。LLM実行スロットの『実行中』とは別の概念です。");
-        if (parentProcesses.isEmpty()) {
-            addEmpty("現在の親処理はありません");
-        } else {
-            for (ProcessingQueueRegistry.Entry entry : parentProcesses) {
-                list.addView(parentProcessCard(entry));
-            }
-        }
-
-        addSectionTitle("ローカルLLM FIFOキュー");
-        int runningLocal = 0;
-        for (ProcessingQueueRegistry.Entry entry : localLlm) {
-            if (entry.status == ProcessingQueueRegistry.Status.RUNNING) runningLocal++;
-        }
-        if (runningLocal > 1) {
-            addWarning("異常: ローカルLLMが " + runningLocal + " 件同時に実処理中です");
-        } else {
-            addHint("実行枠 1件 · 実処理中 " + runningLocal + "件 · 待機中 "
-                    + Math.max(0, localLlm.size() - runningLocal) + "件");
-        }
-        if (localLlm.isEmpty()) {
-            addEmpty("ローカルLLMの待機・実処理はありません");
-        } else {
-            int waitingPosition = 0;
-            for (ProcessingQueueRegistry.Entry entry : localLlm) {
-                if (entry.status == ProcessingQueueRegistry.Status.QUEUED) waitingPosition++;
-                list.addView(localLlmCard(entry, waitingPosition));
-            }
-        }
-
-        if (!openAi.isEmpty()) {
-            addSectionTitle("OpenAI API処理");
-            addHint("OpenAI Lunaは端末内LiteRT-LM FIFOの対象外です。");
-            for (ProcessingQueueRegistry.Entry entry : openAi) {
-                list.addView(genericEntryCard(entry));
-            }
-        }
-
-        addSectionTitle("直近のローカルLLM結果");
-        boolean hasRecentLocal = false;
-        int recentLocalCount = 0;
+        addSectionTitle("直近の処理結果");
+        int recentCount = 0;
         for (ProcessingQueueRegistry.Entry entry : snapshot.recent) {
-            if (!isLocalLlm(entry)) continue;
-            list.addView(localLlmCard(entry, 0));
-            hasRecentLocal = true;
-            recentLocalCount++;
-            if (recentLocalCount >= 20) break;
+            if (!isVisibleProcess(entry)) continue;
+            list.addView(processCard(entry, 0));
+            recentCount++;
+            if (recentCount >= MAX_RECENT_VISIBLE) break;
         }
-        if (!hasRecentLocal) {
-            addEmpty("完了・失敗したローカルLLM処理はまだありません");
-        }
-
-        addSectionTitle("直近の親処理・その他結果");
-        boolean hasRecentOther = false;
-        int recentOtherCount = 0;
-        for (ProcessingQueueRegistry.Entry entry : snapshot.recent) {
-            if (isLocalLlm(entry)) continue;
-            list.addView(isLlm(entry) ? genericEntryCard(entry) : parentProcessCard(entry));
-            hasRecentOther = true;
-            recentOtherCount++;
-            if (recentOtherCount >= 20) break;
-        }
-        if (!hasRecentOther) {
-            addEmpty("表示する結果はまだありません");
+        if (recentCount == 0) {
+            addEmpty("完了・失敗した処理はまだありません");
         }
     }
 
-    static boolean isLlm(ProcessingQueueRegistry.Entry entry) {
-        return entry != null && "llm_request".equals(entry.type);
+    /**
+     * LLM invocation rows are implementation detail. The real LiteRT FIFO remains active, but
+     * individual specialist/OpenAI calls must never appear as user-facing queue items.
+     */
+    static boolean isVisibleProcess(ProcessingQueueRegistry.Entry entry) {
+        return entry != null && !"llm_request".equals(entry.type);
     }
 
-    static boolean isLocalLlm(ProcessingQueueRegistry.Entry entry) {
-        return isLlm(entry) && entry.detail != null && entry.detail.startsWith("local_");
-    }
-
-    private View parentProcessCard(ProcessingQueueRegistry.Entry entry) {
+    private View processCard(ProcessingQueueRegistry.Entry entry, int waitingPosition) {
         LinearLayout card = baseCard();
 
         TextView headline = new TextView(this);
         String npc = entry.npcId.isEmpty() ? "" : " · " + entry.npcId;
-        String state = entry.status == ProcessingQueueRegistry.Status.QUEUED
-                ? "親処理待機"
-                : entry.status == ProcessingQueueRegistry.Status.COMPLETED
-                ? "親処理完了"
-                : entry.status == ProcessingQueueRegistry.Status.FAILED
-                ? "親処理失敗"
-                : "親処理中";
-        headline.setText(state + "  " + ProcessingQueueRegistry.displayType(entry.type) + npc);
-        headline.setTextSize(14f);
-        headline.setTypeface(Typeface.DEFAULT_BOLD);
-        headline.setTextColor(AppUiTheme.APP_TEXT);
-        card.addView(headline);
-
-        TextView time = new TextView(this);
-        time.setText(parentTimeText(entry));
-        time.setTextSize(11f);
-        time.setTextColor(AppUiTheme.APP_MUTED);
-        LinearLayout.LayoutParams timeParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        timeParams.topMargin = dp(4);
-        card.addView(time, timeParams);
-
-        addEntryDetail(card, entry);
-        return card;
-    }
-
-    private View localLlmCard(ProcessingQueueRegistry.Entry entry, int waitingPosition) {
-        LinearLayout card = baseCard();
-
-        TextView headline = new TextView(this);
-        String npc = entry.npcId.isEmpty() ? "" : " · " + entry.npcId;
-        String state;
-        if (entry.status == ProcessingQueueRegistry.Status.QUEUED) {
-            state = "待機中" + (waitingPosition > 0 ? " #" + waitingPosition : "");
-        } else if (entry.status == ProcessingQueueRegistry.Status.RUNNING) {
-            state = "実処理中";
-        } else if (entry.status == ProcessingQueueRegistry.Status.COMPLETED) {
-            state = "完了";
-        } else {
-            state = "失敗";
-        }
-        headline.setText(state + "  LLM推論" + npc);
+        headline.setText(statusLabel(entry.status, waitingPosition) + "  "
+                + ProcessingQueueRegistry.displayType(entry.type) + npc);
         headline.setTextSize(14f);
         headline.setTypeface(Typeface.DEFAULT_BOLD);
         headline.setTextColor(AppUiTheme.APP_TEXT);
         card.addView(headline);
 
         TextView times = new TextView(this);
-        times.setText(localQueueTimeText(entry));
+        times.setText(queueTimeText(entry));
         times.setTextSize(11f);
         times.setTextColor(AppUiTheme.APP_MUTED);
         times.setLineSpacing(0f, 1.18f);
@@ -262,30 +169,31 @@ public final class ProcessingQueueActivity extends Activity {
         return card;
     }
 
-    private View genericEntryCard(ProcessingQueueRegistry.Entry entry) {
-        LinearLayout card = baseCard();
+    private String statusLabel(ProcessingQueueRegistry.Status status, int waitingPosition) {
+        if (status == ProcessingQueueRegistry.Status.QUEUED) {
+            return "待機中" + (waitingPosition > 0 ? " #" + waitingPosition : "");
+        }
+        if (status == ProcessingQueueRegistry.Status.RUNNING) return "実処理中";
+        if (status == ProcessingQueueRegistry.Status.COMPLETED) return "完了";
+        return "失敗";
+    }
 
-        TextView headline = new TextView(this);
-        String npc = entry.npcId.isEmpty() ? "" : " · " + entry.npcId;
-        headline.setText(genericStatusLabel(entry.status) + "  "
-                + ProcessingQueueRegistry.displayType(entry.type) + npc);
-        headline.setTextSize(14f);
-        headline.setTypeface(Typeface.DEFAULT_BOLD);
-        headline.setTextColor(AppUiTheme.APP_TEXT);
-        card.addView(headline);
-
-        TextView time = new TextView(this);
-        time.setText(genericTimeText(entry));
-        time.setTextSize(11f);
-        time.setTextColor(AppUiTheme.APP_MUTED);
-        LinearLayout.LayoutParams timeParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        timeParams.topMargin = dp(4);
-        card.addView(time, timeParams);
-
-        addEntryDetail(card, entry);
-        return card;
+    private String queueTimeText(ProcessingQueueRegistry.Entry entry) {
+        long now = System.currentTimeMillis();
+        StringBuilder text = new StringBuilder();
+        text.append("キュー投入  ").append(formatClock(entry.queuedAtMs));
+        text.append("\nデキュー    ").append(entry.hasBeenDequeued()
+                ? formatClock(entry.dequeuedAtMs()) : "--:--:--");
+        text.append("\n待機時間    ").append(formatDuration(entry.queueWaitDurationMs(now)));
+        if (entry.hasBeenDequeued()) {
+            text.append("\n実処理時間  ").append(formatDuration(entry.processingDurationMs(now)));
+            if (entry.status == ProcessingQueueRegistry.Status.RUNNING) {
+                text.append("（計測中）");
+            }
+        } else {
+            text.append("\n実処理時間  --");
+        }
+        return text.toString();
     }
 
     private void addEntryDetail(LinearLayout card, ProcessingQueueRegistry.Entry entry) {
@@ -304,36 +212,12 @@ public final class ProcessingQueueActivity extends Activity {
         card.addView(details, detailParams);
     }
 
-    private String localQueueTimeText(ProcessingQueueRegistry.Entry entry) {
-        long now = System.currentTimeMillis();
-        StringBuilder text = new StringBuilder();
-        text.append("キュー投入  ").append(formatClock(entry.queuedAtMs));
-        text.append("\nデキュー    ").append(entry.hasBeenDequeued()
-                ? formatClock(entry.dequeuedAtMs()) : "--:--:--");
-        text.append("\n待機時間    ").append(formatDuration(entry.queueWaitDurationMs(now)));
-        if (entry.hasBeenDequeued()) {
-            text.append("\n実処理時間  ").append(formatDuration(entry.processingDurationMs(now)));
-            if (entry.status == ProcessingQueueRegistry.Status.RUNNING) {
-                text.append("（計測中）");
-            }
-        } else {
-            text.append("\n実処理時間  --");
-        }
-        return text.toString();
-    }
-
-    private String parentTimeText(ProcessingQueueRegistry.Entry entry) {
-        long now = System.currentTimeMillis();
-        long end = entry.finishedAtMs > 0L ? entry.finishedAtMs : now;
-        return "受付 " + formatClock(entry.queuedAtMs)
-                + " · 経過 " + formatDuration(Math.max(0L, end - entry.queuedAtMs));
-    }
-
-    private String genericTimeText(ProcessingQueueRegistry.Entry entry) {
-        long now = System.currentTimeMillis();
-        long end = entry.finishedAtMs > 0L ? entry.finishedAtMs : now;
-        return "受付 " + formatClock(entry.queuedAtMs)
-                + " · 経過 " + formatDuration(Math.max(0L, end - entry.queuedAtMs));
+    private String cleanDetail(String detail) {
+        if (detail == null) return "";
+        String value = detail.trim();
+        if (value.startsWith("room=")) return "room: " + value.substring("room=".length());
+        if ("foreground spontaneous".equals(value)) return "フォアグラウンド自発判断";
+        return value;
     }
 
     private void addSectionTitle(String text) {
@@ -355,25 +239,6 @@ public final class ProcessingQueueActivity extends Activity {
         list.addView(empty);
     }
 
-    private void addHint(String text) {
-        TextView hint = new TextView(this);
-        hint.setText(text);
-        hint.setTextSize(11f);
-        hint.setTextColor(AppUiTheme.APP_MUTED);
-        hint.setPadding(dp(4), dp(2), dp(4), dp(8));
-        list.addView(hint);
-    }
-
-    private void addWarning(String text) {
-        TextView warning = new TextView(this);
-        warning.setText(text);
-        warning.setTextSize(12f);
-        warning.setTypeface(Typeface.DEFAULT_BOLD);
-        warning.setTextColor(Color.rgb(224, 116, 116));
-        warning.setPadding(dp(4), dp(2), dp(4), dp(8));
-        list.addView(warning);
-    }
-
     private LinearLayout baseCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -385,21 +250,6 @@ public final class ProcessingQueueActivity extends Activity {
         cardParams.bottomMargin = dp(8);
         card.setLayoutParams(cardParams);
         return card;
-    }
-
-    private String genericStatusLabel(ProcessingQueueRegistry.Status status) {
-        if (status == ProcessingQueueRegistry.Status.RUNNING) return "処理中";
-        if (status == ProcessingQueueRegistry.Status.COMPLETED) return "完了";
-        if (status == ProcessingQueueRegistry.Status.FAILED) return "失敗";
-        return "待機中";
-    }
-
-    private String cleanDetail(String detail) {
-        if (detail == null) return "";
-        String value = detail.trim();
-        if (value.startsWith("room=")) return "room: " + value.substring("room=".length());
-        if ("foreground spontaneous".equals(value)) return "フォアグラウンド自発判断";
-        return value.replace("specialist / task", "専門領域 / task");
     }
 
     private String formatClock(long millis) {
