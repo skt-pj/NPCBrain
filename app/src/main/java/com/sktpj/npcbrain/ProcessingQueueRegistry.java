@@ -26,7 +26,12 @@ final class ProcessingQueueRegistry {
         final String npcId;
         final String detail;
         final Status status;
+        /** Time this work item entered the queue/diagnostic registry. */
         final long queuedAtMs;
+        /**
+         * Time this work item was dequeued and granted execution. Historical field name is kept
+         * for source compatibility, but for real local LLM FIFO entries this is the dequeue time.
+         */
         final long startedAtMs;
         final long finishedAtMs;
         final String error;
@@ -55,6 +60,25 @@ final class ProcessingQueueRegistry {
 
         boolean isActive() {
             return status == Status.QUEUED || status == Status.RUNNING;
+        }
+
+        long dequeuedAtMs() {
+            return startedAtMs;
+        }
+
+        boolean hasBeenDequeued() {
+            return startedAtMs > 0L;
+        }
+
+        long queueWaitDurationMs(long nowMs) {
+            long end = startedAtMs > 0L ? startedAtMs : Math.max(queuedAtMs, nowMs);
+            return Math.max(0L, end - queuedAtMs);
+        }
+
+        long processingDurationMs(long nowMs) {
+            if (startedAtMs <= 0L) return 0L;
+            long end = finishedAtMs > 0L ? finishedAtMs : Math.max(startedAtMs, nowMs);
+            return Math.max(0L, end - startedAtMs);
         }
     }
 
@@ -106,7 +130,7 @@ final class ProcessingQueueRegistry {
     static String startRunning(String type, String npcId, String detail, long nowMs) {
         String id = enqueue(type, npcId, detail, nowMs);
         if (isLocalLlmRequest(type, detail)) {
-            // The entry is genuinely waiting until LocalLlmExecutionQueue grants the single slot.
+            // This stays QUEUED until LocalLlmExecutionQueue actually takes the item.
             CURRENT_LOCAL_LLM_ENTRY.set(id);
             return id;
         }
@@ -161,11 +185,14 @@ final class ProcessingQueueRegistry {
         markRunning(id, System.currentTimeMillis());
     }
 
+    /** For a FIFO item this marks the exact dequeue/execution-grant time. */
     static void markRunning(String id, long nowMs) {
         synchronized (LOCK) {
             Entry old = ACTIVE.get(safe(id));
             if (old == null || !old.isActive()) return;
-            long started = old.startedAtMs > 0L ? old.startedAtMs : Math.max(old.queuedAtMs, nowMs);
+            long dequeued = old.startedAtMs > 0L
+                    ? old.startedAtMs
+                    : Math.max(old.queuedAtMs, nowMs);
             ACTIVE.put(old.id, new Entry(
                     old.id,
                     old.type,
@@ -173,7 +200,7 @@ final class ProcessingQueueRegistry {
                     old.detail,
                     Status.RUNNING,
                     old.queuedAtMs,
-                    started,
+                    dequeued,
                     0L,
                     ""));
         }
