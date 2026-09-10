@@ -10,7 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Publishes one observable world event and, when requested, the same event to NPC memory. */
+/** Publishes/ingests observable world events through one NPC memory sink. */
 final class WorldEventMemoryBridge {
     private final Context appContext;
     private final WorldClock clock;
@@ -58,15 +58,14 @@ final class WorldEventMemoryBridge {
         String target = normalizeOptionalNpcId(targetId);
         long worldTime = timeMs > 0L ? clock.advanceTo(timeMs) : clock.now();
         WorldEvent event = WorldEvent.create(
-                safe(eventType),
-                actor,
-                target,
-                worldTime,
-                safe(location),
-                payload,
-                safe(causeEventId));
+                safe(eventType), actor, target, worldTime, safe(location), payload, safe(causeEventId));
         worldStore.appendEvent(event);
+        rememberExisting(event, rememberNpcIds, importance);
+        return event;
+    }
 
+    void rememberExisting(WorldEvent event, List<String> rememberNpcIds, double importance) {
+        if (event == null) return;
         List<String> active = registry.activeNpcIds();
         Set<String> unique = new LinkedHashSet<>();
         if (rememberNpcIds != null) {
@@ -76,7 +75,6 @@ final class WorldEventMemoryBridge {
             }
         }
         for (String npcId : unique) remember(npcId, event, importance);
-        return event;
     }
 
     private void remember(String npcId, WorldEvent event, double importance) {
@@ -88,12 +86,17 @@ final class WorldEventMemoryBridge {
             if (!text.isEmpty()) summary = summary + ": " + limit(text, 600);
             String action = payload.optString("action", "").trim();
             if (!action.isEmpty() && text.isEmpty()) summary = summary + ": " + limit(action, 600);
+            if (text.isEmpty() && action.isEmpty()) {
+                String activity = payload.optString("previous_activity", "").trim();
+                if (activity.isEmpty()) {
+                    JSONObject schedule = payload.optJSONObject("schedule_entry");
+                    if (schedule != null) activity = schedule.optString("activity", "").trim();
+                }
+                if (!activity.isEmpty()) summary = summary + ": " + limit(activity, 300);
+            }
             new MemoryStore(NpcContexts.storage(appContext, npcId)).remember(
-                    json.toString(),
-                    summary,
-                    summary,
-                    HumanMemoryPolicy.clamp01(importance),
-                    new JSONArray());
+                    json.toString(), summary, summary,
+                    HumanMemoryPolicy.clamp01(importance), new JSONArray());
         } catch (Exception ignored) {
         }
     }
