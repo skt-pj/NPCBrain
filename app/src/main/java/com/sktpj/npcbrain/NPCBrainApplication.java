@@ -24,10 +24,14 @@ public final class NPCBrainApplication extends Application {
         NpcSocialMemoryScheduler.schedule(this);
         new DungeonPresenceStore(this).activePresentNpcIds();
         innerLifeRuntime = new NpcInnerLifeRuntime(this);
-        // Constructed at process start so canonical world/dungeon observation state exists before
-        // any top-level Activity can attempt to display it.
         worldRuntime = new NpcWorldRuntimeV200(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
+            @Override public void onActivityPreCreated(Activity activity, Bundle state) {
+                if (activity instanceof DungeonActivity && worldRuntime != null) {
+                    worldRuntime.prepareObservationState(System.currentTimeMillis());
+                }
+            }
+
             @Override public void onActivityCreated(Activity activity, Bundle state) {
                 if (activity instanceof DemoActivityV032) {
                     demoActivityRef = new WeakReference<>((DemoActivityV032) activity);
@@ -129,8 +133,6 @@ public final class NPCBrainApplication extends Application {
         }
         if (activity instanceof DungeonActivity) {
             DungeonActivity dungeon = (DungeonActivity) activity;
-            // Install observation ownership first. Later UI bridges may read/operate on the same
-            // canonical state, but none of them owns autonomous turn execution.
             DungeonWorldObserverBridge.install(dungeon);
             DungeonGoalInputBridge.install(dungeon);
             DungeonAiStaminaBridge.install(dungeon);
