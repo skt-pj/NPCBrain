@@ -11,22 +11,30 @@ import static org.junit.Assert.assertTrue;
 
 public final class ProcessingQueueUiSourceTest {
     @Test
-    public void queueUiShowsOnlyLogicalProcessingItems() throws Exception {
+    public void queueUiAggregatesTopLevelByNpcAndExpandsInternalDetails() throws Exception {
         String source = read("src/main/java/com/sktpj/npcbrain/ProcessingQueueActivity.java");
+        String viewModel = read("src/main/java/com/sktpj/npcbrain/NpcBrainQueueViewModel.java");
 
-        assertTrue(source.contains("!\"llm_request\".equals(entry.type)"));
-        assertTrue(source.contains("現在の処理"));
-        assertTrue(source.contains("直近の処理結果"));
-        assertTrue(source.contains("Brain内部のLLM呼び出しは表示しません"));
+        assertTrue(source.contains("NpcBrainQueueViewModel.group"));
+        assertTrue(source.contains("NPCごとの脳処理"));
+        assertTrue(source.contains("タップして内部状況を見る"));
+        assertTrue(source.contains("addExpandedDetails"));
+        assertTrue(source.contains("internalRow"));
+        assertTrue(source.contains("9専門Brain・Global Workspace"));
 
+        // LLM invocation details are retained in the expanded NPC detail view, not erased.
+        assertTrue(viewModel.contains("\"llm_request\".equals(entry.type)"));
+        assertTrue(viewModel.contains("専門Brain"));
+        assertTrue(viewModel.contains("Global Workspace"));
+
+        // Rejected concepts must never return as top-level queue terminology.
         assertFalse(source.contains("親処理"));
         assertFalse(source.contains("ローカルLLM FIFOキュー"));
-        assertFalse(source.contains("直近のローカルLLM結果"));
-        assertFalse(source.contains("LLM推論"));
+        assertFalse(source.contains("自発送信判断"));
     }
 
     @Test
-    public void logicalCardsKeepQueueTimingFields() throws Exception {
+    public void expandedInternalRowsKeepQueueTimingFields() throws Exception {
         String source = read("src/main/java/com/sktpj/npcbrain/ProcessingQueueActivity.java");
         assertTrue(source.contains("キュー投入"));
         assertTrue(source.contains("デキュー"));
