@@ -13,15 +13,16 @@ final class PrimaryNavigationPolicy {
     static final String CODEX = "codex";
     static final String SETTINGS = "settings";
     static final String MANAGER = "manager";
+    static final String QUEUE = "queue";
 
     private static final List<String> RELEASE_IDS = Collections.unmodifiableList(Arrays.asList(
             CONVERSATION, STATUS, DUNGEON, CODEX, SETTINGS));
     private static final List<String> DEBUG_IDS = Collections.unmodifiableList(Arrays.asList(
-            CONVERSATION, STATUS, DUNGEON, CODEX, SETTINGS, MANAGER));
+            CONVERSATION, STATUS, DUNGEON, CODEX, SETTINGS, MANAGER, QUEUE));
     private static final List<String> ALL_IDS = Collections.unmodifiableList(Arrays.asList(
-            CONVERSATION, STATUS, DUNGEON, CODEX, SETTINGS, MANAGER));
+            CONVERSATION, STATUS, DUNGEON, CODEX, SETTINGS, MANAGER, QUEUE));
     private static final List<String> LABELS = Collections.unmodifiableList(Arrays.asList(
-            "会話", "NPC状況", "ダンジョン", "図鑑", "設定", "NPC管理"));
+            "会話", "NPC状況", "ダンジョン", "図鑑", "設定", "NPC管理", "キュー"));
 
     private PrimaryNavigationPolicy() {}
 

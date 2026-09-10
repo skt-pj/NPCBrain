@@ -211,6 +211,18 @@ final class OpenAiClient {
     }
 
     private JSONObject requestJsonInternal(String prompt, int maxOutputTokens) throws Exception {
+    String queueId = beginDiagnosticLlmRequest(prompt);
+    try {
+        JSONObject result = requestJsonInternalUnobserved(prompt, maxOutputTokens);
+        completeDiagnosticLlmRequest(queueId);
+        return result;
+    } catch (Exception error) {
+        failDiagnosticLlmRequest(queueId, error);
+        throw error;
+    }
+}
+
+    private JSONObject requestJsonInternalUnobserved(String prompt, int maxOutputTokens) throws Exception {
         FunctionTool tool = isGlobalWorkspacePrompt(prompt) ? FUNCTION_TOOL.get() : null;
         JSONObject local = requestLocalIfSelected(prompt, maxOutputTokens, tool);
         if (local != null) return local;
@@ -232,6 +244,22 @@ final class OpenAiClient {
             int maxOutputTokens
     ) throws Exception {
         String fullPrompt = prompt.fullText();
+        String queueId = beginDiagnosticLlmRequest(fullPrompt);
+        try {
+            JSONObject result = requestJsonInternalUnobserved(prompt, maxOutputTokens);
+            completeDiagnosticLlmRequest(queueId);
+            return result;
+        } catch (Exception error) {
+            failDiagnosticLlmRequest(queueId, error);
+            throw error;
+        }
+    }
+
+    private JSONObject requestJsonInternalUnobserved(
+            PromptCacheRequest.Prompt prompt,
+            int maxOutputTokens
+    ) throws Exception {
+        String fullPrompt = prompt.fullText();
         FunctionTool tool = isGlobalWorkspacePrompt(fullPrompt) ? FUNCTION_TOOL.get() : null;
         JSONObject local = requestLocalIfSelected(fullPrompt, maxOutputTokens, tool);
         if (local != null) return local;
@@ -246,6 +274,32 @@ final class OpenAiClient {
             body.put("parallel_tool_calls", false);
         }
         return executeLogicalRequest(body, fullPrompt, tool, maxOutputTokens);
+    }
+
+    private String beginDiagnosticLlmRequest(String fullPrompt) {
+    try {
+        String npcId = attributedNpcId(fullPrompt);
+        if (npcId.isEmpty()) return "";
+        String selectedModel = new NpcModelStore(appContext, npcId).selectedModel();
+        String stage = isGlobalWorkspacePrompt(fullPrompt) ? "Global Workspace" : "specialist / task";
+        return ProcessingQueueRegistry.startRunning(
+                "llm_request",
+                npcId,
+                selectedModel + " · " + stage,
+                System.currentTimeMillis());
+    } catch (Exception ignored) {
+        return "";
+    }
+}
+
+    private void completeDiagnosticLlmRequest(String queueId) {
+        if (queueId == null || queueId.isEmpty()) return;
+        ProcessingQueueRegistry.markCompleted(queueId);
+    }
+
+    private void failDiagnosticLlmRequest(String queueId, Exception error) {
+        if (queueId == null || queueId.isEmpty()) return;
+        ProcessingQueueRegistry.markFailed(queueId, error);
     }
 
     private JSONObject requestLocalIfSelected(

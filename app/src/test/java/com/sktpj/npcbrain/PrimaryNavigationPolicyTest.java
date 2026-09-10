@@ -11,20 +11,21 @@ import java.util.Arrays;
 
 public final class PrimaryNavigationPolicyTest {
     @Test
-    public void releaseDestinationsIncludeSettingsAndHideNpcManager() {
+    public void releaseDestinationsIncludeSettingsAndHideDebugOnlyDestinations() {
         assertEquals(Arrays.asList(
                 "conversation", "status", "dungeon", "codex", "settings"),
                 PrimaryNavigationPolicy.destinationIds(false));
     }
 
     @Test
-    public void debugDestinationsIncludeSettingsAndNpcManager() {
+    public void debugDestinationsIncludeManagerAndQueue() {
         assertEquals(Arrays.asList(
-                "conversation", "status", "dungeon", "codex", "settings", "manager"),
+                "conversation", "status", "dungeon", "codex", "settings", "manager", "queue"),
                 PrimaryNavigationPolicy.destinationIds(true));
         assertEquals(Arrays.asList(
-                "会話", "NPC状況", "ダンジョン", "図鑑", "設定", "NPC管理"),
+                "会話", "NPC状況", "ダンジョン", "図鑑", "設定", "NPC管理", "キュー"),
                 PrimaryNavigationPolicy.labels());
+        assertEquals("キュー", PrimaryNavigationPolicy.labelFor(PrimaryNavigationPolicy.QUEUE));
     }
 
     @Test
