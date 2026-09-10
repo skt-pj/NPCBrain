@@ -13,6 +13,7 @@ public final class NPCBrainApplication extends Application {
     private static volatile boolean debugBuild;
 
     private NpcInnerLifeRuntime innerLifeRuntime;
+    private NpcWorldRuntimeV200 worldRuntime;
     private int startedActivityCount;
 
     @Override
@@ -21,10 +22,9 @@ public final class NPCBrainApplication extends Application {
         debugBuild = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         new ReplyTimerStore(this).rearmAll();
         NpcSocialMemoryScheduler.schedule(this);
-        // Snapshot legacy dungeon participants before DungeonActivity can generate a new selected
-        // actor. From v0.4.43 presence is independent from the user-invited party roster.
         new DungeonPresenceStore(this).activePresentNpcIds();
         innerLifeRuntime = new NpcInnerLifeRuntime(this);
+        worldRuntime = new NpcWorldRuntimeV200(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityCreated(Activity activity, Bundle state) {
                 if (activity instanceof DemoActivityV032) {
@@ -37,8 +37,9 @@ public final class NPCBrainApplication extends Application {
 
             @Override public void onActivityStarted(Activity activity) {
                 startedActivityCount++;
-                if (startedActivityCount == 1 && innerLifeRuntime != null) {
-                    innerLifeRuntime.onForeground();
+                if (startedActivityCount == 1) {
+                    if (innerLifeRuntime != null) innerLifeRuntime.onForeground();
+                    if (worldRuntime != null) worldRuntime.start();
                 }
                 installRuntimeBridges(activity);
                 PrimaryUiCoordinator.onStarted(activity);
@@ -66,8 +67,9 @@ public final class NPCBrainApplication extends Application {
 
             @Override public void onActivityStopped(Activity activity) {
                 startedActivityCount = Math.max(0, startedActivityCount - 1);
-                if (startedActivityCount == 0 && innerLifeRuntime != null) {
-                    innerLifeRuntime.onBackground();
+                if (startedActivityCount == 0) {
+                    if (innerLifeRuntime != null) innerLifeRuntime.onBackground();
+                    if (worldRuntime != null) worldRuntime.stop();
                 }
             }
 
