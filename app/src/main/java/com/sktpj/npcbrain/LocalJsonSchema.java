@@ -15,21 +15,25 @@ final class LocalJsonSchema {
 
     static String schemaFor(String prompt, OpenAiClient.FunctionTool tool) {
         String source = prompt == null ? "" : prompt;
-        if (tool != null && tool.requiredInvocation()) {
-            return toolEnvelopeSchema(tool.name()).toString();
+        try {
+            if (tool != null && tool.requiredInvocation()) {
+                return toolEnvelopeSchema(tool.name()).toString();
+            }
+            if (isSpecialist(source)) {
+                return specialistSchema(expectedSpecialistId(source)).toString();
+            }
+            if (OpenAiClient.isGlobalWorkspacePrompt(source)) {
+                // Optional local tools need to permit either a final workspace object or a tool envelope.
+                // A generic object constraint still guarantees syntactically complete JSON in that case.
+                return tool == null ? globalWorkspaceSchema().toString() : genericObjectSchema().toString();
+            }
+            if (source.contains(AMBIENT_MARKER)) {
+                return ambientSchema().toString();
+            }
+            return genericObjectSchema().toString();
+        } catch (Exception error) {
+            throw new IllegalStateException("Failed to build local JSON response schema", error);
         }
-        if (isSpecialist(source)) {
-            return specialistSchema(expectedSpecialistId(source)).toString();
-        }
-        if (OpenAiClient.isGlobalWorkspacePrompt(source)) {
-            // Optional local tools need to permit either a final workspace object or a tool envelope.
-            // A generic object constraint still guarantees syntactically complete JSON in that case.
-            return tool == null ? globalWorkspaceSchema().toString() : genericObjectSchema().toString();
-        }
-        if (source.contains(AMBIENT_MARKER)) {
-            return ambientSchema().toString();
-        }
-        return genericObjectSchema().toString();
     }
 
     static JSONObject schemaObjectForTest(String prompt, OpenAiClient.FunctionTool tool) {
@@ -58,7 +62,7 @@ final class LocalJsonSchema {
         return candidate.matches("[a-z0-9_]{1,48}") ? candidate : "";
     }
 
-    private static JSONObject specialistSchema(String moduleId) {
+    private static JSONObject specialistSchema(String moduleId) throws Exception {
         JSONObject properties = new JSONObject();
         properties.put("module", moduleId.isEmpty()
                 ? stringSchema(48)
@@ -73,7 +77,7 @@ final class LocalJsonSchema {
                 "personality_effect", "graph_used_node_ids");
     }
 
-    private static JSONObject ambientSchema() {
+    private static JSONObject ambientSchema() throws Exception {
         JSONObject properties = new JSONObject();
         properties.put("mood_summary", stringSchema(100));
         properties.put("focus", stringSchema(120));
@@ -85,7 +89,7 @@ final class LocalJsonSchema {
                 "mood_summary", "focus", "thought", "intention", "reflection", "importance");
     }
 
-    private static JSONObject globalWorkspaceSchema() {
+    private static JSONObject globalWorkspaceSchema() throws Exception {
         JSONObject properties = new JSONObject();
         properties.put("module", enumStringSchema("global_workspace"));
         properties.put("npc_utterance", stringSchema(220));
@@ -154,7 +158,7 @@ final class LocalJsonSchema {
                 "environment_action", "dungeon_plan");
     }
 
-    private static JSONObject toolEnvelopeSchema(String toolName) {
+    private static JSONObject toolEnvelopeSchema(String toolName) throws Exception {
         JSONObject call = new JSONObject();
         call.put("name", enumStringSchema(toolName == null ? "" : toolName));
         call.put("arguments", genericObjectSchema());
@@ -163,14 +167,14 @@ final class LocalJsonSchema {
         return objectSchema(root, "_npcbrain_tool_call");
     }
 
-    private static JSONObject genericObjectSchema() {
+    private static JSONObject genericObjectSchema() throws Exception {
         return new JSONObject()
                 .put("type", "object")
                 .put("minProperties", 1)
                 .put("maxProperties", 32);
     }
 
-    private static JSONObject objectSchema(JSONObject properties, String... required) {
+    private static JSONObject objectSchema(JSONObject properties, String... required) throws Exception {
         JSONObject result = new JSONObject()
                 .put("type", "object")
                 .put("properties", properties == null ? new JSONObject() : properties)
@@ -185,13 +189,13 @@ final class LocalJsonSchema {
         return result;
     }
 
-    private static JSONObject stringSchema(int maxLength) {
+    private static JSONObject stringSchema(int maxLength) throws Exception {
         return new JSONObject()
                 .put("type", "string")
                 .put("maxLength", Math.max(1, maxLength));
     }
 
-    private static JSONObject enumStringSchema(String... values) {
+    private static JSONObject enumStringSchema(String... values) throws Exception {
         JSONArray enums = new JSONArray();
         if (values != null) {
             for (String value : values) enums.put(value == null ? "" : value);
@@ -199,33 +203,33 @@ final class LocalJsonSchema {
         return new JSONObject().put("type", "string").put("enum", enums);
     }
 
-    private static JSONObject numberSchema(double minimum, double maximum) {
+    private static JSONObject numberSchema(double minimum, double maximum) throws Exception {
         return new JSONObject()
                 .put("type", "number")
                 .put("minimum", minimum)
                 .put("maximum", maximum);
     }
 
-    private static JSONObject integerSchema(long minimum) {
+    private static JSONObject integerSchema(long minimum) throws Exception {
         return new JSONObject().put("type", "integer").put("minimum", minimum);
     }
 
-    private static JSONObject integerSchema(long minimum, long maximum) {
+    private static JSONObject integerSchema(long minimum, long maximum) throws Exception {
         return new JSONObject()
                 .put("type", "integer")
                 .put("minimum", minimum)
                 .put("maximum", maximum);
     }
 
-    private static JSONObject booleanSchema() {
+    private static JSONObject booleanSchema() throws Exception {
         return new JSONObject().put("type", "boolean");
     }
 
-    private static JSONObject stringArraySchema(int maxItems, int maxLength) {
+    private static JSONObject stringArraySchema(int maxItems, int maxLength) throws Exception {
         return arraySchema(stringSchema(maxLength), maxItems);
     }
 
-    private static JSONObject arraySchema(JSONObject items, int maxItems) {
+    private static JSONObject arraySchema(JSONObject items, int maxItems) throws Exception {
         return new JSONObject()
                 .put("type", "array")
                 .put("maxItems", Math.max(0, maxItems))
