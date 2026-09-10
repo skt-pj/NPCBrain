@@ -15,12 +15,10 @@ import android.widget.TextView;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
-/** Debug-only read-only view of the process-local diagnostic queue. */
+/** Debug-only read-only view of logical processing and the real local-LLM FIFO queue. */
 public final class ProcessingQueueActivity extends Activity {
     private static final long REFRESH_MS = 500L;
 
@@ -84,7 +82,7 @@ public final class ProcessingQueueActivity extends Activity {
         root.addView(title);
 
         TextView description = new TextView(this);
-        description.setText("上段は論理処理の待機・実行順です。Brain内部の並列LLM処理はキュー項目ではないため別枠にまとめます。");
+        description.setText("ローカルLLMは実FIFOキューで1件ずつ実行します。9専門Brainは同時に仕事を作れますが、LiteRT-LMへ入る推論は1件だけで、残りは待機します。");
         description.setTextSize(12f);
         description.setTextColor(AppUiTheme.APP_MUTED);
         LinearLayout.LayoutParams descriptionParams = new LinearLayout.LayoutParams(
@@ -111,108 +109,70 @@ public final class ProcessingQueueActivity extends Activity {
         list.removeAllViews();
         ProcessingQueueRegistry.Snapshot snapshot = ProcessingQueueRegistry.snapshot();
 
-        List<ProcessingQueueRegistry.Entry> queueActive = new ArrayList<>();
-        List<ProcessingQueueRegistry.Entry> internalActive = new ArrayList<>();
+        List<ProcessingQueueRegistry.Entry> logical = new ArrayList<>();
+        List<ProcessingQueueRegistry.Entry> localLlm = new ArrayList<>();
+        List<ProcessingQueueRegistry.Entry> openAi = new ArrayList<>();
         for (ProcessingQueueRegistry.Entry entry : snapshot.active) {
-            if (isInternalWorker(entry)) internalActive.add(entry);
-            else queueActive.add(entry);
+            if (isLocalLlm(entry)) localLlm.add(entry);
+            else if (isLlm(entry)) openAi.add(entry);
+            else logical.add(entry);
         }
 
-        addSectionTitle("処理キュー");
-        if (queueActive.isEmpty()) {
-            addEmpty("待機中・実行中の論理処理はありません");
+        addSectionTitle("上位処理");
+        addHint("会話返信・自発判断などのオーケストレーション状態です。ここはLLM実行スロットそのものではありません。");
+        if (logical.isEmpty()) {
+            addEmpty("現在の上位処理はありません");
+        } else {
+            for (ProcessingQueueRegistry.Entry entry : logical) {
+                list.addView(entryCard(entry, true, 0));
+            }
+        }
+
+        addSectionTitle("ローカルLLM FIFOキュー");
+        int runningLocal = 0;
+        for (ProcessingQueueRegistry.Entry entry : localLlm) {
+            if (entry.status == ProcessingQueueRegistry.Status.RUNNING) runningLocal++;
+        }
+        if (runningLocal > 1) {
+            addWarning("異常: ローカルLLMが " + runningLocal + " 件同時に実行中です");
+        } else {
+            addHint("実行枠 1件 · 実行中 " + runningLocal + "件 · 待機中 "
+                    + Math.max(0, localLlm.size() - runningLocal) + "件");
+        }
+        if (localLlm.isEmpty()) {
+            addEmpty("ローカルLLMの待機・実行はありません");
         } else {
             int waitingPosition = 0;
-            for (ProcessingQueueRegistry.Entry entry : queueActive) {
+            for (ProcessingQueueRegistry.Entry entry : localLlm) {
                 if (entry.status == ProcessingQueueRegistry.Status.QUEUED) waitingPosition++;
                 list.addView(entryCard(entry, true, waitingPosition));
             }
         }
 
-        if (!internalActive.isEmpty()) {
-            addSectionTitle("内部並列処理");
-            addHint("これはキューの複数同時実行ではありません。現在の論理処理の内部で並列実行されているワーカーです。");
-            for (WorkerGroup group : groupWorkers(internalActive)) {
-                list.addView(workerGroupCard(group));
+        if (!openAi.isEmpty()) {
+            addSectionTitle("OpenAI API処理");
+            addHint("OpenAI Lunaは端末内LiteRT-LMのFIFOキュー対象外で、ネットワークAPIとして並列実行できます。");
+            for (ProcessingQueueRegistry.Entry entry : openAi) {
+                list.addView(entryCard(entry, true, 0));
             }
         }
 
-        addSectionTitle("直近の論理処理");
-        boolean hasRecentLogical = false;
+        addSectionTitle("直近の結果");
+        boolean hasRecent = false;
         for (ProcessingQueueRegistry.Entry entry : snapshot.recent) {
-            if (isInternalWorker(entry)) continue;
+            if (isLlm(entry) && entry.status == ProcessingQueueRegistry.Status.COMPLETED) continue;
             list.addView(entryCard(entry, false, 0));
-            hasRecentLogical = true;
+            hasRecent = true;
         }
-        if (!hasRecentLogical) {
-            addEmpty("完了した論理処理はまだありません");
-        }
-
-        boolean hasInternalFailure = false;
-        for (ProcessingQueueRegistry.Entry entry : snapshot.recent) {
-            if (!isInternalWorker(entry)
-                    || entry.status != ProcessingQueueRegistry.Status.FAILED) continue;
-            if (!hasInternalFailure) {
-                addSectionTitle("内部処理の失敗");
-                hasInternalFailure = true;
-            }
-            list.addView(entryCard(entry, false, 0));
-        }
+        if (!hasRecent) addEmpty("表示する結果はまだありません");
     }
 
-    static boolean isInternalWorker(ProcessingQueueRegistry.Entry entry) {
+    static boolean isLlm(ProcessingQueueRegistry.Entry entry) {
         return entry != null && "llm_request".equals(entry.type);
     }
 
-    private List<WorkerGroup> groupWorkers(List<ProcessingQueueRegistry.Entry> entries) {
-        Map<String, WorkerGroup> groups = new LinkedHashMap<>();
-        for (ProcessingQueueRegistry.Entry entry : entries) {
-            String key = entry.npcId + "\u0000" + entry.detail;
-            WorkerGroup group = groups.get(key);
-            if (group == null) {
-                group = new WorkerGroup(entry.npcId, entry.detail);
-                groups.put(key, group);
-            }
-            group.add(entry);
-        }
-        return new ArrayList<>(groups.values());
-    }
-
-    private View workerGroupCard(WorkerGroup group) {
-        LinearLayout card = baseCard();
-
-        TextView headline = new TextView(this);
-        String npc = group.npcId.isEmpty() ? "" : " · " + group.npcId;
-        headline.setText("内部並列  LLM推論" + npc + "  × " + group.count + "件");
-        headline.setTextSize(14f);
-        headline.setTypeface(Typeface.DEFAULT_BOLD);
-        headline.setTextColor(AppUiTheme.APP_TEXT);
-        card.addView(headline);
-
-        TextView time = new TextView(this);
-        long now = System.currentTimeMillis();
-        time.setText(group.count + "件実行中 · 最古開始 " + formatClock(group.earliestStartMs)
-                + " · " + formatDuration(Math.max(0L, now - group.earliestStartMs)));
-        time.setTextSize(11f);
-        time.setTextColor(AppUiTheme.APP_MUTED);
-        LinearLayout.LayoutParams timeParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        timeParams.topMargin = dp(4);
-        card.addView(time, timeParams);
-
-        if (!group.detail.isEmpty()) {
-            TextView detail = new TextView(this);
-            detail.setText(cleanWorkerDetail(group.detail));
-            detail.setTextSize(11f);
-            detail.setTextColor(AppUiTheme.APP_MUTED);
-            LinearLayout.LayoutParams detailParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT);
-            detailParams.topMargin = dp(5);
-            card.addView(detail, detailParams);
-        }
-        return card;
+    static boolean isLocalLlm(ProcessingQueueRegistry.Entry entry) {
+        return isLlm(entry) && entry.detail != null && entry.detail.startsWith("local_");
     }
 
     private void addSectionTitle(String text) {
@@ -241,6 +201,16 @@ public final class ProcessingQueueActivity extends Activity {
         hint.setTextColor(AppUiTheme.APP_MUTED);
         hint.setPadding(dp(4), dp(2), dp(4), dp(8));
         list.addView(hint);
+    }
+
+    private void addWarning(String text) {
+        TextView warning = new TextView(this);
+        warning.setText(text);
+        warning.setTextSize(12f);
+        warning.setTypeface(Typeface.DEFAULT_BOLD);
+        warning.setTextColor(Color.rgb(224, 116, 116));
+        warning.setPadding(dp(4), dp(2), dp(4), dp(8));
+        list.addView(warning);
     }
 
     private View entryCard(ProcessingQueueRegistry.Entry entry, boolean active, int waitingPosition) {
@@ -327,12 +297,7 @@ public final class ProcessingQueueActivity extends Activity {
         String value = detail.trim();
         if (value.startsWith("room=")) return "room: " + value.substring("room=".length());
         if ("foreground spontaneous".equals(value)) return "フォアグラウンド自発判断";
-        return value;
-    }
-
-    private String cleanWorkerDetail(String detail) {
-        if (detail == null) return "";
-        return detail.trim().replace("specialist / task", "専門領域 / task");
+        return value.replace("specialist / task", "専門領域 / task");
     }
 
     private String formatClock(long millis) {
@@ -357,23 +322,5 @@ public final class ProcessingQueueActivity extends Activity {
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
-    }
-
-    private static final class WorkerGroup {
-        final String npcId;
-        final String detail;
-        int count;
-        long earliestStartMs = Long.MAX_VALUE;
-
-        WorkerGroup(String npcId, String detail) {
-            this.npcId = npcId == null ? "" : npcId;
-            this.detail = detail == null ? "" : detail;
-        }
-
-        void add(ProcessingQueueRegistry.Entry entry) {
-            count++;
-            long start = entry.startedAtMs > 0L ? entry.startedAtMs : entry.queuedAtMs;
-            earliestStartMs = Math.min(earliestStartMs, start);
-        }
     }
 }
