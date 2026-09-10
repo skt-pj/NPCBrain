@@ -5,7 +5,10 @@ import android.content.Context;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /** Publishes one observable world event and, when requested, the same event to NPC memory. */
 final class WorldEventMemoryBridge {
@@ -33,6 +36,24 @@ final class WorldEventMemoryBridge {
             boolean rememberTarget,
             double importance
     ) {
+        List<String> participants = new ArrayList<>();
+        if (rememberActor) participants.add(actorId);
+        if (rememberTarget) participants.add(targetId);
+        return recordForParticipants(eventType, actorId, targetId, timeMs, location, payload,
+                causeEventId, participants, importance);
+    }
+
+    WorldEvent recordForParticipants(
+            String eventType,
+            String actorId,
+            String targetId,
+            long timeMs,
+            String location,
+            JSONObject payload,
+            String causeEventId,
+            List<String> rememberNpcIds,
+            double importance
+    ) {
         String actor = normalizeOptionalNpcId(actorId);
         String target = normalizeOptionalNpcId(targetId);
         long worldTime = timeMs > 0L ? clock.advanceTo(timeMs) : clock.now();
@@ -47,12 +68,14 @@ final class WorldEventMemoryBridge {
         worldStore.appendEvent(event);
 
         List<String> active = registry.activeNpcIds();
-        if (rememberActor && active.contains(actor)) {
-            remember(actor, event, importance);
+        Set<String> unique = new LinkedHashSet<>();
+        if (rememberNpcIds != null) {
+            for (String raw : rememberNpcIds) {
+                String id = normalizeOptionalNpcId(raw);
+                if (!id.isEmpty() && active.contains(id)) unique.add(id);
+            }
         }
-        if (rememberTarget && !target.equals(actor) && active.contains(target)) {
-            remember(target, event, importance);
-        }
+        for (String npcId : unique) remember(npcId, event, importance);
         return event;
     }
 
