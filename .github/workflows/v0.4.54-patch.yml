@@ -1,0 +1,116 @@
+name: v0.4.54 patch
+
+on:
+  push:
+    branches:
+      - feature/v0.4.54-debug-processing-queue
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[queue-patch-done]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v0.4.54-debug-processing-queue
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Instrument NPC-attributed LLM requests
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('app/src/main/java/com/sktpj/npcbrain/OpenAiClient.java')
+          text = path.read_text()
+          plain = '    private JSONObject requestJsonInternal(String prompt, int maxOutputTokens) throws Exception {\n'
+          cached = '    private JSONObject requestJsonInternal(\n            PromptCacheRequest.Prompt prompt,\n            int maxOutputTokens\n    ) throws Exception {\n'
+          if plain not in text or cached not in text:
+              raise SystemExit('OpenAiClient requestJsonInternal anchors changed')
+          plain_replacement = '''    private JSONObject requestJsonInternal(String prompt, int maxOutputTokens) throws Exception {
+              String queueId = beginDiagnosticLlmRequest(prompt);
+              try {
+                  JSONObject result = requestJsonInternalUnobserved(prompt, maxOutputTokens);
+                  completeDiagnosticLlmRequest(queueId);
+                  return result;
+              } catch (Exception error) {
+                  failDiagnosticLlmRequest(queueId, error);
+                  throw error;
+              }
+          }
+
+              private JSONObject requestJsonInternalUnobserved(String prompt, int maxOutputTokens) throws Exception {
+          '''
+          cached_replacement = '''    private JSONObject requestJsonInternal(
+                      PromptCacheRequest.Prompt prompt,
+                      int maxOutputTokens
+              ) throws Exception {
+                  String fullPrompt = prompt.fullText();
+                  String queueId = beginDiagnosticLlmRequest(fullPrompt);
+                  try {
+                      JSONObject result = requestJsonInternalUnobserved(prompt, maxOutputTokens);
+                      completeDiagnosticLlmRequest(queueId);
+                      return result;
+                  } catch (Exception error) {
+                      failDiagnosticLlmRequest(queueId, error);
+                      throw error;
+                  }
+              }
+
+              private JSONObject requestJsonInternalUnobserved(
+                      PromptCacheRequest.Prompt prompt,
+                      int maxOutputTokens
+              ) throws Exception {
+          '''
+          text = text.replace(plain, plain_replacement, 1)
+          text = text.replace(cached, cached_replacement, 1)
+          anchor = '    private JSONObject requestLocalIfSelected(\n'
+          if anchor not in text:
+              raise SystemExit('OpenAiClient local route anchor changed')
+          helpers = '''    private String beginDiagnosticLlmRequest(String fullPrompt) {
+              try {
+                  String npcId = attributedNpcId(fullPrompt);
+                  if (npcId.isEmpty()) return "";
+                  String selectedModel = new NpcModelStore(appContext, npcId).selectedModel();
+                  String stage = isGlobalWorkspacePrompt(fullPrompt) ? "Global Workspace" : "specialist / task";
+                  return ProcessingQueueRegistry.startRunning(
+                          "llm_request",
+                          npcId,
+                          selectedModel + " · " + stage,
+                          System.currentTimeMillis());
+              } catch (Exception ignored) {
+                  return "";
+              }
+          }
+
+              private void completeDiagnosticLlmRequest(String queueId) {
+                  if (queueId == null || queueId.isEmpty()) return;
+                  ProcessingQueueRegistry.markCompleted(queueId);
+              }
+
+              private void failDiagnosticLlmRequest(String queueId, Exception error) {
+                  if (queueId == null || queueId.isEmpty()) return;
+                  ProcessingQueueRegistry.markFailed(queueId, error);
+              }
+
+          '''
+          text = text.replace(anchor, helpers + anchor, 1)
+          path.write_text(text)
+      - name: Verify tests and debug build
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
+      - name: Commit patched source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v0.4.54-patch.yml
+          git add app/src/main/java/com/sktpj/npcbrain/OpenAiClient.java
+          git commit -m "v0.4.54 instrument NPC LLM queue [queue-patch-done]"
+          git push origin HEAD:feature/v0.4.54-debug-processing-queue
