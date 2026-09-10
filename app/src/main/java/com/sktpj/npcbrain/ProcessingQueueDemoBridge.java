@@ -41,41 +41,65 @@ final class ProcessingQueueDemoBridge {
         boolean processing = booleanField(activity, "processing");
         String roomId = stringField(activity, "processingRoomId");
 
+        // A queued user reply can start immediately after spontaneous cognition. The polling
+        // observer may not sample the short processing=false interval, so room identity changes
+        // are also explicit process boundaries.
+        boolean identityChangedWhileRunning = processing
+                && state.wasProcessing
+                && !roomId.equals(state.roomId);
+        if (identityChangedWhileRunning) {
+            finishObserved(activity, state, false);
+            state.wasProcessing = false;
+        }
+
         if (processing && !state.wasProcessing) {
-            state.roomId = roomId;
-            state.type = roomId.isEmpty() ? "spontaneous_cognition" : "conversation_reply";
-            String npcId = roomId.isEmpty()
-                    ? stringField(activity, "liveNpcId")
-                    : npcForRoom(roomId);
-            if ("conversation_reply".equals(state.type)) {
-                state.entryId = ProcessingQueueRegistry.claimConversation(
-                        roomId,
-                        npcId,
-                        System.currentTimeMillis());
-            } else {
-                state.entryId = ProcessingQueueRegistry.startRunning(
-                        state.type,
-                        npcId,
-                        "foreground spontaneous",
-                        System.currentTimeMillis());
-            }
-        } else if (!processing && state.wasProcessing && !state.entryId.isEmpty()) {
-            if ("conversation_reply".equals(state.type)
-                    && hasRetryForRoom(activity, state.roomId)) {
-                ProcessingQueueRegistry.markFailed(
-                        state.entryId,
-                        System.currentTimeMillis(),
-                        "返信処理に失敗。再試行可能");
-            } else {
-                ProcessingQueueRegistry.markCompleted(
-                        state.entryId,
-                        System.currentTimeMillis(),
-                        state.roomId.isEmpty() ? state.type : "room=" + state.roomId);
-            }
-            state.clearActive();
+            startObserved(activity, state, roomId);
+        } else if (!processing && state.wasProcessing) {
+            finishObserved(activity, state, true);
         }
 
         state.wasProcessing = processing;
+    }
+
+    private static void startObserved(DemoActivityV032 activity, State state, String roomId) {
+        state.roomId = roomId == null ? "" : roomId;
+        state.type = state.roomId.isEmpty() ? "spontaneous_cognition" : "conversation_reply";
+        String npcId = state.roomId.isEmpty()
+                ? stringField(activity, "liveNpcId")
+                : npcForRoom(state.roomId);
+        if ("conversation_reply".equals(state.type)) {
+            state.entryId = ProcessingQueueRegistry.claimConversation(
+                    state.roomId,
+                    npcId,
+                    System.currentTimeMillis());
+        } else {
+            state.entryId = ProcessingQueueRegistry.startRunning(
+                    state.type,
+                    npcId,
+                    "foreground spontaneous",
+                    System.currentTimeMillis());
+        }
+    }
+
+    private static void finishObserved(DemoActivityV032 activity, State state, boolean inspectRetry) {
+        if (state.entryId.isEmpty()) {
+            state.clearActive();
+            return;
+        }
+        if (inspectRetry
+                && "conversation_reply".equals(state.type)
+                && hasRetryForRoom(activity, state.roomId)) {
+            ProcessingQueueRegistry.markFailed(
+                    state.entryId,
+                    System.currentTimeMillis(),
+                    "返信処理に失敗。再試行可能");
+        } else {
+            ProcessingQueueRegistry.markCompleted(
+                    state.entryId,
+                    System.currentTimeMillis(),
+                    state.roomId.isEmpty() ? state.type : "room=" + state.roomId);
+        }
+        state.clearActive();
     }
 
     private static boolean hasRetryForRoom(DemoActivityV032 activity, String roomId) {
