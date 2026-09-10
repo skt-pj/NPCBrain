@@ -46,6 +46,20 @@ final class LocalLlmRuntime {
             int maxOutputTokens,
             OpenAiClient.FunctionTool tool
     ) throws Exception {
+        String diagnosticQueueId = ProcessingQueueRegistry.currentLocalLlmEntryId();
+        return LocalLlmExecutionQueue.execute(
+                diagnosticQueueId,
+                () -> requestJsonExclusive(npcId, selectedModel, prompt, maxOutputTokens, tool));
+    }
+
+    /** Called only while holding the single LocalLlmExecutionQueue execution slot. */
+    private JSONObject requestJsonExclusive(
+            String npcId,
+            String selectedModel,
+            String prompt,
+            int maxOutputTokens,
+            OpenAiClient.FunctionTool tool
+    ) throws Exception {
         String id = NpcId.of(npcId).value();
         String model = NpcInferenceModel.normalize(selectedModel);
         if (NpcInferenceModel.usesOpenAi(model)) {
@@ -102,8 +116,6 @@ final class LocalLlmRuntime {
         try {
             return sendWithInputCompaction(holder, npcId, originalPrompt, maxOutputTokens, tool);
         } catch (RuntimeException firstFailure) {
-            // A context-window overflow is independent of GPU/CPU. Retrying the same oversized
-            // prompt on CPU only wastes time and hides the real cause as "GPU→CPU".
             if (LocalPromptCompactor.isInputTooLong(firstFailure)) {
                 throw localExecutionFailure(modelId, "入力コンテキスト圧縮", firstFailure);
             }
