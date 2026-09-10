@@ -1,0 +1,6 @@
+run_id=34495363891
+status=success
+job_commit=c9eb60d02bb5149c382d8bb8ac4c0c9c65b2122f
+apk_path=dist/NPCBrain-release.apk
+debug_apk_path=dist/NPCBrain-debug.apk
+versionName=2.0.0
