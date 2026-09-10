@@ -32,6 +32,10 @@
             android:enableOnBackInvokedCallback="true"
             android:exported="false" />
         <activity
+            android:name=".ProcessingQueueActivity"
+            android:enableOnBackInvokedCallback="true"
+            android:exported="false" />
+        <activity
             android:name=".CodexActivity"
             android:enableOnBackInvokedCallback="true"
             android:exported="false" />
