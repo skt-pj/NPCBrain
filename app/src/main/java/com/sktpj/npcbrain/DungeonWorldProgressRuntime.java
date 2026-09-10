@@ -5,6 +5,7 @@ import android.content.Context;
 /** Advances every present dungeon NPC without depending on a Dungeon screen. */
 final class DungeonWorldProgressRuntime {
     private final Context appContext;
+    private final NpcRegistryStore registry;
     private final DungeonPresenceStore presence;
     private final DungeonStore dungeon;
     private final DungeonEconomyRuntime economy;
@@ -13,11 +14,24 @@ final class DungeonWorldProgressRuntime {
 
     DungeonWorldProgressRuntime(Context context) {
         appContext = context.getApplicationContext();
+        registry = new NpcRegistryStore(appContext);
         presence = new DungeonPresenceStore(appContext);
         dungeon = new DungeonStore(appContext);
         economy = new DungeonEconomyRuntime(appContext);
         npcState = new DungeonNpcStateCoordinator(appContext);
         controls = new DungeonSimulationControlStore(appContext);
+    }
+
+    /** Ensures observation has a canonical stored actor state before any DungeonActivity exists. */
+    void prepareRegisteredStates(long nowMs) {
+        for (String npcId : registry.activeNpcIds()) {
+            CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(appContext, npcId));
+            if (character.isDead() || dungeon.loadRaw(npcId) != null) continue;
+            long seed = System.nanoTime() ^ nowMs ^ ((long) npcId.hashCode() << 17);
+            DungeonState state = DungeonGenerator.generate(seed, 1);
+            state.lastAction = "世界ランタイムで観測状態を初期化";
+            dungeon.save(npcId, state);
+        }
     }
 
     int advancePresentOnce(long nowMs) {
@@ -76,6 +90,11 @@ final class DungeonWorldProgressRuntime {
         if (plan == null || !plan.matches(objective)) {
             plan = DungeonPlan.local(objective, traits, state, "統合世界ランタイムのローカル計画");
         }
+        int beforeFloor = state.floor;
+        int beforeTurn = state.turn;
+        int beforeHp = state.hp;
+        String beforeAction = safe(state.lastAction);
+
         DungeonIntent intent = worldTurnIntent(state, traits, mind);
         DungeonStepResult result = DungeonEngine.stepDetailed(state, traits, intent, plan);
         DungeonState next = result == null || result.state == null ? state : result.state;
@@ -83,8 +102,8 @@ final class DungeonWorldProgressRuntime {
         dungeon.save(npcId, next);
         economy.process(npcId, next, nowMs);
         if (next.hp <= 0) presence.setPresent(npcId, false);
-        return next.turn != state.turn || next.floor != state.floor || next.hp != state.hp
-                || !safe(next.lastAction).equals(safe(state.lastAction));
+        return next.turn != beforeTurn || next.floor != beforeFloor || next.hp != beforeHp
+                || !safe(next.lastAction).equals(beforeAction);
     }
 
     static DungeonIntent worldTurnIntent(
