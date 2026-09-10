@@ -32,7 +32,7 @@ final class NpcWorldRuntimeV200 {
         dungeonEvents = new DungeonWorldEventSynchronizer(app);
         dungeonAutonomy = new DungeonAutonomyRuntime(app);
         checkpoint = new WorldSimulationCheckpointStore(app);
-        dungeonProgress.prepareRegisteredStates(System.currentTimeMillis());
+        prepareObservationState(System.currentTimeMillis());
     }
 
     synchronized void start() {
@@ -47,9 +47,13 @@ final class NpcWorldRuntimeV200 {
         handler.removeCallbacks(foregroundTask);
     }
 
+    void prepareObservationState(long nowMs) {
+        dungeonProgress.prepareRegisteredStates(nowMs);
+    }
+
     void syncForegroundOnce(long nowMs) {
         lifeRuntime.syncAllNow();
-        dungeonProgress.prepareRegisteredStates(nowMs);
+        prepareObservationState(nowMs);
         dungeonProgress.advancePresentOnce(nowMs);
         dungeonEvents.syncAll(nowMs);
         checkpoint.mark(nowMs);
@@ -59,7 +63,7 @@ final class NpcWorldRuntimeV200 {
         long previous = checkpoint.lastSimulationMs();
         int catchUpSteps = WorldSimulationCatchUpPolicy.backgroundSteps(previous, nowMs);
         lifeRuntime.syncAllNow();
-        dungeonProgress.prepareRegisteredStates(nowMs);
+        prepareObservationState(nowMs);
         dungeonAutonomy.evaluateAndJoin(nowMs, apiKey, reasoningEffort);
         for (int i = 0; i < catchUpSteps; i++) {
             long simulatedTime = backgroundStepTime(previous, nowMs, i, catchUpSteps);
