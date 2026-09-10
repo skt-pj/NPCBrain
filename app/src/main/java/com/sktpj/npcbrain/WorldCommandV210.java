@@ -9,6 +9,7 @@ final class WorldCommandV210 {
     static final String ADVANCE_TIME = "advance_time";
     static final String USER_POST_MESSAGE = "user_post_message";
     static final String NPC_POST_MESSAGE = "npc_post_message";
+    static final String APPLY_BRAIN_DECISION = "apply_brain_decision";
     static final String COMMUNICATION_SKIPPED = "communication_skipped";
     static final String COMMUNICATION_DEFERRED = "communication_deferred";
     static final String UPSERT_LIFE_STATE = "upsert_life_state";
