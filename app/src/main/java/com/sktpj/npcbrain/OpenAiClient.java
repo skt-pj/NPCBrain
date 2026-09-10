@@ -306,7 +306,16 @@ final class OpenAiClient {
                 }
             }
         }
-        return "specialist";
+        if (source.contains("encoding/appraisal pass of a memory-maintenance system")) {
+            return "memory_appraisal";
+        }
+        if (source.contains("consolidation/schema pass")) {
+            return "memory_consolidation";
+        }
+        if (source.contains("retention/forgetting pass")) {
+            return "memory_retention";
+        }
+        return "local_request";
     }
 
     private void completeDiagnosticLlmRequest(String queueId) {

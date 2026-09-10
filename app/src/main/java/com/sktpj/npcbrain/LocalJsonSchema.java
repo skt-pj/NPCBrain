@@ -9,6 +9,12 @@ final class LocalJsonSchema {
     private static final String SPECIALIST_ID_PREFIX = "You are the ";
     private static final String SPECIALIST_ID_SUFFIX = " function inside the brain-inspired NPC cognitive architecture.";
     private static final String AMBIENT_MARKER = "one brief PUBLIC inner-life monitor update";
+    private static final String MEMORY_APPRAISAL_MARKER =
+            "You are the encoding/appraisal pass of a memory-maintenance system.";
+    private static final String MEMORY_CONSOLIDATION_MARKER =
+            "You are the consolidation/schema pass.";
+    private static final String MEMORY_RETENTION_MARKER =
+            "You are the retention/forgetting pass.";
 
     private LocalJsonSchema() {
     }
@@ -26,6 +32,15 @@ final class LocalJsonSchema {
                 // Optional local tools need to permit either a final workspace object or a tool envelope.
                 // A generic object constraint still guarantees syntactically complete JSON in that case.
                 return tool == null ? globalWorkspaceSchema().toString() : genericObjectSchema().toString();
+            }
+            if (source.contains(MEMORY_APPRAISAL_MARKER)) {
+                return memoryAppraisalSchema().toString();
+            }
+            if (source.contains(MEMORY_CONSOLIDATION_MARKER)) {
+                return memoryConsolidationSchema().toString();
+            }
+            if (source.contains(MEMORY_RETENTION_MARKER)) {
+                return memoryRetentionSchema().toString();
             }
             if (source.contains(AMBIENT_MARKER)) {
                 return ambientSchema().toString();
@@ -156,6 +171,63 @@ final class LocalJsonSchema {
                 "confidence", "personality_effect", "graph_used_node_ids", "dynamic_state",
                 "memory_summary", "memory_importance", "semantic_facts", "communication",
                 "environment_action", "dungeon_plan");
+    }
+
+    private static JSONObject memoryAppraisalSchema() throws Exception {
+        JSONObject item = new JSONObject();
+        item.put("candidate_id", stringSchema(64));
+        item.put("importance", numberSchema(0.0, 1.0));
+        item.put("emotionality", numberSchema(0.0, 1.0));
+        item.put("social_relevance", numberSchema(0.0, 1.0));
+        item.put("repetition", numberSchema(0.0, 1.0));
+        item.put("gist", stringSchema(80));
+        JSONObject properties = new JSONObject();
+        properties.put("items", arraySchema(objectSchema(
+                item, "candidate_id", "importance", "emotionality",
+                "social_relevance", "repetition", "gist"), 4));
+        return objectSchema(properties, "items");
+    }
+
+    private static JSONObject memoryConsolidationSchema() throws Exception {
+        JSONObject episode = new JSONObject();
+        episode.put("candidate_id", stringSchema(64));
+        episode.put("gist", stringSchema(80));
+
+        JSONObject semantic = new JSONObject();
+        semantic.put("type", enumStringSchema(
+                "world_fact", "self_belief", "goal", "value", "fear",
+                "relationship", "habit_strategy", "role_identity"));
+        semantic.put("text", stringSchema(100));
+        semantic.put("confidence", numberSchema(0.0, 1.0));
+
+        JSONObject relationship = new JSONObject();
+        relationship.put("other_id", stringSchema(64));
+        relationship.put("familiarity_delta", numberSchema(-0.15, 0.15));
+        relationship.put("trust_delta", numberSchema(-0.15, 0.15));
+        relationship.put("affinity_delta", numberSchema(-0.15, 0.15));
+        relationship.put("summary", stringSchema(80));
+
+        JSONObject properties = new JSONObject();
+        properties.put("episodic", arraySchema(
+                objectSchema(episode, "candidate_id", "gist"), 4));
+        properties.put("semantic_updates", arraySchema(
+                objectSchema(semantic, "type", "text", "confidence"), 3));
+        properties.put("relationship_updates", arraySchema(
+                objectSchema(relationship, "other_id", "familiarity_delta",
+                        "trust_delta", "affinity_delta", "summary"), 3));
+        return objectSchema(properties,
+                "episodic", "semantic_updates", "relationship_updates");
+    }
+
+    private static JSONObject memoryRetentionSchema() throws Exception {
+        JSONObject item = new JSONObject();
+        item.put("memory_id", stringSchema(64));
+        item.put("decision", enumStringSchema("detail", "gist", "forget"));
+        item.put("gist", stringSchema(80));
+        JSONObject properties = new JSONObject();
+        properties.put("retention", arraySchema(
+                objectSchema(item, "memory_id", "decision", "gist"), 8));
+        return objectSchema(properties, "retention");
     }
 
     private static JSONObject toolEnvelopeSchema(String toolName) throws Exception {
