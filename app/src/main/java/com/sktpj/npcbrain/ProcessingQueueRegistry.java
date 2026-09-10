@@ -9,10 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Process-local observer of work already owned by existing runtimes.
- * This class never schedules, serializes, cancels, retries, or reorders work.
- */
+/** Process-local diagnostic state for logical work and LLM execution. */
 final class ProcessingQueueRegistry {
     static final int MAX_TERMINAL_HISTORY = 100;
 
@@ -75,6 +72,7 @@ final class ProcessingQueueRegistry {
     private static final AtomicLong NEXT_ID = new AtomicLong(1L);
     private static final Map<String, Entry> ACTIVE = new LinkedHashMap<>();
     private static final ArrayDeque<Entry> TERMINAL = new ArrayDeque<>();
+    private static final ThreadLocal<String> CURRENT_LOCAL_LLM_ENTRY = new ThreadLocal<>();
 
     private ProcessingQueueRegistry() {}
 
@@ -107,8 +105,21 @@ final class ProcessingQueueRegistry {
 
     static String startRunning(String type, String npcId, String detail, long nowMs) {
         String id = enqueue(type, npcId, detail, nowMs);
+        if (isLocalLlmRequest(type, detail)) {
+            // The entry is genuinely waiting until LocalLlmExecutionQueue grants the single slot.
+            CURRENT_LOCAL_LLM_ENTRY.set(id);
+            return id;
+        }
         markRunning(id, nowMs);
         return id;
+    }
+
+    static String currentLocalLlmEntryId() {
+        return safe(CURRENT_LOCAL_LLM_ENTRY.get());
+    }
+
+    private static boolean isLocalLlmRequest(String type, String detail) {
+        return "llm_request".equals(safe(type)) && safe(detail).startsWith("local_");
     }
 
     /** One pending direct-room reply is already enforced by ConversationSendQueueBridge. */
@@ -126,9 +137,6 @@ final class ProcessingQueueRegistry {
         return enqueue("conversation_reply", npcId, roomTag(room), nowMs);
     }
 
-    /**
-     * Reuses a previously queued conversation entry for the room, or creates a new running entry.
-     */
     static String claimConversation(String roomId, String npcId, long nowMs) {
         String room = safe(roomId);
         String id = "";
@@ -194,8 +202,12 @@ final class ProcessingQueueRegistry {
             String replacementDetail,
             String error
     ) {
+        String key = safe(id);
+        if (key.equals(safe(CURRENT_LOCAL_LLM_ENTRY.get()))) {
+            CURRENT_LOCAL_LLM_ENTRY.remove();
+        }
         synchronized (LOCK) {
-            Entry old = ACTIVE.remove(safe(id));
+            Entry old = ACTIVE.remove(key);
             if (old == null || !old.isActive()) return;
             long finished = Math.max(
                     old.startedAtMs > 0L ? old.startedAtMs : old.queuedAtMs,
@@ -275,5 +287,6 @@ final class ProcessingQueueRegistry {
             TERMINAL.clear();
             NEXT_ID.set(1L);
         }
+        CURRENT_LOCAL_LLM_ENTRY.remove();
     }
 }
