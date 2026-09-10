@@ -106,7 +106,10 @@ final class LocalModelDownloadManager {
             state.errorMessage = "";
         }
 
+        String queueId = ProcessingQueueRegistry.enqueue(
+                "local_model_download", "", model, System.currentTimeMillis());
         EXECUTOR.execute(() -> {
+            ProcessingQueueRegistry.markRunning(queueId);
             try {
                 File file = repository.ensureModel(model, (downloaded, total) -> {
                     state.downloadedBytes = downloaded;
@@ -115,12 +118,15 @@ final class LocalModelDownloadManager {
                 state.downloadedBytes = file.length();
                 state.totalBytes = file.length();
                 state.errorMessage = "";
+                ProcessingQueueRegistry.markCompleted(
+                        queueId, System.currentTimeMillis(), model + " · " + formatBytes(file.length()));
             } catch (Exception error) {
                 String detail = error.getMessage();
                 if (detail == null || detail.trim().isEmpty()) {
                     detail = error.getClass().getSimpleName();
                 }
                 state.errorMessage = detail;
+                ProcessingQueueRegistry.markFailed(queueId, error);
             } finally {
                 state.downloading = false;
             }
