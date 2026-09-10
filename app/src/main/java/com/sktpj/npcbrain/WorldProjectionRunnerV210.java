@@ -43,7 +43,9 @@ final class WorldProjectionRunnerV210 {
             List<WorldEventV210> events = database.eventsAfter(checkpoint, BATCH);
             if (events.isEmpty()) return;
             for (WorldEventV210 event : events) {
-                projectConversationEvent(event);
+                try (WorldProjectionScopeV210 ignored = WorldProjectionScopeV210.enter()) {
+                    projectConversationEvent(event);
+                }
                 database.setProjectionCheckpoint(CONVERSATION, event.sequence);
             }
             if (events.size() < BATCH) return;
@@ -51,6 +53,8 @@ final class WorldProjectionRunnerV210 {
     }
 
     private void projectConversationEvent(WorldEventV210 event) {
+        String projectionId = event.payload.optString("message_id", "").trim();
+        if (projectionId.isEmpty()) projectionId = event.eventId;
         if ("message_posted".equals(event.eventType)) {
             String roomId = event.payload.optString("room_id", "").trim();
             String text = event.payload.optString("text", "").trim();
@@ -58,7 +62,7 @@ final class WorldProjectionRunnerV210 {
             String senderName = event.payload.optString("sender_name", "").trim();
             if (senderName.isEmpty()) senderName = "user".equals(event.actorId) ? "あなた" : event.actorId;
             conversations.appendNpcMessageWithId(
-                    event.eventId,
+                    projectionId,
                     roomId,
                     event.actorId,
                     senderName,
@@ -76,7 +80,7 @@ final class WorldProjectionRunnerV210 {
             String decision = "communication_deferred".equals(event.eventType)
                     ? BrainCommunicationDecision.DEFER : BrainCommunicationDecision.SKIP;
             conversations.appendNpcRuntimeDecision(
-                    event.eventId,
+                    projectionId,
                     roomId,
                     event.actorId,
                     event.payload.optString("sender_name", event.actorId),
@@ -123,20 +127,22 @@ final class WorldProjectionRunnerV210 {
 
     private static boolean alreadyRemembered(MemoryStore memory, String eventId) {
         JSONArray episodes = memory.maintenanceEpisodes();
+        String marker = "\"event_id\":\"" + eventId + "\"";
         for (int i = 0; i < episodes.length(); i++) {
             JSONObject item = episodes.optJSONObject(i);
-            if (item == null) continue;
-            String input = item.optString("input", "");
-            if (input.contains("\"event_id\":\"" + eventId + "\"")) return true;
+            if (item != null && item.optString("input", "").contains(marker)) return true;
         }
         return false;
     }
 
     private static boolean isRememberable(String type) {
         return !"world_time_advanced".equals(type)
+                && !"life_state_refreshed".equals(type)
+                && !"inner_life_advanced".equals(type)
                 && !"stale_brain_result".equals(type)
                 && !"communication_skipped".equals(type)
                 && !"communication_deferred".equals(type)
+                && !"migration_baseline".equals(type)
                 && !type.trim().isEmpty();
     }
 
@@ -150,7 +156,7 @@ final class WorldProjectionRunnerV210 {
 
     private static double importance(String type) {
         if ("message_posted".equals(type)) return 0.80;
-        if ("death".equals(type) || "npc_died".equals(type)) return 1.0;
+        if ("death".equals(type) || "npc_died".equals(type) || "dungeon_death".equals(type)) return 1.0;
         if ("relationship_changed".equals(type)) return 0.85;
         if (type.startsWith("dungeon_")) return 0.70;
         return 0.60;
