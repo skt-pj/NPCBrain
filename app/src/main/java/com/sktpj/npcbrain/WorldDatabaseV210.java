@@ -235,7 +235,10 @@ final class WorldDatabaseV210 extends SQLiteOpenHelper {
     }
 
     void setProjectionCheckpoint(String projectorId, long sequence) {
-        SQLiteDatabase db = getWritableDatabase();
+        setProjectionCheckpoint(getWritableDatabase(), projectorId, sequence);
+    }
+
+    void setProjectionCheckpoint(SQLiteDatabase db, String projectorId, long sequence) {
         ContentValues values = new ContentValues();
         values.put("projector_id", projectorId);
         values.put("last_sequence", Math.max(0L, sequence));
