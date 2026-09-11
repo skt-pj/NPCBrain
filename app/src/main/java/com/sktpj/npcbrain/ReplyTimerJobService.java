@@ -64,12 +64,10 @@ public final class ReplyTimerJobService extends JobService {
                 retry = true;
                 return;
             }
+            String reasoning = new ModelSettingsStore(this).reasoningEffort();
+            new NpcWorldRuntimeV200(this).runBackgroundOpportunity(key, reasoning, now);
             DemoRuntimeV032 runtime = new DemoRuntimeV032(this, new ConversationStore(this));
-            runtime.processReplyTimer(
-                    task,
-                    key,
-                    new ModelSettingsStore(this).reasoningEffort(),
-                    null);
+            runtime.processReplyTimer(task, key, reasoning, null);
 
             ReplyTimerTask after = store.get(sourceKey);
             if (after != null) {
