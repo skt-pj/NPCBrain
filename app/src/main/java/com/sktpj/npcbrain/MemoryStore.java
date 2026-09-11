@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 
 final class MemoryStore {
     static final class Stats {
@@ -45,9 +46,15 @@ final class MemoryStore {
     private static final int RETRIEVED_EPISODES = 8;
     private static final int RETRIEVED_SEMANTICS = 10;
 
+    private final Context appContext;
+    private final String npcId;
     private final SharedPreferences preferences;
 
     MemoryStore(Context context) {
+        appContext = context.getApplicationContext();
+        npcId = context instanceof NpcStorageContext
+                ? ((NpcStorageContext) context).npcId()
+                : "npc1";
         preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
@@ -81,7 +88,7 @@ final class MemoryStore {
             context.put("episode_count", episodes.length());
             context.put("semantic_count", semantics.length());
             context.put("policy",
-                    "Memory is fallible evidence. Recent memories are provisional; consolidated episodes and learned semantics can later be compressed or forgotten. Retrieval can reinforce a memory. Profile adaptations are protected typed semantic memory.");
+                    "Memory is a replayable projection of canonical world events. Recent memories are provisional; consolidated episodes and learned semantics can later be compressed or forgotten. Retrieval can reinforce a projection without changing world history. Profile adaptations are protected typed semantic memory.");
             return context.toString();
         } catch (Exception ignored) {
             return "{\"recent_memory\":[],\"episodic_memory\":[],\"semantic_memory\":[]}";
@@ -218,29 +225,29 @@ final class MemoryStore {
             double importance,
             JSONArray semanticFacts
     ) {
-        try {
-            long now = System.currentTimeMillis();
-            double clippedImportance = HumanMemoryPolicy.clamp01(importance);
-            JSONArray episodes = loadArray(EPISODES);
-            JSONObject episode = new JSONObject();
-            episode.put("id", newMemoryId(now, episodes.length(), input, output));
-            episode.put("time_ms", now);
-            episode.put("input", limit(input, 1800));
-            episode.put("output", limit(output, 2200));
-            episode.put("summary", limit(memorySummary, 900));
-            episode.put("importance", clippedImportance);
-            episode.put("stage", STAGE_RECENT);
-            episode.put("emotionality", 0.0);
-            episode.put("social_relevance", 0.0);
-            episode.put("repetition", 0.0);
-            episode.put("retrieval_count", 0);
-            episode.put("last_retrieved_ms", 0L);
-            episode.put("semantic_candidates", copyArray(semanticFacts));
-            episodes.put(episode);
-            episodes = trimEpisodes(episodes, now);
-            preferences.edit().putString(EPISODES, episodes.toString()).apply();
-        } catch (Exception ignored) {
+        if (canonicalEnabled() && !WorldProjectionScopeV210.active()) {
+            JSONObject eventPayload = new JSONObject();
+            JSONObject commandPayload = new JSONObject();
+            try {
+                eventPayload.put("input", limit(input, 1800));
+                eventPayload.put("output", limit(output, 2200));
+                eventPayload.put("memory_summary", limit(memorySummary, 900));
+                eventPayload.put("importance", HumanMemoryPolicy.clamp01(importance));
+                eventPayload.put("semantic_facts", copyArray(semanticFacts));
+                commandPayload.put("event_type", "memory_candidate_created");
+                commandPayload.put("participant_ids", new JSONArray().put(npcId));
+                commandPayload.put("event_payload", eventPayload);
+            } catch (Exception ignored) {
+            }
+            WorldKernelV210.get(appContext).commit(WorldCommandV210.of(
+                    WorldCommandV210.APPEND_WORLD_EVENT,
+                    System.currentTimeMillis(),
+                    npcId,
+                    "memory:" + npcId + ":" + UUID.randomUUID(),
+                    commandPayload));
+            return;
         }
+        persistMemory(input, output, memorySummary, importance, semanticFacts);
     }
 
     synchronized JSONArray maintenanceEpisodes() {
@@ -293,6 +300,50 @@ final class MemoryStore {
 
     static String normalizeSemanticType(String type) {
         return normalizeType(type);
+    }
+
+    private boolean canonicalEnabled() {
+        try {
+            WorldDatabaseV210 db = WorldKernelV210.get(appContext).database();
+            return "COMPLETED".equals(db.metaString(
+                    db.getReadableDatabase(),
+                    WorldDatabaseV210.META_MIGRATION_STATE,
+                    "NOT_STARTED"));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void persistMemory(
+            String input,
+            String output,
+            String memorySummary,
+            double importance,
+            JSONArray semanticFacts
+    ) {
+        try {
+            long now = System.currentTimeMillis();
+            double clippedImportance = HumanMemoryPolicy.clamp01(importance);
+            JSONArray episodes = loadArray(EPISODES);
+            JSONObject episode = new JSONObject();
+            episode.put("id", newMemoryId(now, episodes.length(), input, output));
+            episode.put("time_ms", now);
+            episode.put("input", limit(input, 1800));
+            episode.put("output", limit(output, 2200));
+            episode.put("summary", limit(memorySummary, 900));
+            episode.put("importance", clippedImportance);
+            episode.put("stage", STAGE_RECENT);
+            episode.put("emotionality", 0.0);
+            episode.put("social_relevance", 0.0);
+            episode.put("repetition", 0.0);
+            episode.put("retrieval_count", 0);
+            episode.put("last_retrieved_ms", 0L);
+            episode.put("semantic_candidates", copyArray(semanticFacts));
+            episodes.put(episode);
+            episodes = trimEpisodes(episodes, now);
+            preferences.edit().putString(EPISODES, episodes.toString()).apply();
+        } catch (Exception ignored) {
+        }
     }
 
     private JSONArray selectEpisodes(
