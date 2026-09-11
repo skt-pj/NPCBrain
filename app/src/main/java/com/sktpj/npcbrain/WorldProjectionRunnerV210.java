@@ -98,7 +98,9 @@ final class WorldProjectionRunnerV210 {
             List<WorldEventV210> events = database.eventsAfter(checkpoint, BATCH);
             if (events.isEmpty()) return;
             for (WorldEventV210 event : events) {
-                projectMemoryEvent(event);
+                try (WorldProjectionScopeV210 ignored = WorldProjectionScopeV210.enter()) {
+                    projectMemoryEvent(event);
+                }
                 database.setProjectionCheckpoint(MEMORY, event.sequence);
             }
             if (events.size() < BATCH) return;
@@ -106,6 +108,18 @@ final class WorldProjectionRunnerV210 {
     }
 
     private void projectMemoryEvent(WorldEventV210 event) {
+        if ("memory_candidate_created".equals(event.eventType)) {
+            String npcId = normalizedNpc(event.actorId);
+            if (npcId.isEmpty()) return;
+            MemoryStore memory = new MemoryStore(NpcContexts.storage(appContext, npcId));
+            memory.remember(
+                    event.payload.optString("input", ""),
+                    event.payload.optString("output", ""),
+                    event.payload.optString("memory_summary", ""),
+                    event.payload.optDouble("importance", 0.5),
+                    event.payload.optJSONArray("semantic_facts"));
+            return;
+        }
         if (!isRememberable(event.eventType)) return;
         Set<String> participants = new LinkedHashSet<>();
         addNpc(participants, event.actorId);
@@ -139,6 +153,9 @@ final class WorldProjectionRunnerV210 {
         return !"world_time_advanced".equals(type)
                 && !"life_state_refreshed".equals(type)
                 && !"inner_life_advanced".equals(type)
+                && !"dynamic_state_changed".equals(type)
+                && !"brain_decision_applied".equals(type)
+                && !"memory_candidate_created".equals(type)
                 && !"stale_brain_result".equals(type)
                 && !"communication_skipped".equals(type)
                 && !"communication_deferred".equals(type)
@@ -162,11 +179,17 @@ final class WorldProjectionRunnerV210 {
         return 0.60;
     }
 
-    private static void addNpc(Set<String> result, String raw) {
+    private static String normalizedNpc(String raw) {
         try {
-            result.add(NpcId.of(raw).value());
+            return NpcId.of(raw).value();
         } catch (Exception ignored) {
+            return "";
         }
+    }
+
+    private static void addNpc(Set<String> result, String raw) {
+        String normalized = normalizedNpc(raw);
+        if (!normalized.isEmpty()) result.add(normalized);
     }
 
     private static String limit(String value, int max) {
