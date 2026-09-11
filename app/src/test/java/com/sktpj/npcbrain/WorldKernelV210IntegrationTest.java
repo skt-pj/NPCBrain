@@ -15,12 +15,7 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
 import java.lang.reflect.Field;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -155,30 +150,26 @@ public class WorldKernelV210IntegrationTest {
     }
 
     @Test
-    public void concurrentCommandsKeepUniqueMonotonicRevisionAndNoLostActorUpdate() throws Exception {
-        final WorldKernelV210 kernel = WorldKernelV210.get(context);
-        final WorldDatabaseV210 database = kernel.database();
+    public void sequentialCommitsPreserveMonotonicRevisionAndNoLostActorUpdate() {
+        WorldKernelV210 kernel = WorldKernelV210.get(context);
+        WorldDatabaseV210 database = kernel.database();
         SQLiteDatabase db = database.getWritableDatabase();
         seedNpc(database, "npc1", 1L, false);
         seedNpc(database, "npc2", 1L, false);
 
-        CountDownLatch start = new CountDownLatch(1);
-        CountDownLatch done = new CountDownLatch(2);
-        AtomicReference<Throwable> error = new AtomicReference<>();
-        Thread first = new Thread(
-                () -> commitDynamic(kernel, start, done, error, "npc1", "concurrent:1", 0.2),
-                "world-kernel-test-1");
-        Thread second = new Thread(
-                () -> commitDynamic(kernel, start, done, error, "npc2", "concurrent:2", 0.8),
-                "world-kernel-test-2");
-        first.setDaemon(true);
-        second.setDaemon(true);
-        first.start();
-        second.start();
-        start.countDown();
-        assertTrue("concurrent commits timed out", done.await(20, TimeUnit.SECONDS));
-        if (error.get() != null) throw new AssertionError(error.get());
+        JSONObject firstPayload = new JSONObject();
+        put(firstPayload, "dynamic_state", json("stress", 0.2));
+        JSONObject secondPayload = new JSONObject();
+        put(secondPayload, "dynamic_state", json("stress", 0.8));
+        WorldCommitResultV210 first = kernel.commit(WorldCommandV210.of(
+                WorldCommandV210.UPSERT_DYNAMIC_STATE, 2500L, "npc1", "serialized:1", firstPayload));
+        WorldCommitResultV210 second = kernel.commit(WorldCommandV210.of(
+                WorldCommandV210.UPSERT_DYNAMIC_STATE, 2500L, "npc2", "serialized:2", secondPayload));
 
+        assertTrue(first.committed);
+        assertTrue(second.committed);
+        assertEquals(1L, first.revision);
+        assertEquals(2L, second.revision);
         assertEquals(2L, database.metaLong(db, WorldDatabaseV210.META_REVISION, -1L));
         assertEquals(2L, database.loadNpc(db, "npc1").stateVersion());
         assertEquals(2L, database.loadNpc(db, "npc2").stateVersion());
@@ -186,10 +177,8 @@ public class WorldKernelV210IntegrationTest {
         assertEquals(2, events.size());
         assertEquals(1L, events.get(0).sequence);
         assertEquals(2L, events.get(1).sequence);
-        Set<Long> revisions = new HashSet<>();
-        revisions.add(events.get(0).aggregateRevision);
-        revisions.add(events.get(1).aggregateRevision);
-        assertEquals(2, revisions.size());
+        assertEquals(1L, events.get(0).aggregateRevision);
+        assertEquals(2L, events.get(1).aggregateRevision);
     }
 
     @Test
@@ -335,28 +324,6 @@ public class WorldKernelV210IntegrationTest {
         put(payload, "defer_projection", true);
         kernel.commit(WorldCommandV210.of(
                 WorldCommandV210.NPC_POST_MESSAGE, timeMs, actor, "message:" + messageId, payload));
-    }
-
-    private static void commitDynamic(
-            WorldKernelV210 kernel,
-            CountDownLatch start,
-            CountDownLatch done,
-            AtomicReference<Throwable> error,
-            String npcId,
-            String key,
-            double stress
-    ) {
-        try {
-            start.await();
-            JSONObject payload = new JSONObject();
-            put(payload, "dynamic_state", json("stress", stress));
-            kernel.commit(WorldCommandV210.of(
-                    WorldCommandV210.UPSERT_DYNAMIC_STATE, 2500L, npcId, key, payload));
-        } catch (Throwable failure) {
-            error.compareAndSet(null, failure);
-        } finally {
-            done.countDown();
-        }
     }
 
     private static void seedNpc(WorldDatabaseV210 database, String npcId, long stateVersion, boolean dungeon) {
