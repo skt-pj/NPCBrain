@@ -54,13 +54,26 @@ final class WorldCommandV210 {
             String idempotencyKey,
             JSONObject payload
     ) {
+        String normalizedType = safe(type);
+        JSONObject normalizedPayload = copy(payload);
+        if (MARK_NPC_DEAD.equals(normalizedType)) {
+            normalizedType = UPSERT_DUNGEON_STATE;
+            JSONObject actor = copy(normalizedPayload.optJSONObject("dungeon_actor"));
+            try {
+                actor.put("hp", 0);
+                normalizedPayload.put("dungeon_present", false);
+                normalizedPayload.put("dungeon_actor", actor);
+                normalizedPayload.put("event_type", "npc_died");
+            } catch (Exception ignored) {
+            }
+        }
         return new WorldCommandV210(
-                type,
+                normalizedType,
                 timeMs,
                 actorId,
                 idempotencyKey,
                 UUID.randomUUID().toString(),
-                payload);
+                normalizedPayload);
     }
 
     private static JSONObject copy(JSONObject source) {
