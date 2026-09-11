@@ -15,6 +15,7 @@ final class PeriodicNpcSocialRuntime {
     private final SocialRelationshipStore relationships;
     private final NpcBrainSessionFactory brainFactory;
     private final WorldQueryServiceV210 worldQuery;
+    private final WorldConversationGatewayV210 conversationGateway;
 
     PeriodicNpcSocialRuntime(Context context) {
         appContext = context.getApplicationContext();
@@ -25,6 +26,7 @@ final class PeriodicNpcSocialRuntime {
         WorldKernelV210 kernel = WorldKernelV210.get(appContext);
         new LegacyWorldImporterV210(appContext, kernel.database()).importIfNeeded();
         worldQuery = new WorldQueryServiceV210(kernel.database());
+        conversationGateway = new WorldConversationGatewayV210(appContext);
     }
 
     boolean runOneOpportunity(String apiKey, String reasoningEffort, long nowMs) throws Exception {
@@ -48,7 +50,7 @@ final class PeriodicNpcSocialRuntime {
         String roomId = NpcPeerRoomPolicy.roomId(actor, target);
         if (roomId.isEmpty()) return false;
         CharacterStateStore actorState = new CharacterStateStore(NpcContexts.storage(appContext, actor));
-        conversations.appendNpcMessageWithId(
+        conversationGateway.postMessage(
                 messageId,
                 roomId,
                 actor,
@@ -80,7 +82,7 @@ final class PeriodicNpcSocialRuntime {
         if (!actor.equals(replyCommunication.targetId())) return true;
         long replyTimeMs = Math.max(nowMs, System.currentTimeMillis());
         CharacterStateStore responderState = new CharacterStateStore(NpcContexts.storage(appContext, responder));
-        conversations.appendNpcMessageWithId(
+        conversationGateway.postMessage(
                 replyId,
                 roomId,
                 responder,
@@ -99,7 +101,9 @@ final class PeriodicNpcSocialRuntime {
             String apiKey,
             String reasoningEffort
     ) throws Exception {
-        return brainFactory.create(npcId, apiKey, reasoningEffort).thinkDecision(prompt, null, true);
+        // Autonomous conversation facts become memory only after their canonical message event is
+        // committed and replayed by MemoryProjector. BrainEngine must not create a second memory SSOT.
+        return brainFactory.create(npcId, apiKey, reasoningEffort).thinkDecision(prompt, null, false);
     }
 
     private String buildOpportunityPrompt(String actor, List<String> active, long nowMs) {
