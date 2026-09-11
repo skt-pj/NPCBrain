@@ -31,6 +31,17 @@ public class CanonicalWorldFinalAuditSourceTest {
     }
 
     @Test
+    public void autonomousPeerConversationCommitsThroughKernelAndDoesNotWriteMemoryDirectly() throws Exception {
+        String source = read("src/main/java/com/sktpj/npcbrain/PeriodicNpcSocialRuntime.java");
+        assertTrue(source.contains("WorldConversationGatewayV210"));
+        assertTrue(source.contains("conversationGateway.postMessage("));
+        assertTrue(source.contains("thinkDecision(prompt, null, false)"));
+        assertFalse(source.contains("appendNpcMessageWithId("));
+        assertFalse(source.contains("new MemoryStore"));
+        assertFalse(source.contains(".remember("));
+    }
+
+    @Test
     public void communicationKeepsObservedWallTimeSeparateFromWorldClock() throws Exception {
         String gateway = read("src/main/java/com/sktpj/npcbrain/WorldConversationGatewayV210.java");
         String projection = read("src/main/java/com/sktpj/npcbrain/WorldProjectionRunnerV210.java");
