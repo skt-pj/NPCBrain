@@ -52,10 +52,13 @@ final class WorldQueryServiceV210 {
             long latest = Math.max(0L, result.optLong("next_event_sequence", 1L) - 1L);
             long conversation = database.projectionCheckpoint("conversation_v210");
             long memory = database.projectionCheckpoint("memory_v210");
+            long conversationLag = Math.max(0L, latest - conversation);
+            long memoryLag = Math.max(0L, latest - memory);
             result.put("conversation_projection_checkpoint", conversation);
-            result.put("conversation_projection_lag", Math.max(0L, latest - conversation));
+            result.put("conversation_projection_lag", conversationLag);
             result.put("memory_projection_checkpoint", memory);
-            result.put("memory_projection_lag", Math.max(0L, latest - memory));
+            result.put("memory_projection_lag", memoryLag);
+            result.put("projection_lag", Math.max(conversationLag, memoryLag));
         } catch (Exception ignored) {
         }
         return result;
