@@ -8,6 +8,7 @@ import android.os.Bundle;
 import java.lang.ref.WeakReference;
 
 public final class NPCBrainApplication extends Application {
+    private static WeakReference<NPCBrainApplication> applicationRef = new WeakReference<>(null);
     private static WeakReference<DemoActivityV032> demoActivityRef = new WeakReference<>(null);
     private static volatile boolean demoRoomRefreshRequested;
     private static volatile boolean debugBuild;
@@ -18,6 +19,7 @@ public final class NPCBrainApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        applicationRef = new WeakReference<>(this);
         debugBuild = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         new ReplyTimerStore(this).rearmAll();
         NpcSocialMemoryScheduler.schedule(this);
@@ -96,21 +98,13 @@ public final class NPCBrainApplication extends Application {
     }
 
     static WorldKernelV210 worldKernel() {
-        NPCBrainApplication app = currentApplication();
+        NPCBrainApplication app = applicationRef.get();
         return app == null || app.worldRuntime == null ? null : app.worldRuntime.kernel();
     }
 
     static WorldQueryServiceV210 worldQuery() {
-        NPCBrainApplication app = currentApplication();
+        NPCBrainApplication app = applicationRef.get();
         return app == null || app.worldRuntime == null ? null : app.worldRuntime.query();
-    }
-
-    private static NPCBrainApplication currentApplication() {
-        DemoActivityV032 activity = currentDemoActivity();
-        if (activity != null && activity.getApplication() instanceof NPCBrainApplication) {
-            return (NPCBrainApplication) activity.getApplication();
-        }
-        return null;
     }
 
     private static boolean consumeDemoRoomRefreshRequest() {
@@ -121,9 +115,11 @@ public final class NPCBrainApplication extends Application {
 
     private void installRuntimeBridges(Activity activity) {
         if (activity instanceof DemoActivityV032) {
+            DemoActivityV032 demo = (DemoActivityV032) activity;
             DynamicConversationUiBridge.install(activity);
-            ConversationSendQueueBridge.install((DemoActivityV032) activity);
-            ProcessingQueueDemoBridge.install((DemoActivityV032) activity);
+            NpcPeerConversationUiBridge.install(demo);
+            ConversationSendQueueBridge.install(demo);
+            ProcessingQueueDemoBridge.install(demo);
             return;
         }
         if (activity instanceof NpcStatusActivity) {
