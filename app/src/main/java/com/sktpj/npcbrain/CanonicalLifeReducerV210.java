@@ -15,8 +15,11 @@ final class CanonicalLifeReducerV210 {
     Result reduce(String npcId, CanonicalNpcStateV210 canonical, long worldTimeMs) {
         NpcId id = NpcId.of(npcId);
         LifeState before = LifeState.fromJson(canonical.lifeState(), id, worldTimeMs);
+        CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(appContext, npcId));
         DailySchedule schedule = DailySchedule.fromJson(id, before.dailySchedule());
-        if (schedule == null) schedule = DailySchedule.defaultFor(id);
+        if (schedule == null) {
+            schedule = DailySchedule.profileFor(id, character.age(), character.occupation());
+        }
         ScheduleSlot slot = schedule.slotAt(worldTimeMs);
         boolean changed = !slot.entryId().equals(before.currentScheduleEntryId())
                 || !slot.activity().equals(before.currentActivity())
@@ -34,13 +37,13 @@ final class CanonicalLifeReducerV210 {
                         schedule.toJson())
                 : before.refreshCurrentSlot(worldTimeMs, slot, schedule.toJson());
 
-        CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(appContext, npcId));
         JSONObject characterJson = character.snapshotJson();
         double extraversion = character.traitPercent(CharacterStateStore.extraversionKey()) / 100.0;
         double neuroticism = character.traitPercent(CharacterStateStore.neuroticismKey()) / 100.0;
         double conscientiousness = character.traitPercent(CharacterStateStore.conscientiousnessKey()) / 100.0;
         double openness = character.traitPercent(CharacterStateStore.opennessKey()) / 100.0;
-        JSONObject currentState = characterJson.optJSONObject("current_state");
+        JSONObject currentState = canonical.dynamicState();
+        if (currentState.length() == 0) currentState = characterJson.optJSONObject("current_state");
         double valence = currentState == null ? 0.0 : currentState.optDouble("valence", 0.0);
         double stress = currentState == null ? 0.15 : currentState.optDouble("stress", 0.15);
         NpcInnerLifeState innerBefore = NpcInnerLifeState.fromJson(
