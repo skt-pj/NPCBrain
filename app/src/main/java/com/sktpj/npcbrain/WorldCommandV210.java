@@ -13,6 +13,7 @@ final class WorldCommandV210 {
     static final String COMMUNICATION_SKIPPED = "communication_skipped";
     static final String COMMUNICATION_DEFERRED = "communication_deferred";
     static final String UPSERT_LIFE_STATE = "upsert_life_state";
+    static final String UPSERT_DYNAMIC_STATE = "upsert_dynamic_state";
     static final String UPSERT_INNER_LIFE = "upsert_inner_life";
     static final String UPSERT_DUNGEON_STATE = "upsert_dungeon_state";
     static final String SET_DUNGEON_PRESENCE = "set_dungeon_presence";
