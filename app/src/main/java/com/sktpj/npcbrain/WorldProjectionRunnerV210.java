@@ -11,19 +11,33 @@ import java.util.Set;
 
 /** Replays committed events into legacy-compatible read projections. */
 final class WorldProjectionRunnerV210 {
-    private static final String CONVERSATION = "conversation_v210";
-    private static final String MEMORY = "memory_v210";
+    static final String CONVERSATION = "conversation_v210";
+    static final String MEMORY = "memory_v210";
     private static final int BATCH = 64;
+
+    interface ProjectionFaultInjector {
+        void beforeProject(String projectorId, WorldEventV210 event);
+    }
 
     private final Context appContext;
     private final WorldDatabaseV210 database;
     private final ConversationStore conversations;
+    private final ProjectionFaultInjector faultInjector;
     private boolean running;
 
     WorldProjectionRunnerV210(Context context, WorldDatabaseV210 database) {
+        this(context, database, null);
+    }
+
+    WorldProjectionRunnerV210(
+            Context context,
+            WorldDatabaseV210 database,
+            ProjectionFaultInjector faultInjector
+    ) {
         appContext = context.getApplicationContext();
         this.database = database;
         conversations = new ConversationStore(appContext);
+        this.faultInjector = faultInjector;
     }
 
     synchronized void runPending() {
@@ -43,6 +57,7 @@ final class WorldProjectionRunnerV210 {
             List<WorldEventV210> events = database.eventsAfter(checkpoint, BATCH);
             if (events.isEmpty()) return;
             for (WorldEventV210 event : events) {
+                beforeProject(CONVERSATION, event);
                 try (WorldProjectionScopeV210 ignored = WorldProjectionScopeV210.enter()) {
                     projectConversationEvent(event);
                 }
@@ -99,6 +114,7 @@ final class WorldProjectionRunnerV210 {
             List<WorldEventV210> events = database.eventsAfter(checkpoint, BATCH);
             if (events.isEmpty()) return;
             for (WorldEventV210 event : events) {
+                beforeProject(MEMORY, event);
                 try (WorldProjectionScopeV210 ignored = WorldProjectionScopeV210.enter()) {
                     projectMemoryEvent(event);
                 }
@@ -106,6 +122,10 @@ final class WorldProjectionRunnerV210 {
             }
             if (events.size() < BATCH) return;
         }
+    }
+
+    private void beforeProject(String projectorId, WorldEventV210 event) {
+        if (faultInjector != null) faultInjector.beforeProject(projectorId, event);
     }
 
     private void projectMemoryEvent(WorldEventV210 event) {
