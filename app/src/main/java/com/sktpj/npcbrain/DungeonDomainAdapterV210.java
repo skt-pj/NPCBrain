@@ -32,7 +32,7 @@ final class DungeonDomainAdapterV210 {
             actor = DungeonGenerator.generate(seed, 1);
             actor.lastAction = "探索を開始";
         }
-        if (actor.hp <= 0) return payload(actor, null, new JSONArray(), "dungeon_death");
+        if (actor.hp <= 0) return payload(actor, null, new JSONArray(), new JSONArray(), "dungeon_death");
 
         JSONObject sharedJson = database.loadDungeonWorld(db, "floor_" + actor.floor);
         DungeonSharedFloor shared = DungeonSharedFloor.fromJson(sharedJson);
@@ -60,7 +60,7 @@ final class DungeonDomainAdapterV210 {
             plan = DungeonPlan.local(objective, traits, working, "Canonical Worldの合法実行");
         }
         DungeonIntent intent = exactBrainIntent(working, traits, mind);
-        DungeonStepResult step = DungeonEngine.stepDetailed(working, traits, intent, plan);
+        DungeonStepResult step = DungeonEngine.stepDetailedCanonical(working, traits, intent, plan);
         DungeonState next = step == null || step.state == null ? working : step.state;
         DungeonPerception.refreshExploration(next);
 
@@ -71,16 +71,18 @@ final class DungeonDomainAdapterV210 {
             nextShared = DungeonSharedFloor.fromState(next, next.playerX, next.playerY, 1L);
         }
         JSONArray peerUpdates = peerUpdates(working, next.floor == working.floor);
+        JSONArray combatEvents = combatEvents(step);
         String eventType = next.hp <= 0
                 ? "dungeon_death"
                 : next.floor != working.floor ? "dungeon_floor_changed" : "dungeon_action";
-        return payload(next, nextShared, peerUpdates, eventType);
+        return payload(next, nextShared, peerUpdates, combatEvents, eventType);
     }
 
     private JSONObject payload(
             DungeonState next,
             DungeonSharedFloor shared,
             JSONArray peerUpdates,
+            JSONArray combatEvents,
             String eventType
     ) {
         JSONObject payload = new JSONObject();
@@ -89,6 +91,7 @@ final class DungeonDomainAdapterV210 {
             payload.put("dungeon_actor", next == null ? new JSONObject() : next.toJson());
             payload.put("dungeon_world", shared == null ? new JSONObject() : shared.toJson());
             payload.put("peer_actor_updates", peerUpdates == null ? new JSONArray() : peerUpdates);
+            payload.put("combat_events", combatEvents == null ? new JSONArray() : combatEvents);
             payload.put("event_type", eventType);
             if (next != null) {
                 payload.put("action", next.lastAction == null ? "" : next.lastAction);
@@ -131,6 +134,27 @@ final class DungeonDomainAdapterV210 {
                 json.put("player_x", peer.x);
                 json.put("player_y", peer.y);
                 json.put("hp", peer.hp);
+                result.put(json);
+            } catch (Exception ignored) {
+            }
+        }
+        return result;
+    }
+
+    private static JSONArray combatEvents(DungeonStepResult step) {
+        JSONArray result = new JSONArray();
+        if (step == null) return result;
+        for (DungeonCombatEvent event : step.events) {
+            if (event == null || event.type.isEmpty()) continue;
+            JSONObject json = new JSONObject();
+            try {
+                json.put("type", event.type);
+                json.put("source_x", event.sourceX);
+                json.put("source_y", event.sourceY);
+                json.put("target_x", event.targetX);
+                json.put("target_y", event.targetY);
+                json.put("damage", event.damage);
+                json.put("target_id", event.targetId);
                 result.put(json);
             } catch (Exception ignored) {
             }
