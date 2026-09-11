@@ -56,6 +56,14 @@ final class SocialRelationshipStore {
         String other = NpcId.of(otherNpcId).value();
         if (subject.equals(other)) return empty(subject, other);
         JSONObject current = get(subject, other);
+        long currentLastInteraction = Math.max(0L, current.optLong("last_interaction_ms", 0L));
+        long evidenceLastInteraction = Math.max(0L, lastInteractionMs);
+        // Maintenance may be retried from the same event/checkpoint range after a later pass fails.
+        // Relationship deltas are therefore applied only when the supplied evidence contains an
+        // interaction newer than the last one already committed for this subject/peer pair.
+        if (evidenceLastInteraction > 0L && evidenceLastInteraction <= currentLastInteraction) {
+            return current;
+        }
         try {
             double familiarity = HumanMemoryPolicy.clamp01(
                     current.optDouble("familiarity", 0.0)
@@ -68,7 +76,7 @@ final class SocialRelationshipStore {
                             + HumanMemoryPolicy.clampRelationshipDelta(affinityDelta));
             int interactions = Math.max(0, current.optInt("interaction_count", 0))
                     + Math.max(0, interactionIncrement);
-            long last = Math.max(current.optLong("last_interaction_ms", 0L), Math.max(0L, lastInteractionMs));
+            long last = Math.max(currentLastInteraction, evidenceLastInteraction);
             String nextSummary = summary == null ? "" : summary.trim();
             if (nextSummary.isEmpty()) nextSummary = current.optString("summary", "");
 
