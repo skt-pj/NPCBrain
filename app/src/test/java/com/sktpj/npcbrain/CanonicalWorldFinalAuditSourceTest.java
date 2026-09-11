@@ -42,6 +42,18 @@ public class CanonicalWorldFinalAuditSourceTest {
     }
 
     @Test
+    public void peerConversationEvidenceFeedsSharedMemoryMaintenance() throws Exception {
+        String source = read("src/main/java/com/sktpj/npcbrain/HumanMemoryMaintenanceEngine.java");
+        String relationships = read("src/main/java/com/sktpj/npcbrain/SocialRelationshipStore.java");
+        assertTrue(source.contains("NpcPeerRoomPolicy.roomId(subject, other)"));
+        assertTrue(source.contains("new_social_transcript"));
+        assertTrue(source.contains("memory.maintenanceEpisodes()"));
+        assertTrue(source.contains("relationships.applyUpdate("));
+        assertTrue(relationships.contains("evidenceLastInteraction <= currentLastInteraction"));
+        assertTrue(source.contains("MemoryStore.isProfileSemantic(item)"));
+    }
+
+    @Test
     public void communicationKeepsObservedWallTimeSeparateFromWorldClock() throws Exception {
         String gateway = read("src/main/java/com/sktpj/npcbrain/WorldConversationGatewayV210.java");
         String projection = read("src/main/java/com/sktpj/npcbrain/WorldProjectionRunnerV210.java");
