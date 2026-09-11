@@ -48,6 +48,7 @@ final class WorldConversationGatewayV210 {
             payload.put("text", safe(text));
             payload.put("action", safe(action));
             payload.put("causation_id", safe(causationId));
+            payload.put("observed_wall_time_ms", Math.max(0L, timeMs));
             payload.put("brain_trace", brainTrace == null ? new JSONArray() : new JSONArray(brainTrace.toString()));
             payload.put("participant_ids", participants(roomId));
         } catch (Exception ignored) {
@@ -94,6 +95,7 @@ final class WorldConversationGatewayV210 {
             payload.put("sender_name", safe(senderName));
             payload.put("action", safe(action));
             payload.put("causation_id", safe(causationId));
+            payload.put("observed_wall_time_ms", Math.max(0L, timeMs));
             payload.put("brain_trace", brainTrace == null ? new JSONArray() : new JSONArray(brainTrace.toString()));
             payload.put("participant_ids", participants(roomId));
         } catch (Exception ignored) {
