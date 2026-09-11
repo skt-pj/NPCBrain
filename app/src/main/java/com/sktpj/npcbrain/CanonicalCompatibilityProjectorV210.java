@@ -26,7 +26,9 @@ final class CanonicalCompatibilityProjectorV210 {
             List<WorldEventV210> events = database.eventsAfter(checkpoint, BATCH);
             if (events.isEmpty()) return;
             for (WorldEventV210 event : events) {
-                project(event);
+                try (WorldProjectionScopeV210 ignored = WorldProjectionScopeV210.enter()) {
+                    project(event);
+                }
                 database.setProjectionCheckpoint(PROJECTOR, event.sequence);
             }
             if (events.size() < BATCH) return;
@@ -38,6 +40,16 @@ final class CanonicalCompatibilityProjectorV210 {
         if (npcId.isEmpty()) return;
         SQLiteDatabase db = database.getReadableDatabase();
         CanonicalNpcStateV210 canonical = database.loadNpc(db, npcId);
+        Context storage = NpcContexts.storage(appContext, npcId);
+        CharacterStateStore character = new CharacterStateStore(storage);
+
+        if (canonical.dead()) {
+            character.markDead();
+        } else {
+            JSONObject dynamic = canonical.dynamicState();
+            if (dynamic.length() > 0) character.updateDynamicState(dynamic);
+            else if ("brain_state_reset".equals(event.eventType)) character.resetDynamicState();
+        }
 
         JSONObject lifeJson = canonical.lifeState();
         if (lifeJson.length() > 0) {
@@ -52,9 +64,9 @@ final class CanonicalCompatibilityProjectorV210 {
         }
 
         JSONObject inner = canonical.innerLife();
+        NpcInnerLifeStore innerStore = new NpcInnerLifeStore(storage);
         if (inner.length() > 0) {
             try {
-                CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(appContext, npcId));
                 double e = character.traitPercent(CharacterStateStore.extraversionKey()) / 100.0;
                 double n = character.traitPercent(CharacterStateStore.neuroticismKey()) / 100.0;
                 double o = character.traitPercent(CharacterStateStore.opennessKey()) / 100.0;
@@ -62,9 +74,11 @@ final class CanonicalCompatibilityProjectorV210 {
                         inner,
                         database.metaLong(db, WorldDatabaseV210.META_WORLD_TIME, 0L),
                         e, n, o, npcId);
-                new NpcInnerLifeStore(NpcContexts.storage(appContext, npcId)).save(state);
+                innerStore.save(state);
             } catch (Exception ignored) {
             }
+        } else if ("brain_state_reset".equals(event.eventType)) {
+            innerStore.clear();
         }
 
         JSONObject dungeon = canonical.dungeonActor();
