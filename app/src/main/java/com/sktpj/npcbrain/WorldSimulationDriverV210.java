@@ -44,15 +44,16 @@ final class WorldSimulationDriverV210 {
         if (target <= cursor) {
             projections.runPending();
             compatibility.runPending();
-            return new AdvanceResult(0, cursor, target <= cursor);
+            return new AdvanceResult(0, cursor, true);
         }
 
         int steps = 0;
         while (cursor < target && steps < MAX_CATCH_UP_STEPS) {
             long boundary = Math.min(target, cursor + MAX_STEP_INTERVAL_MS);
             advanceBoundary(boundary);
-            cursor = query.lastAdvancedTimeMs();
-            if (cursor < boundary) break;
+            long advanced = query.lastAdvancedTimeMs();
+            if (advanced <= cursor) break;
+            cursor = advanced;
             steps++;
         }
         projections.runPending();
@@ -68,38 +69,56 @@ final class WorldSimulationDriverV210 {
             if (!before.active() || before.dead()) continue;
 
             CanonicalLifeReducerV210.Result reduced = lifeReducer.reduce(npcId, before, boundary);
-            JSONObject lifePayload = new JSONObject();
-            try {
-                lifePayload.put("life_state", reduced.life.toJson());
-                lifePayload.put("event_type", reduced.lifeChanged ? "activity_started" : "life_state_refreshed");
-                lifePayload.put("action", reduced.life.currentActivity());
-            } catch (Exception ignored) {
+            if (reduced.lifeChanged) {
+                JSONObject lifePayload = new JSONObject();
+                try {
+                    lifePayload.put("life_state", reduced.life.toJson());
+                    lifePayload.put("event_type", "activity_started");
+                    lifePayload.put("action", reduced.life.currentActivity());
+                    markSimulationBoundary(lifePayload);
+                } catch (Exception ignored) {
+                }
+                kernel.commit(WorldCommandV210.of(
+                        WorldCommandV210.UPSERT_LIFE_STATE,
+                        boundary,
+                        npcId,
+                        "life:" + npcId + ":" + boundary,
+                        lifePayload));
             }
-            kernel.commit(WorldCommandV210.of(
-                    WorldCommandV210.UPSERT_LIFE_STATE,
-                    boundary,
-                    npcId,
-                    "life:" + npcId + ":" + boundary,
-                    lifePayload));
 
-            JSONObject innerPayload = new JSONObject();
-            try {
-                innerPayload.put("inner_life", reduced.innerLife.toJson());
-                innerPayload.put("event_type", "inner_life_advanced");
-                innerPayload.put("append_local_thought", reduced.appendLocalThought);
-            } catch (Exception ignored) {
-            }
-            kernel.commit(WorldCommandV210.of(
-                    WorldCommandV210.UPSERT_INNER_LIFE,
+            CanonicalNpcStateV210 afterLife = database.loadNpc(database.getReadableDatabase(), npcId);
+            NpcInnerLifeState existingInner = NpcInnerLifeState.fromJson(
+                    afterLife.innerLife(),
                     boundary,
-                    npcId,
-                    "inner:" + npcId + ":" + boundary,
-                    innerPayload));
+                    0.5,
+                    0.5,
+                    0.5,
+                    npcId);
+            boolean innerDue = afterLife.innerLife().length() == 0
+                    || boundary - existingInner.updatedAtMs >= NpcInnerLifePolicy.HEARTBEAT_MS
+                    || reduced.appendLocalThought;
+            if (innerDue) {
+                JSONObject innerPayload = new JSONObject();
+                try {
+                    innerPayload.put("inner_life", reduced.innerLife.toJson());
+                    innerPayload.put("event_type", "inner_life_advanced");
+                    innerPayload.put("append_local_thought", reduced.appendLocalThought);
+                    markSimulationBoundary(innerPayload);
+                } catch (Exception ignored) {
+                }
+                kernel.commit(WorldCommandV210.of(
+                        WorldCommandV210.UPSERT_INNER_LIFE,
+                        boundary,
+                        npcId,
+                        "inner:" + npcId + ":" + boundary,
+                        innerPayload));
+            }
 
             CanonicalNpcStateV210 afterNeeds = database.loadNpc(database.getReadableDatabase(), npcId);
             if (afterNeeds.dungeonPresent() && !afterNeeds.dead()) {
                 JSONObject dungeonPayload = dungeon.reduceOneTurn(npcId, boundary);
                 if (dungeonPayload != null) {
+                    markSimulationBoundary(dungeonPayload);
                     kernel.commit(WorldCommandV210.of(
                             WorldCommandV210.UPSERT_DUNGEON_STATE,
                             boundary,
@@ -110,13 +129,29 @@ final class WorldSimulationDriverV210 {
             }
         }
 
+        JSONObject advancePayload = new JSONObject();
+        try {
+            // Final clock commit is the boundary checkpoint. Until this succeeds, retries use the
+            // same per-domain idempotency keys and finish only the missing work.
+            advancePayload.put("simulation_boundary", true);
+        } catch (Exception ignored) {
+        }
         kernel.commit(WorldCommandV210.of(
                 WorldCommandV210.ADVANCE_TIME,
                 boundary,
                 "",
                 "advance:" + boundary,
-                new JSONObject()));
+                advancePayload));
         compatibility.runPending();
+    }
+
+    private static void markSimulationBoundary(JSONObject payload) {
+        if (payload == null) return;
+        try {
+            payload.put("simulation_boundary", true);
+            payload.put("defer_projection", true);
+        } catch (Exception ignored) {
+        }
     }
 
     WorldQueryServiceV210 query() {
