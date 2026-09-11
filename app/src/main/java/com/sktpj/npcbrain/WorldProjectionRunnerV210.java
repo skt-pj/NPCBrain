@@ -55,6 +55,7 @@ final class WorldProjectionRunnerV210 {
     private void projectConversationEvent(WorldEventV210 event) {
         String projectionId = event.payload.optString("message_id", "").trim();
         if (projectionId.isEmpty()) projectionId = event.eventId;
+        long displayTime = event.payload.optLong("observed_wall_time_ms", event.worldTimeMs);
         if ("message_posted".equals(event.eventType)) {
             String roomId = event.payload.optString("room_id", "").trim();
             String text = event.payload.optString("text", "").trim();
@@ -68,7 +69,7 @@ final class WorldProjectionRunnerV210 {
                     senderName,
                     text,
                     event.payload.optString("action", ""),
-                    event.worldTimeMs,
+                    displayTime,
                     event.causationId,
                     event.payload.optJSONArray("brain_trace"));
             return;
@@ -86,7 +87,7 @@ final class WorldProjectionRunnerV210 {
                     event.payload.optString("sender_name", event.actorId),
                     decision,
                     event.payload.optString("action", ""),
-                    event.worldTimeMs,
+                    displayTime,
                     event.causationId,
                     event.payload.optJSONArray("brain_trace"));
         }
