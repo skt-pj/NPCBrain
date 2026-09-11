@@ -271,20 +271,25 @@ public class WorldKernelV210IntegrationTest {
         } catch (IllegalStateException expected) {
             // expected
         }
-        SQLiteDatabase db = database.getReadableDatabase();
+        SQLiteDatabase rolledBackDb = database.getReadableDatabase();
         assertEquals("NOT_STARTED", database.metaString(
-                db, WorldDatabaseV210.META_MIGRATION_STATE, "NOT_STARTED"));
-        assertEquals(0, rowCount(db, "npc_runtime"));
-        assertEquals(0, rowCount(db, "world_event"));
-        assertEquals(0, rowCount(db, "projection_checkpoint"));
+                rolledBackDb, WorldDatabaseV210.META_MIGRATION_STATE, "NOT_STARTED"));
+        assertEquals(0, rowCount(rolledBackDb, "npc_runtime"));
+        assertEquals(0, rowCount(rolledBackDb, "world_event"));
+        assertEquals(0, rowCount(rolledBackDb, "projection_checkpoint"));
+        database.close();
 
-        LegacyWorldImporterV210 normal = new LegacyWorldImporterV210(context, database);
+        // Retry after reopening the helper verifies that rollback was durable and that an app
+        // restart cannot leave IMPORTING rows, events or checkpoints behind.
+        WorldDatabaseV210 retryDatabase = new WorldDatabaseV210(context);
+        LegacyWorldImporterV210 normal = new LegacyWorldImporterV210(context, retryDatabase);
         assertTrue(normal.importIfNeeded());
-        assertEquals("COMPLETED", database.metaString(
-                db, WorldDatabaseV210.META_MIGRATION_STATE, "NOT_STARTED"));
+        SQLiteDatabase migratedDb = retryDatabase.getReadableDatabase();
+        assertEquals("COMPLETED", retryDatabase.metaString(
+                migratedDb, WorldDatabaseV210.META_MIGRATION_STATE, "NOT_STARTED"));
         assertFalse(normal.importIfNeeded());
         assertEquals(legacyIds, new NpcRegistryStore(context).activeNpcIds());
-        database.close();
+        retryDatabase.close();
     }
 
     @Test
