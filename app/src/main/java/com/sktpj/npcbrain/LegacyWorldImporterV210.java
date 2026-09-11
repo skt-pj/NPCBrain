@@ -15,10 +15,16 @@ import java.util.UUID;
 final class LegacyWorldImporterV210 {
     private final Context appContext;
     private final WorldDatabaseV210 database;
+    private final Runnable beforeCommitHook;
 
     LegacyWorldImporterV210(Context context, WorldDatabaseV210 database) {
+        this(context, database, null);
+    }
+
+    LegacyWorldImporterV210(Context context, WorldDatabaseV210 database, Runnable beforeCommitHook) {
         appContext = context.getApplicationContext();
         this.database = database;
+        this.beforeCommitHook = beforeCommitHook;
     }
 
     synchronized boolean importIfNeeded() {
@@ -94,8 +100,9 @@ final class LegacyWorldImporterV210 {
             database.putMeta(db, WorldDatabaseV210.META_LAST_ADVANCED, Long.toString(worldTime));
             database.putMeta(db, WorldDatabaseV210.META_NEXT_SEQUENCE, "2");
             database.putMeta(db, WorldDatabaseV210.META_MIGRATION_STATE, "COMPLETED");
-            database.setProjectionCheckpoint("conversation_v210", 1L);
-            database.setProjectionCheckpoint("memory_v210", 1L);
+            database.setProjectionCheckpoint(WorldProjectionRunnerV210.CONVERSATION, 1L);
+            database.setProjectionCheckpoint(WorldProjectionRunnerV210.MEMORY, 1L);
+            if (beforeCommitHook != null) beforeCommitHook.run();
             db.setTransactionSuccessful();
             return true;
         } catch (Exception error) {
