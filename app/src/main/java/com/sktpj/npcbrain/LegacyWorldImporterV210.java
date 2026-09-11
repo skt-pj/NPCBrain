@@ -100,8 +100,10 @@ final class LegacyWorldImporterV210 {
             database.putMeta(db, WorldDatabaseV210.META_LAST_ADVANCED, Long.toString(worldTime));
             database.putMeta(db, WorldDatabaseV210.META_NEXT_SEQUENCE, "2");
             database.putMeta(db, WorldDatabaseV210.META_MIGRATION_STATE, "COMPLETED");
-            database.setProjectionCheckpoint(WorldProjectionRunnerV210.CONVERSATION, 1L);
-            database.setProjectionCheckpoint(WorldProjectionRunnerV210.MEMORY, 1L);
+            // Migration metadata, baseline event and projector checkpoints are one atomic unit.
+            // Use the same database handle so no helper re-entry can escape or block this transaction.
+            database.setProjectionCheckpoint(db, WorldProjectionRunnerV210.CONVERSATION, 1L);
+            database.setProjectionCheckpoint(db, WorldProjectionRunnerV210.MEMORY, 1L);
             if (beforeCommitHook != null) beforeCommitHook.run();
             db.setTransactionSuccessful();
             return true;
