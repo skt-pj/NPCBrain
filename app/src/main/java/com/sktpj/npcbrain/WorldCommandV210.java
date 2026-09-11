@@ -17,6 +17,7 @@ final class WorldCommandV210 {
     static final String UPSERT_INNER_LIFE = "upsert_inner_life";
     static final String UPSERT_DUNGEON_STATE = "upsert_dungeon_state";
     static final String SET_DUNGEON_PRESENCE = "set_dungeon_presence";
+    static final String MARK_NPC_DEAD = "mark_npc_dead";
     static final String APPEND_WORLD_EVENT = "append_world_event";
     static final String APPLY_RELATIONSHIP = "apply_relationship";
     static final String RESET_NPC_BRAIN = "reset_npc_brain";
