@@ -21,6 +21,7 @@ final class CanonicalNpcStateV210 {
             json.put("activity", "idle");
             json.put("goal", "");
             json.put("life_state", new JSONObject());
+            json.put("dynamic_state", new JSONObject());
             json.put("inner_life", new JSONObject());
             json.put("intention", new JSONObject());
             json.put("relationships", new JSONObject());
@@ -43,6 +44,7 @@ final class CanonicalNpcStateV210 {
             if (!json.has("activity")) json.put("activity", "idle");
             if (!json.has("goal")) json.put("goal", "");
             if (!json.has("life_state")) json.put("life_state", new JSONObject());
+            if (!json.has("dynamic_state")) json.put("dynamic_state", new JSONObject());
             if (!json.has("inner_life")) json.put("inner_life", new JSONObject());
             if (!json.has("intention")) json.put("intention", new JSONObject());
             if (!json.has("relationships")) json.put("relationships", new JSONObject());
@@ -63,6 +65,7 @@ final class CanonicalNpcStateV210 {
     String goal() { return json.optString("goal", ""); }
     boolean dungeonPresent() { return json.optBoolean("dungeon_present", false); }
     JSONObject lifeState() { return copy(json.optJSONObject("life_state")); }
+    JSONObject dynamicState() { return copy(json.optJSONObject("dynamic_state")); }
     JSONObject innerLife() { return copy(json.optJSONObject("inner_life")); }
     JSONObject intention() { return copy(json.optJSONObject("intention")); }
     JSONObject relationships() { return copy(json.optJSONObject("relationships")); }
@@ -73,9 +76,23 @@ final class CanonicalNpcStateV210 {
         JSONObject safeLife = copy(life);
         try {
             next.put("life_state", safeLife);
-            next.put("location", safeLife.optString("location", location()));
-            next.put("activity", safeLife.optString("current_activity", activity()));
-            next.put("goal", safeLife.optString("current_goal", goal()));
+            // Life continues while an NPC explores, but the effective world location/action remains
+            // the dungeon until the NPC leaves. This prevents a schedule refresh from temporarily
+            // teleporting the canonical NPC back home between dungeon commits.
+            if (!dungeonPresent()) {
+                next.put("location", safeLife.optString("location", location()));
+                next.put("activity", safeLife.optString("current_activity", activity()));
+                next.put("goal", safeLife.optString("current_goal", goal()));
+            }
+        } catch (Exception ignored) {
+        }
+        return incremented(next);
+    }
+
+    CanonicalNpcStateV210 withDynamicState(JSONObject dynamicState) {
+        JSONObject next = toJson();
+        try {
+            next.put("dynamic_state", copy(dynamicState));
         } catch (Exception ignored) {
         }
         return incremented(next);
@@ -85,6 +102,15 @@ final class CanonicalNpcStateV210 {
         JSONObject next = toJson();
         try {
             next.put("inner_life", copy(innerLife));
+        } catch (Exception ignored) {
+        }
+        return incremented(next);
+    }
+
+    CanonicalNpcStateV210 withIntention(JSONObject intention) {
+        JSONObject next = toJson();
+        try {
+            next.put("intention", copy(intention));
         } catch (Exception ignored) {
         }
         return incremented(next);
@@ -110,11 +136,13 @@ final class CanonicalNpcStateV210 {
                 next.put("location", "dungeon_floor_" + floor);
                 String action = dungeon.optString("last_action", dungeon.optString("lastAction", "")).trim();
                 next.put("activity", action.isEmpty() ? "dungeon_exploration" : action);
+                next.put("goal", "dungeon_exploration");
             } else {
                 JSONObject life = next.optJSONObject("life_state");
                 if (life != null) {
                     next.put("location", life.optString("location", "unknown"));
                     next.put("activity", life.optString("current_activity", "idle"));
+                    next.put("goal", life.optString("current_goal", ""));
                 }
             }
         } catch (Exception ignored) {
@@ -127,7 +155,11 @@ final class CanonicalNpcStateV210 {
         try {
             next.put("active", active);
             next.put("dead", dead);
-            if (dead) next.put("dungeon_present", false);
+            if (dead) {
+                next.put("dungeon_present", false);
+                next.put("activity", "dead");
+                next.put("goal", "");
+            }
         } catch (Exception ignored) {
         }
         return incremented(next);
