@@ -19,11 +19,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -39,7 +39,8 @@ public class WorldKernelV210IntegrationTest {
         context = RuntimeEnvironment.getApplication().getApplicationContext();
         resetKernel();
         context.deleteDatabase(WorldDatabaseV210.DB_NAME);
-        new ConversationStore(context).clearAll();
+        context.getSharedPreferences("npcbrain_conversations_v1", Context.MODE_PRIVATE)
+                .edit().clear().commit();
         clearNpcMemory("npc1");
         clearNpcMemory("npc2");
     }
@@ -118,8 +119,6 @@ public class WorldKernelV210IntegrationTest {
             assertEquals(expectedSequence++, event.sequence);
         }
 
-        // Force the next command's first event to collide on event idempotency after actor state has
-        // already been reduced. SQLite must roll back state, revision and processed-command writes.
         long beforeRevision = database.metaLong(db, WorldDatabaseV210.META_REVISION, -1L);
         long beforeState = database.loadNpc(db, "npc1").stateVersion();
         int beforeEvents = rowCount(db, "world_event");
@@ -166,12 +165,18 @@ public class WorldKernelV210IntegrationTest {
         CountDownLatch start = new CountDownLatch(1);
         CountDownLatch done = new CountDownLatch(2);
         AtomicReference<Throwable> error = new AtomicReference<>();
-        Runnable first = () -> commitDynamic(kernel, start, done, error, "npc1", "concurrent:1", 0.2);
-        Runnable second = () -> commitDynamic(kernel, start, done, error, "npc2", "concurrent:2", 0.8);
-        new Thread(first).start();
-        new Thread(second).start();
+        Thread first = new Thread(
+                () -> commitDynamic(kernel, start, done, error, "npc1", "concurrent:1", 0.2),
+                "world-kernel-test-1");
+        Thread second = new Thread(
+                () -> commitDynamic(kernel, start, done, error, "npc2", "concurrent:2", 0.8),
+                "world-kernel-test-2");
+        first.setDaemon(true);
+        second.setDaemon(true);
+        first.start();
+        second.start();
         start.countDown();
-        done.await();
+        assertTrue("concurrent commits timed out", done.await(20, TimeUnit.SECONDS));
         if (error.get() != null) throw new AssertionError(error.get());
 
         assertEquals(2L, database.metaLong(db, WorldDatabaseV210.META_REVISION, -1L));
@@ -405,7 +410,9 @@ public class WorldKernelV210IntegrationTest {
 
     private static JSONObject json(Object... pairs) {
         JSONObject result = new JSONObject();
-        for (int i = 0; i + 1 < pairs.length; i += 2) put(result, String.valueOf(pairs[i]), pairs[i + 1]);
+        for (int i = 0; i + 1 < pairs.length; i += 2) {
+            put(result, String.valueOf(pairs[i]), pairs[i + 1]);
+        }
         return result;
     }
 
