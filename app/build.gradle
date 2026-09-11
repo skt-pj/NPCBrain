@@ -32,6 +32,13 @@ android {
 
     testOptions {
         unitTests.includeAndroidResources = true
+        unitTests.all {
+            testLogging {
+                events "started", "passed", "failed", "skipped"
+                exceptionFormat "full"
+                showStandardStreams = true
+            }
+        }
     }
 }
 
