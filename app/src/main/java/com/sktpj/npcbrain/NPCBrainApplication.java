@@ -32,6 +32,7 @@ public final class NPCBrainApplication extends Application {
                 PrimaryUiCoordinator.onCreated(activity, state);
                 AppWindowChrome.apply(activity);
                 PrimaryFooterBridge.install(activity);
+                installUnifiedShellBridge(activity);
             }
 
             @Override public void onActivityStarted(Activity activity) {
@@ -43,6 +44,7 @@ public final class NPCBrainApplication extends Application {
                 PrimaryUiCoordinator.onStarted(activity);
                 AppWindowChrome.apply(activity);
                 PrimaryFooterBridge.install(activity);
+                installUnifiedShellBridge(activity);
             }
 
             @Override public void onActivityResumed(Activity activity) {
@@ -57,6 +59,7 @@ public final class NPCBrainApplication extends Application {
                 PrimaryUiCoordinator.onResumed(activity);
                 AppWindowChrome.apply(activity);
                 PrimaryFooterBridge.install(activity);
+                installUnifiedShellBridge(activity);
             }
 
             @Override public void onActivityPaused(Activity activity) {
@@ -110,6 +113,12 @@ public final class NPCBrainApplication extends Application {
         if (!demoRoomRefreshRequested) return false;
         demoRoomRefreshRequested = false;
         return true;
+    }
+
+    private static void installUnifiedShellBridge(Activity activity) {
+        if (activity instanceof WorldShellActivityV212) {
+            WorldShellPeerConversationBridgeV212.install((WorldShellActivityV212) activity);
+        }
     }
 
     private void installRuntimeBridges(Activity activity) {
