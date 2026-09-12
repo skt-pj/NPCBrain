@@ -60,7 +60,19 @@ public class UnifiedWorldUiV212SourceTest {
         assertTrue(bridge.contains("conversations.messageCount(peerRoom)"));
         assertTrue(bridge.contains("NPC同士の会話 · 観測のみ"));
         assertTrue(bridge.contains("あなたはこの会話の参加者ではありません"));
+        assertTrue(bridge.contains("removePlaceholderPeerSection"));
         assertTrue(app.contains("WorldShellPeerConversationBridgeV212.install"));
+    }
+
+    @Test public void liveRefreshDoesNotRebuildChatOrSettingsOnEveryWorldTick() throws Exception {
+        String coordinator = read("src/main/java/com/sktpj/npcbrain/WorldShellRefreshCoordinatorV212.java");
+        String app = read("src/main/java/com/sktpj/npcbrain/NPCBrainApplication.java");
+        assertTrue(coordinator.contains("removeLegacyRefresh"));
+        assertTrue(coordinator.contains("conversationFingerprint"));
+        assertTrue(coordinator.contains("conversations.messageCount(room)"));
+        assertTrue(coordinator.contains("Settings is user-driven"));
+        assertTrue(app.contains("WorldShellRefreshCoordinatorV212.onResumed"));
+        assertTrue(app.contains("WorldShellRefreshCoordinatorV212.onPaused"));
     }
 
     private static String read(String path) throws Exception {
