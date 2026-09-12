@@ -26,6 +26,7 @@ public final class NPCBrainApplication extends Application {
         worldRuntime = new NpcWorldRuntimeV200(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityCreated(Activity activity, Bundle state) {
+                if (LegacyPrimaryUiRedirectV212.redirectIfLegacyPrimary(activity)) return;
                 if (activity instanceof DemoActivityV032) {
                     demoActivityRef = new WeakReference<>((DemoActivityV032) activity);
                 }
@@ -33,6 +34,9 @@ public final class NPCBrainApplication extends Application {
                 AppWindowChrome.apply(activity);
                 PrimaryFooterBridge.install(activity);
                 installUnifiedShellBridge(activity);
+                if (activity instanceof WorldShellActivityV212) {
+                    LegacyPrimaryUiRedirectV212.applyPendingTab((WorldShellActivityV212) activity);
+                }
             }
 
             @Override public void onActivityStarted(Activity activity) {
@@ -61,7 +65,9 @@ public final class NPCBrainApplication extends Application {
                 PrimaryFooterBridge.install(activity);
                 installUnifiedShellBridge(activity);
                 if (activity instanceof WorldShellActivityV212) {
-                    WorldShellRefreshCoordinatorV212.onResumed((WorldShellActivityV212) activity);
+                    WorldShellActivityV212 shell = (WorldShellActivityV212) activity;
+                    LegacyPrimaryUiRedirectV212.applyPendingTab(shell);
+                    WorldShellRefreshCoordinatorV212.onResumed(shell);
                 }
             }
 
