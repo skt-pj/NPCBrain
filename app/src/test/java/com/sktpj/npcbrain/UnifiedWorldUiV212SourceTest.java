@@ -75,6 +75,19 @@ public class UnifiedWorldUiV212SourceTest {
         assertTrue(app.contains("WorldShellRefreshCoordinatorV212.onPaused"));
     }
 
+    @Test public void upgradedOrLegacyNavigationCannotStrandUserInOldPrimaryUi() throws Exception {
+        String redirect = read("src/main/java/com/sktpj/npcbrain/LegacyPrimaryUiRedirectV212.java");
+        String app = read("src/main/java/com/sktpj/npcbrain/NPCBrainApplication.java");
+        assertTrue(redirect.contains("activity instanceof DemoActivityV032"));
+        assertTrue(redirect.contains("activity instanceof NpcStatusActivity"));
+        assertTrue(redirect.contains("activity instanceof DungeonActivity"));
+        assertTrue(redirect.contains("activity instanceof CodexActivity"));
+        assertTrue(redirect.contains("WorldShellActivityV212.class"));
+        assertTrue(redirect.contains("applyPendingTab"));
+        assertTrue(app.contains("LegacyPrimaryUiRedirectV212.redirectIfLegacyPrimary"));
+        assertTrue(app.contains("LegacyPrimaryUiRedirectV212.applyPendingTab"));
+    }
+
     private static String read(String path) throws Exception {
         return new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8);
     }
