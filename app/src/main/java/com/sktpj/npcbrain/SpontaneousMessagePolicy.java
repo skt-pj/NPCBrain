@@ -21,12 +21,13 @@ final class SpontaneousMessagePolicy {
         List<String> active = normalizedActive(activeNpcIds);
         if (!active.contains(actor)) return new String[0];
 
+        // User-directed spontaneous messages remain possible, but NPC-directed messages are private
+        // NPC peer threads. The old implicit user+NPC group target is intentionally removed.
         List<String> targets = new ArrayList<>();
         targets.add("user");
         for (String npcId : active) {
             if (!actor.equals(npcId)) targets.add(npcId);
         }
-        if (targets.size() > 1) targets.add("group");
         return targets.toArray(new String[0]);
     }
 
@@ -43,7 +44,8 @@ final class SpontaneousMessagePolicy {
         String target = safe(targetId);
         if (!isAllowedTarget(actor, target, activeNpcIds)) return "";
         if ("user".equals(target)) return "direct_" + actor;
-        return DemoRuntimeV032.ROOM_GROUP;
+        String targetNpc = normalizedNpc(target);
+        return targetNpc.isEmpty() ? "" : NpcPeerRoomPolicy.roomId(actor, targetNpc);
     }
 
     static String firstRecipient(String actorId, String targetId, List<String> activeNpcIds) {
@@ -92,7 +94,7 @@ final class SpontaneousMessagePolicy {
         return "spontaneous_" + source + "_turn" + turn + "_" + npc;
     }
 
-    // v0.4.21 compatibility helpers retained for old unit tests/callers while runtime uses registry-driven overloads.
+    // Compatibility helpers retained for old callers while routing follows current peer-room rules.
     static String[] allowedTargets(String actorId) {
         return allowedTargets(actorId, Arrays.asList("npc1", "npc2"));
     }

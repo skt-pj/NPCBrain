@@ -23,7 +23,6 @@ public final class NPCBrainApplication extends Application {
         debugBuild = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         new ReplyTimerStore(this).rearmAll();
         NpcSocialMemoryScheduler.schedule(this);
-        new DungeonPresenceStore(this).activePresentNpcIds();
         worldRuntime = new NpcWorldRuntimeV200(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityCreated(Activity activity, Bundle state) {
@@ -126,14 +125,7 @@ public final class NPCBrainApplication extends Application {
             NpcInnerLifeUiBridge.install((NpcStatusActivity) activity);
             NpcAiUsageUiBridge.install((NpcStatusActivity) activity);
         }
-        if (activity instanceof DungeonActivity) {
-            DungeonActivity dungeon = (DungeonActivity) activity;
-            DungeonObserverModeV210.install(dungeon);
-            DungeonGoalInputBridge.install(dungeon);
-            DungeonAiStaminaBridge.install(dungeon);
-            DungeonRosterBridge.install(dungeon);
-            DungeonModeSwitchBridge.install(dungeon);
-            DungeonSoloProgressBridge.install(dungeon);
-        }
+        // DungeonActivity v2.1.1 is a canonical observer. No legacy dungeon execution bridge is
+        // installed here: screen lifecycle/select events must never own turns or persistence.
     }
 }

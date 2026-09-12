@@ -6,31 +6,39 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.List;
+import java.util.UUID;
 
+/**
+ * Compatibility facade retained for the pre-v2 conversation UI.
+ *
+ * Since v2.1.1 this class is read-through/write-through to the canonical world. It owns no clock,
+ * no WorldStateStore and no simulation loop. UI construction/resume calls therefore cannot create
+ * or advance world state through this compatibility API.
+ */
 final class WorldRuntimeV040 {
     private static final String DIRECT_PREFIX = "direct_";
+    private static final int EVENT_BATCH = 128;
 
     private final Context appContext;
-    private final WorldClock clock;
-    private final WorldStateStore stateStore;
     private final NpcRegistryStore npcRegistry;
+    private final WorldKernelV210 kernel;
+    private final WorldDatabaseV210 database;
+    private final WorldQueryServiceV210 query;
 
     WorldRuntimeV040(Context context) {
         appContext = context.getApplicationContext();
-        clock = new WorldClock(appContext);
-        stateStore = new WorldStateStore(appContext);
         npcRegistry = new NpcRegistryStore(appContext);
-        syncAllNow();
+        kernel = WorldKernelV210.get(appContext);
+        database = kernel.database();
+        new LegacyWorldImporterV210(appContext, database).importIfNeeded();
+        query = new WorldQueryServiceV210(database);
     }
 
     JSONObject attachUserMessageEvent(String roomId, JSONObject userMessage) {
         JSONObject message = copy(userMessage);
-        WorldEvent receipt = attachIncomingMessageEvent(roomId, message);
-        if (receipt != null) {
-            try {
-                message.put("cause_event_id", receipt.eventId());
-            } catch (Exception ignored) {
-            }
+        String messageId = message.optString("id", "").trim();
+        if (!messageId.isEmpty()) {
+            try { message.put("cause_event_id", messageId); } catch (Exception ignored) {}
         }
         return message;
     }
@@ -38,64 +46,63 @@ final class WorldRuntimeV040 {
     WorldEvent attachIncomingMessageEvent(String roomId, JSONObject incomingMessage) {
         JSONObject message = copy(incomingMessage);
         String messageId = message.optString("id", "").trim();
-        WorldEvent existingMessageEvent = stateStore.eventByMessageId(messageId);
-        if (existingMessageEvent != null) return existingMessageEvent;
+        if (messageId.isEmpty()) return null;
+        WorldEvent existing = eventById(messageId);
+        if (existing != null) return existing;
 
-        long messageTime = message.optLong("time_ms", clock.now());
-        long worldTime = clock.advanceTo(messageTime);
-        JSONObject lifeEventIds = new JSONObject();
-        for (String npcId : npcRegistry.activeNpcIds()) {
-            LifeState state = syncLifeState(NpcId.of(npcId), worldTime);
-            try {
-                lifeEventIds.put(npcId, state.currentActivityEventId());
-            } catch (Exception ignored) {
-            }
-        }
-
-        Room room = room(roomId);
-        String senderId = message.optString("sender_id", "user").trim();
-        if (senderId.isEmpty()) senderId = "user";
+        // ConversationStore writes are canonical before the compatibility runtime sees them. If an
+        // old caller supplies a detached message, return a non-persisted compatibility view instead
+        // of creating a second event stream.
         JSONObject payload = new JSONObject();
         try {
             payload.put("message_id", messageId);
-            payload.put("room", room.toJson());
-            payload.put("sender_id", senderId);
+            payload.put("room", room(roomId).toJson());
+            payload.put("sender_id", message.optString("sender_id", "user"));
             payload.put("text", message.optString("text", ""));
-            payload.put("life_event_ids", lifeEventIds);
         } catch (Exception ignored) {
         }
-
-        WorldEvent event = WorldEvent.create(
-                "message_received",
-                senderId,
+        return new WorldEvent(
+                messageId,
+                "message_posted",
+                message.optString("sender_id", "user"),
                 "",
-                worldTime,
+                message.optLong("time_ms", now()),
                 "",
                 payload,
-                message.optString("cause_event_id", "").trim()
-        );
-        stateStore.appendEvent(event);
-        return event;
+                message.optString("cause_event_id", ""));
     }
 
+    /** Compatibility no-op: time is advanced only by WorldSimulationDriverV210. */
     void syncAllNow() {
-        long now = clock.now();
-        for (String npcId : npcRegistry.activeNpcIds()) {
-            syncLifeState(NpcId.of(npcId), now);
-        }
+        // Intentionally empty.
     }
 
     JSONArray events() {
-        return stateStore.events();
+        JSONArray result = new JSONArray();
+        long checkpoint = 0L;
+        while (true) {
+            List<WorldEventV210> batch = database.eventsAfter(checkpoint, EVENT_BATCH);
+            if (batch.isEmpty()) break;
+            for (WorldEventV210 event : batch) {
+                result.put(legacyEventJson(event));
+                checkpoint = Math.max(checkpoint, event.sequence);
+            }
+            if (batch.size() < EVENT_BATCH) break;
+        }
+        return result;
     }
 
     long now() {
-        return clock.now();
+        long value = query.worldTimeMs();
+        return value > 0L ? value : System.currentTimeMillis();
     }
 
     LifeState lifeState(String npcId) {
-        NpcId id = NpcId.of(npcId);
-        return syncLifeState(id, clock.now());
+        String id = NpcId.of(npcId).value();
+        JSONObject snapshot = query.snapshot(id);
+        JSONObject npc = snapshot.optJSONObject("npc");
+        JSONObject life = npc == null ? null : npc.optJSONObject("life_state");
+        return LifeState.fromJson(life, NpcId.of(id), snapshot.optLong("world_time_ms", now()));
     }
 
     LifeState updateScheduleEntry(
@@ -103,60 +110,46 @@ final class WorldRuntimeV040 {
             ScheduleSlot replacement,
             String reason
     ) {
-        NpcId id = NpcId.of(npcId);
-        long worldTime = clock.now();
-        LifeState current = stateStore.lifeState(id, worldTime);
-        DailySchedule schedule = scheduleFor(id, current);
-        DailySchedule updatedSchedule = schedule.replaceSlot(replacement);
-        LifeState withUpdatedSchedule = current.withSchedule(worldTime, updatedSchedule.toJson());
-        stateStore.saveLifeState(withUpdatedSchedule);
-        return syncLifeState(
+        String id = NpcId.of(npcId).value();
+        LifeState current = lifeState(id);
+        DailySchedule schedule = scheduleFor(NpcId.of(id), current);
+        DailySchedule updated = schedule.replaceSlot(replacement);
+        LifeState next = current.withSchedule(now(), updated.toJson());
+        JSONObject payload = new JSONObject();
+        try {
+            payload.put("life_state", next.toJson());
+            payload.put("event_type", "schedule_changed");
+            payload.put("action", reason == null ? "schedule_changed" : reason.trim());
+        } catch (Exception ignored) {
+        }
+        kernel.commit(WorldCommandV210.of(
+                WorldCommandV210.UPSERT_LIFE_STATE,
+                System.currentTimeMillis(),
                 id,
-                worldTime,
-                withUpdatedSchedule,
-                updatedSchedule,
-                true,
-                reason == null ? "schedule_changed" : reason.trim()
-        );
+                "schedule:" + id + ":" + UUID.randomUUID(),
+                payload));
+        return lifeState(id);
     }
 
     String messageCauseForNpc(String npcId, String triggerEventId) {
-        NpcId id = NpcId.of(npcId);
-        LifeState state = syncLifeState(id, clock.now());
-        String lifeCauseId = state.currentActivityEventId();
-        String primaryCauseId = LifeTransitionPolicy.primaryConversationCause(
-                triggerEventId,
-                lifeCauseId
-        );
-
-        JSONObject payload = new JSONObject();
-        JSONArray relatedEventIds = new JSONArray();
-        try {
-            String trigger = triggerEventId == null ? "" : triggerEventId.trim();
-            payload.put("trigger_event_id", trigger);
-            payload.put("current_activity_event_id", lifeCauseId);
-            payload.put("current_schedule_entry_id", state.currentScheduleEntryId());
-            payload.put("current_activity", state.currentActivity());
-            payload.put("location", state.location());
-            if (!lifeCauseId.isEmpty()) relatedEventIds.put(lifeCauseId);
-            payload.put("related_event_ids", relatedEventIds);
-        } catch (Exception ignored) {
-        }
-        WorldEvent contextEvent = WorldEvent.create(
-                "conversation_context",
-                id.value(),
-                "",
-                clock.now(),
-                state.location(),
-                payload,
-                primaryCauseId
-        );
-        stateStore.appendEvent(contextEvent);
-        return contextEvent.eventId();
+        // The committed message/world event is already the causal anchor. Do not append a second
+        // compatibility-only conversation_context event.
+        return triggerEventId == null ? "" : triggerEventId.trim();
     }
 
     WorldEvent eventById(String eventId) {
-        return stateStore.eventById(eventId);
+        String wanted = eventId == null ? "" : eventId.trim();
+        if (wanted.isEmpty()) return null;
+        long checkpoint = 0L;
+        while (true) {
+            List<WorldEventV210> batch = database.eventsAfter(checkpoint, EVENT_BATCH);
+            if (batch.isEmpty()) return null;
+            for (WorldEventV210 event : batch) {
+                if (wanted.equals(event.eventId)) return legacyEvent(event);
+                checkpoint = Math.max(checkpoint, event.sequence);
+            }
+            if (batch.size() < EVENT_BATCH) return null;
+        }
     }
 
     Room room(String roomId) {
@@ -164,13 +157,15 @@ final class WorldRuntimeV040 {
         if (!directNpcId.isEmpty()) {
             return new Room(roomId, "direct_chat", "user", directNpcId);
         }
+        List<String> peer = NpcPeerRoomPolicy.participants(roomId);
+        if (!peer.isEmpty()) {
+            return new Room(roomId, "npc_peer_chat", peer.toArray(new String[0]));
+        }
         if (DemoRuntimeV032.ROOM_GROUP.equals(roomId)) {
             List<String> activeNpcIds = npcRegistry.activeNpcIds();
             String[] members = new String[activeNpcIds.size() + 1];
             members[0] = "user";
-            for (int i = 0; i < activeNpcIds.size(); i++) {
-                members[i + 1] = activeNpcIds.get(i);
-            }
+            for (int i = 0; i < activeNpcIds.size(); i++) members[i + 1] = activeNpcIds.get(i);
             return new Room(roomId, "group_chat", members);
         }
         return new Room(roomId, "unknown", "user");
@@ -188,139 +183,29 @@ final class WorldRuntimeV040 {
         }
     }
 
-    private LifeState syncLifeState(NpcId npcId, long worldTime) {
-        LifeState current = stateStore.lifeState(npcId, worldTime);
-        DailySchedule schedule = scheduleFor(npcId, current);
-        return syncLifeState(npcId, worldTime, current, schedule, false, "scheduled_transition");
-    }
-
-    private LifeState syncLifeState(
-            NpcId npcId,
-            long worldTime,
-            LifeState current,
-            DailySchedule schedule,
-            boolean interrupted,
-            String transitionReason
-    ) {
-        ScheduleSlot slot = schedule.slotAt(worldTime);
-        JSONObject scheduleJson = schedule.toJson();
-
-        if (LifeTransitionPolicy.sameState(
-                current.currentScheduleEntryId(),
-                current.currentActivity(),
-                current.location(),
-                slot
-        )) {
-            LifeState refreshed = current.refreshCurrentSlot(worldTime, slot, scheduleJson);
-            stateStore.saveLifeState(refreshed);
-            return refreshed;
-        }
-
-        long scheduledStartAt = schedule.slotStartTimeMs(worldTime, slot);
-        long transitionTime = LifeTransitionPolicy.transitionTime(
-                interrupted,
-                worldTime,
-                scheduledStartAt
-        );
-        String causeEventId = current.currentActivityEventId();
-        boolean hasPreviousActivity = !"idle".equals(current.currentActivity())
-                && !current.currentActivity().trim().isEmpty();
-        String endType = LifeTransitionPolicy.endEventType(hasPreviousActivity, interrupted);
-        if (!endType.isEmpty()) {
-            JSONObject endPayload = transitionPayload(current, slot, worldTime, transitionReason);
-            WorldEvent ended = WorldEvent.create(
-                    endType,
-                    npcId.value(),
-                    "",
-                    transitionTime,
-                    current.location(),
-                    endPayload,
-                    causeEventId
-            );
-            stateStore.appendEvent(ended);
-            causeEventId = ended.eventId();
-        }
-
-        if (!slot.location().equals(current.location())) {
-            JSONObject locationPayload = new JSONObject();
-            try {
-                locationPayload.put("from", current.location());
-                locationPayload.put("to", slot.location());
-                locationPayload.put("schedule_entry_id", slot.entryId());
-                locationPayload.put("observed_at", worldTime);
-                locationPayload.put("transition_reason", transitionReason);
-            } catch (Exception ignored) {
-            }
-            WorldEvent moved = WorldEvent.create(
-                    "location_changed",
-                    npcId.value(),
-                    "",
-                    transitionTime,
-                    slot.location(),
-                    locationPayload,
-                    causeEventId
-            );
-            stateStore.appendEvent(moved);
-            causeEventId = moved.eventId();
-        }
-
-        JSONObject startPayload = new JSONObject();
-        try {
-            startPayload.put("schedule_entry", slot.toJson());
-            startPayload.put("scheduled_start_at", scheduledStartAt);
-            startPayload.put("observed_at", worldTime);
-            startPayload.put("transition_reason", transitionReason);
-        } catch (Exception ignored) {
-        }
-        WorldEvent started = WorldEvent.create(
-                "activity_started",
-                npcId.value(),
-                "",
-                transitionTime,
-                slot.location(),
-                startPayload,
-                causeEventId
-        );
-        stateStore.appendEvent(started);
-
-        LifeState updated = current.transitionTo(
-                worldTime,
-                slot.location(),
-                slot.activity(),
-                transitionTime,
-                slot.goal(),
-                slot.context(),
-                slot.entryId(),
-                started.eventId(),
-                scheduleJson
-        );
-        stateStore.saveLifeState(updated);
-        return updated;
-    }
-
     private DailySchedule scheduleFor(NpcId npcId, LifeState current) {
-        DailySchedule stored = DailySchedule.fromJson(npcId, current.dailySchedule());
-        return stored == null ? DailySchedule.defaultFor(npcId) : stored;
+        DailySchedule saved = DailySchedule.fromJson(npcId, current.dailySchedule());
+        if (saved != null) return saved;
+        CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(appContext, npcId.value()));
+        return DailySchedule.profileFor(npcId, character.age(), character.occupation());
     }
 
-    private static JSONObject transitionPayload(
-            LifeState current,
-            ScheduleSlot next,
-            long observedAt,
-            String transitionReason
-    ) {
-        JSONObject payload = new JSONObject();
-        try {
-            payload.put("previous_activity", current.currentActivity());
-            payload.put("previous_location", current.location());
-            payload.put("previous_schedule_entry_id", current.currentScheduleEntryId());
-            payload.put("previous_activity_started_at", current.activityStartedAtMs());
-            payload.put("next_schedule_entry", next.toJson());
-            payload.put("observed_at", observedAt);
-            payload.put("transition_reason", transitionReason);
-        } catch (Exception ignored) {
-        }
-        return payload;
+    private static WorldEvent legacyEvent(WorldEventV210 event) {
+        if (event == null) return null;
+        return new WorldEvent(
+                event.eventId,
+                event.eventType,
+                event.actorId,
+                event.participantIds.length() > 0 ? event.participantIds.optString(0, "") : "",
+                event.worldTimeMs,
+                event.location,
+                event.payload,
+                event.causationId);
+    }
+
+    private static JSONObject legacyEventJson(WorldEventV210 event) {
+        WorldEvent legacy = legacyEvent(event);
+        return legacy == null ? new JSONObject() : legacy.toJson();
     }
 
     private static JSONObject copy(JSONObject json) {

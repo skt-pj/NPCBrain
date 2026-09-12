@@ -9,7 +9,7 @@ import java.nio.file.Paths;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-/** One-to-one source/contract gates for T-WK-210-001..026. */
+/** One-to-one gates for T-WK-210-001..026. */
 public class CanonicalWorldTraceabilityV210Test {
     @Test public void tWk210001CanonicalSsotAndSingleWriter() throws Exception {
         String db = read("src/main/java/com/sktpj/npcbrain/WorldDatabaseV210.java");
@@ -47,15 +47,16 @@ public class CanonicalWorldTraceabilityV210Test {
         assertTrue(source.contains("synchronized (commitLock)"));
     }
 
-    @Test public void tWk210006SharedBrainCoordinator() throws Exception {
-        String coordinator = read("src/main/java/com/sktpj/npcbrain/NpcBrainCoordinator.java");
+    @Test public void tWk210006AllProductionBrainPathsUseSharedCoordinator() throws Exception {
+        String demo = read("src/main/java/com/sktpj/npcbrain/DemoRuntimeV032.java");
         String social = read("src/main/java/com/sktpj/npcbrain/PeriodicNpcSocialRuntime.java");
         String dungeon = read("src/main/java/com/sktpj/npcbrain/DungeonBrainRuntime.java");
-        String app = read("src/main/java/com/sktpj/npcbrain/NPCBrainApplication.java");
-        assertTrue(coordinator.contains("sessionFactory.worldSnapshot(request.npcId)"));
+        String autonomy = read("src/main/java/com/sktpj/npcbrain/CanonicalDungeonAutonomyV211.java");
+        assertTrue(demo.contains("brainCoordinator.request("));
+        assertFalse(demo.contains("new BrainEngine("));
         assertTrue(social.contains("brainCoordinator.request("));
         assertTrue(dungeon.contains("brainCoordinator.request("));
-        assertFalse(app.contains("NpcInnerLifeRuntime innerLifeRuntime"));
+        assertTrue(autonomy.contains("brain.request("));
     }
 
     @Test public void tWk210007StaleBrainRejected() throws Exception {
@@ -91,46 +92,59 @@ public class CanonicalWorldTraceabilityV210Test {
         assertTrue(source.contains("setProjectionCheckpoint(MEMORY"));
     }
 
-    @Test public void tWk210012MaintenanceUsesEventDerivedMemoryAndCanonicalRelationship() throws Exception {
-        String maintenance = read("src/main/java/com/sktpj/npcbrain/HumanMemoryMaintenanceEngine.java");
+    @Test public void tWk210012RelationshipIsCanonicalAndProjected() throws Exception {
         String relationships = read("src/main/java/com/sktpj/npcbrain/SocialRelationshipStore.java");
-        assertTrue(maintenance.contains("memory.maintenanceEpisodes()"));
+        String projection = read("src/main/java/com/sktpj/npcbrain/WorldProjectionRunnerV210.java");
         assertTrue(relationships.contains("WorldCommandV210.APPLY_RELATIONSHIP"));
+        assertTrue(projection.contains("RELATIONSHIP = \"relationship_v210\""));
+        assertTrue(projection.contains("projectRelationship()"));
     }
 
-    @Test public void tWk210013DungeonOwnerIsCanonicalRuntime() throws Exception {
-        String observer = read("src/main/java/com/sktpj/npcbrain/DungeonObserverModeV210.java");
-        String adapter = read("src/main/java/com/sktpj/npcbrain/DungeonDomainAdapterV210.java");
-        assertTrue(observer.contains("setBoolean(activity, \"paused\", true)"));
-        assertTrue(adapter.contains("stepDetailedCanonical"));
+    @Test public void tWk210013DungeonUiCannotOwnSimulationOrPersistence() throws Exception {
+        String source = read("src/main/java/com/sktpj/npcbrain/DungeonActivity.java");
+        assertTrue(source.contains("WorldQueryServiceV210"));
+        assertTrue(source.contains("query.snapshot(selectedNpcId)"));
+        assertFalse(source.contains("DungeonStore"));
+        assertFalse(source.contains("DungeonGenerator"));
+        assertFalse(source.contains("DungeonEngine"));
+        assertFalse(source.contains("advanceTurn"));
+        assertFalse(source.contains("WorldKernelV210.commit"));
     }
 
-    @Test public void tWk210014PartyAndSoloShareSimulationDriver() throws Exception {
+    @Test public void tWk210014PartyAndSoloUseCanonicalSimulationDriver() throws Exception {
         String source = read("src/main/java/com/sktpj/npcbrain/WorldSimulationDriverV210.java");
         assertTrue(source.contains("afterNeeds.dungeonPresent()"));
+        assertTrue(source.contains("dungeon.reduceOneTurn"));
         assertFalse(source.contains("IndividualDungeonActivity"));
         assertFalse(source.contains("DungeonRosterBridge"));
     }
 
-    @Test public void tWk210015UiQueriesDoNotAdvanceWorld() throws Exception {
+    @Test public void tWk210015ObserverAndCompatibilityReadsCannotAdvanceWorld() throws Exception {
         String query = read("src/main/java/com/sktpj/npcbrain/WorldQueryServiceV210.java");
-        String observer = read("src/main/java/com/sktpj/npcbrain/DungeonObserverModeV210.java");
-        assertTrue(query.contains("Querying never advances or creates world state"));
+        String compatibility = read("src/main/java/com/sktpj/npcbrain/WorldRuntimeV040.java");
+        String observer = read("src/main/java/com/sktpj/npcbrain/DungeonActivity.java");
         assertFalse(query.contains("advanceTo("));
-        assertTrue(observer.contains("paused"));
+        assertFalse(compatibility.contains("new WorldClock"));
+        assertFalse(compatibility.contains("new WorldStateStore"));
+        assertFalse(observer.contains("advanceTo("));
+        assertTrue(Files.exists(Paths.get("src/test/java/com/sktpj/npcbrain/CanonicalObserverRuntimeV211Test.java")));
     }
 
     @Test public void tWk210016PeerConversationProjectsToConversationAndMemory() throws Exception {
         String social = read("src/main/java/com/sktpj/npcbrain/PeriodicNpcSocialRuntime.java");
         String projection = read("src/main/java/com/sktpj/npcbrain/WorldProjectionRunnerV210.java");
+        String spontaneous = read("src/main/java/com/sktpj/npcbrain/SpontaneousMessagePolicy.java");
         assertTrue(social.contains("NpcPeerRoomPolicy.roomId"));
+        assertTrue(spontaneous.contains("NpcPeerRoomPolicy.roomId"));
         assertTrue(projection.contains("message_posted"));
         assertTrue(projection.contains("projectMemoryEvent"));
     }
 
     @Test public void tWk210017ForegroundAndJobUseOneDriver() throws Exception {
         String runtime = read("src/main/java/com/sktpj/npcbrain/NpcWorldRuntimeV200.java");
+        String job = read("src/main/java/com/sktpj/npcbrain/NpcSocialMemoryJobService.java");
         assertTrue(runtime.contains("driver.advanceTo(nowMs)"));
+        assertTrue(job.contains("runBackgroundOpportunity"));
         assertFalse(runtime.contains("new WorldRuntimeV040"));
         assertFalse(runtime.contains("new DungeonWorldProgressRuntime"));
     }
@@ -176,18 +190,21 @@ public class CanonicalWorldTraceabilityV210Test {
         assertTrue(store.contains("WorldConversationGatewayV210"));
     }
 
-    @Test public void tWk210024DungeonRefreshCannotOwnTurns() throws Exception {
-        String observer = read("src/main/java/com/sktpj/npcbrain/DungeonObserverModeV210.java");
+    @Test public void tWk210024DungeonScreenLifecycleHasNoLegacyTurnOwner() throws Exception {
+        String dungeon = read("src/main/java/com/sktpj/npcbrain/DungeonActivity.java");
         String app = read("src/main/java/com/sktpj/npcbrain/NPCBrainApplication.java");
-        assertTrue(observer.contains("setBoolean(activity, \"paused\", true)"));
-        assertTrue(app.contains("DungeonObserverModeV210.install(dungeon)"));
+        assertFalse(dungeon.contains("turnTask"));
+        assertFalse(dungeon.contains("scheduleNextTurn"));
+        assertFalse(dungeon.contains("persistCurrent"));
+        assertFalse(app.contains("DungeonObserverModeV210.install"));
+        assertFalse(app.contains("DungeonSoloProgressBridge.install"));
     }
 
     @Test public void tWk210025VersionAndBuildContract() throws Exception {
         String version = read("../version.properties");
         String workflow = read("../.github/workflows/android.yml");
-        assertTrue(version.contains("VERSION_NAME=2.1.0"));
-        assertTrue(version.contains("VERSION_CODE=85"));
+        assertTrue(version.contains("VERSION_NAME=2.1.1"));
+        assertTrue(version.contains("VERSION_CODE=86"));
         assertTrue(workflow.contains(":app:testDebugUnitTest :app:assembleRelease :app:assembleDebug"));
         assertTrue(workflow.contains("apksigner"));
     }
@@ -197,8 +214,8 @@ public class CanonicalWorldTraceabilityV210Test {
         assertTrue(Files.exists(Paths.get("src/test/java/com/sktpj/npcbrain/LocalLlmExecutionQueueTest.java")));
         assertTrue(Files.exists(Paths.get("src/test/java/com/sktpj/npcbrain/DungeonSharedWorldTest.java")));
         assertTrue(Files.exists(Paths.get("src/test/java/com/sktpj/npcbrain/HumanMemoryPolicyTest.java")));
-        assertTrue(Files.exists(Paths.get("src/test/java/com/sktpj/npcbrain/LineChatImportParserTest.java")));
-        assertTrue(Files.exists(Paths.get("src/test/java/com/sktpj/npcbrain/PrimaryNavigationPolicyTest.java")));
+        assertTrue(Files.exists(Paths.get("src/test/java/com/sktpj/npcbrain/CanonicalObserverRuntimeV211Test.java")));
+        assertTrue(Files.exists(Paths.get("src/test/java/com/sktpj/npcbrain/SpontaneousMessagePolicyTest.java")));
     }
 
     private static String read(String path) throws Exception {

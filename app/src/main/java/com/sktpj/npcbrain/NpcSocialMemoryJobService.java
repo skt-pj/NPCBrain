@@ -2,8 +2,6 @@ package com.sktpj.npcbrain;
 
 import android.app.job.JobParameters;
 import android.app.job.JobService;
-import android.content.Context;
-import android.content.SharedPreferences;
 
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -11,9 +9,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 public final class NpcSocialMemoryJobService extends JobService {
-    private static final String SOCIAL_PREFS = "npcbrain_periodic_social_v1";
-    private static final String LAST_WINDOW = "last_window";
-
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private volatile Future<?> running;
 
@@ -50,27 +45,33 @@ public final class NpcSocialMemoryJobService extends JobService {
 
             NpcRegistryStore registry = new NpcRegistryStore(this);
             List<String> active = registry.activeNpcIds();
-            HumanMemoryMaintenanceEngine maintenance = new HumanMemoryMaintenanceEngine(this);
 
+            try {
+                new CanonicalDungeonAutonomyV211(this).evaluateDue(key, reasoning, now);
+            } catch (Exception transientFailure) {
+                retry = true;
+            }
+
+            HumanMemoryMaintenanceEngine maintenance = new HumanMemoryMaintenanceEngine(this);
             for (String npcId : active) {
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                 if (!maintenance.isDue(npcId, now)) continue;
                 if (!NpcInferenceAccess.canRun(this, npcId, key)) continue;
                 try {
                     maintenance.runForNpc(npcId, key, reasoning, now);
-                } catch (IllegalStateException budgetOrApiFailure) {
-                    retry = true;
                 } catch (Exception transientFailure) {
                     retry = true;
                 }
             }
 
-            if (active.size() >= 2 && isSocialOpportunityDue(now)) {
+            AutonomousSocialOpportunityStoreV211 socialWindow =
+                    new AutonomousSocialOpportunityStoreV211(this);
+            if (active.size() >= 2 && socialWindow.isDue(now)) {
                 String actor = PeriodicSocialPolicy.initiator(active, now);
                 if (!actor.isEmpty() && NpcInferenceAccess.canRun(this, actor, key)) {
                     try {
                         new PeriodicNpcSocialRuntime(this).runOneOpportunity(key, reasoning, now);
-                        markSocialOpportunityAttempted(now);
+                        socialWindow.markAttempted(now);
                     } catch (Exception transientFailure) {
                         retry = true;
                     }
@@ -85,18 +86,5 @@ public final class NpcSocialMemoryJobService extends JobService {
         } finally {
             jobFinished(params, retry);
         }
-    }
-
-    private boolean isSocialOpportunityDue(long nowMs) {
-        SharedPreferences prefs = getSharedPreferences(SOCIAL_PREFS, Context.MODE_PRIVATE);
-        long lastWindow = prefs.getLong(LAST_WINDOW, -1L);
-        return PeriodicSocialPolicy.window(nowMs) > lastWindow;
-    }
-
-    private void markSocialOpportunityAttempted(long nowMs) {
-        getSharedPreferences(SOCIAL_PREFS, Context.MODE_PRIVATE)
-                .edit()
-                .putLong(LAST_WINDOW, PeriodicSocialPolicy.window(nowMs))
-                .commit();
     }
 }
