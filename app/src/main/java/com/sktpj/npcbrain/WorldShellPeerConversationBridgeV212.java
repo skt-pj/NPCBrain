@@ -28,6 +28,8 @@ import java.util.WeakHashMap;
  */
 final class WorldShellPeerConversationBridgeV212 {
     private static final String TAG = "world_shell_peer_rooms_v212";
+    private static final String HEADING = "NPC同士の会話 · 観測のみ";
+    private static final String LEGACY_EMPTY = "まだ対象のルームはありません";
     private static final long REFRESH_MS = 500L;
     private static final WeakHashMap<WorldShellActivityV212, Boolean> INSTALLED = new WeakHashMap<>();
 
@@ -64,6 +66,7 @@ final class WorldShellPeerConversationBridgeV212 {
 
         View old = body.findViewWithTag(TAG);
         if (old != null) body.removeView(old);
+        int insertionIndex = removePlaceholderPeerSection(body);
 
         NpcRegistryStore registry = new NpcRegistryStore(activity);
         ConversationStore conversations = new ConversationStore(activity);
@@ -73,7 +76,7 @@ final class WorldShellPeerConversationBridgeV212 {
         section.setOrientation(LinearLayout.VERTICAL);
 
         TextView heading = new TextView(activity);
-        heading.setText("NPC同士の会話 · 観測のみ");
+        heading.setText(HEADING);
         heading.setTextColor(AppUiTheme.APP_TEXT);
         heading.setTextSize(12f);
         heading.setTypeface(Typeface.DEFAULT_BOLD);
@@ -121,7 +124,29 @@ final class WorldShellPeerConversationBridgeV212 {
             empty.setPadding(dp(activity, 8), dp(activity, 7), dp(activity, 8), dp(activity, 8));
             section.addView(empty);
         }
-        body.addView(section);
+        body.addView(section, Math.max(0, Math.min(insertionIndex, body.getChildCount())));
+    }
+
+    /** Replaces the shell's generic empty room section instead of showing a duplicate heading. */
+    private static int removePlaceholderPeerSection(LinearLayout body) {
+        for (int i = 0; i < body.getChildCount(); i++) {
+            View child = body.getChildAt(i);
+            if (!(child instanceof TextView)) continue;
+            CharSequence value = ((TextView) child).getText();
+            if (value == null || !HEADING.equals(value.toString())) continue;
+            if (i + 1 < body.getChildCount()) {
+                View next = body.getChildAt(i + 1);
+                if (next instanceof TextView) {
+                    CharSequence nextText = ((TextView) next).getText();
+                    if (nextText != null && LEGACY_EMPTY.equals(nextText.toString())) {
+                        body.removeViewAt(i + 1);
+                    }
+                }
+            }
+            body.removeViewAt(i);
+            return i;
+        }
+        return body.getChildCount();
     }
 
     private static void showTranscript(
