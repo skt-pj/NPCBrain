@@ -7,6 +7,8 @@ import android.content.Context;
 
 final class NpcSocialMemoryScheduler {
     static final int JOB_ID = 0x4E4D534A;
+    /** Android periodic-job minimum; the job itself keeps 12h memory maintenance separately gated. */
+    static final long JOB_CHECK_INTERVAL_MS = 15L * 60L * 1000L;
 
     private NpcSocialMemoryScheduler() {
     }
@@ -21,7 +23,7 @@ final class NpcSocialMemoryScheduler {
                 new ComponentName(appContext, NpcSocialMemoryJobService.class))
                 .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
                 .setPersisted(true)
-                .setPeriodic(HumanMemoryPolicy.MAINTENANCE_INTERVAL_MS)
+                .setPeriodic(JOB_CHECK_INTERVAL_MS)
                 .build();
         return scheduler.schedule(job) == JobScheduler.RESULT_SUCCESS;
     }
