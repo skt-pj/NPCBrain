@@ -10,7 +10,7 @@ import org.json.JSONObject;
  * Autonomous dungeon-entry opportunity backed by the canonical world.
  *
  * The Brain decides; this class only offers grounded candidate actions. A successful ENTER_DUNGEON
- * becomes a SET_DUNGEON_PRESENCE command. It never writes DungeonStore/DungeonPresenceStore.
+ * becomes a SET_DUNGEON_PRESENCE command. It never writes legacy dungeon persistence directly.
  */
 final class CanonicalDungeonAutonomyV211 {
     private static final String PREFS = "npcbrain_canonical_dungeon_autonomy_v211";
@@ -48,10 +48,10 @@ final class CanonicalDungeonAutonomyV211 {
             }
             String checkpointKey = "day_" + NpcId.of(npcId).value();
             if (checkpoints.getLong(checkpointKey, -1L) == day) continue;
-            // Record the opportunity before inference so a failing provider does not create a tight
-            // retry loop every 15 minutes. The next natural day offers another opportunity.
-            checkpoints.edit().putLong(checkpointKey, day).commit();
+            // Do not consume the daily opportunity when inference cannot run at all. Once an actual
+            // inference attempt starts, checkpoint it before the request to avoid a tight retry loop.
             if (!NpcInferenceAccess.canRun(appContext, npcId, apiKey)) continue;
+            checkpoints.edit().putLong(checkpointKey, day).commit();
 
             NpcBrainCoordinator.BrainDecisionEnvelope envelope;
             try {
