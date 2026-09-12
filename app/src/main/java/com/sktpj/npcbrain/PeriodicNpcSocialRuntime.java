@@ -13,8 +13,7 @@ final class PeriodicNpcSocialRuntime {
     private final NpcRegistryStore registry;
     private final ConversationStore conversations;
     private final SocialRelationshipStore relationships;
-    private final NpcBrainSessionFactory brainFactory;
-    private final WorldQueryServiceV210 worldQuery;
+    private final NpcBrainCoordinator brainCoordinator;
     private final WorldConversationGatewayV210 conversationGateway;
 
     PeriodicNpcSocialRuntime(Context context) {
@@ -22,10 +21,9 @@ final class PeriodicNpcSocialRuntime {
         registry = new NpcRegistryStore(appContext);
         conversations = new ConversationStore(appContext);
         relationships = new SocialRelationshipStore(appContext);
-        brainFactory = new NpcBrainSessionFactory(appContext);
+        brainCoordinator = new NpcBrainCoordinator(appContext);
         WorldKernelV210 kernel = WorldKernelV210.get(appContext);
         new LegacyWorldImporterV210(appContext, kernel.database()).importIfNeeded();
-        worldQuery = new WorldQueryServiceV210(kernel.database());
         conversationGateway = new WorldConversationGatewayV210(appContext);
     }
 
@@ -38,6 +36,7 @@ final class PeriodicNpcSocialRuntime {
 
         BrainEngine.Decision actorDecision = think(
                 actor,
+                "periodic_npc_peer_opportunity",
                 buildOpportunityPrompt(actor, active, nowMs),
                 apiKey,
                 reasoningEffort);
@@ -68,6 +67,7 @@ final class PeriodicNpcSocialRuntime {
 
         BrainEngine.Decision reply = think(
                 responder,
+                "npc_to_npc_peer_message",
                 buildReplyPrompt(responder, actor, utterance, active, roomId, nowMs),
                 apiKey,
                 reasoningEffort);
@@ -97,13 +97,22 @@ final class PeriodicNpcSocialRuntime {
 
     private BrainEngine.Decision think(
             String npcId,
+            String mode,
             String prompt,
             String apiKey,
             String reasoningEffort
     ) throws Exception {
         // Autonomous conversation facts become memory only after their canonical message event is
         // committed and replayed by MemoryProjector. BrainEngine must not create a second memory SSOT.
-        return brainFactory.create(npcId, apiKey, reasoningEffort).thinkDecision(prompt, null, false);
+        return brainCoordinator.request(new NpcBrainCoordinator.BrainRequest(
+                npcId,
+                mode,
+                prompt,
+                apiKey,
+                reasoningEffort,
+                null,
+                null,
+                false)).decision;
     }
 
     private String buildOpportunityPrompt(String actor, List<String> active, long nowMs) {
@@ -123,7 +132,6 @@ final class PeriodicNpcSocialRuntime {
             runtime.put("social_submode", "periodic_npc_peer_opportunity");
             runtime.put("character_id", actor);
             runtime.put("now_ms", nowMs);
-            runtime.put("world_snapshot", worldQuery.snapshot(actor));
             runtime.put("allowed_targets", targets);
             runtime.put("recent_peer_transcripts", peerTranscripts);
             runtime.put("social_relationships", relationships.contextFor(actor, active));
@@ -156,7 +164,6 @@ final class PeriodicNpcSocialRuntime {
             runtime.put("social_submode", "npc_to_npc_peer_message");
             runtime.put("character_id", responder);
             runtime.put("now_ms", nowMs);
-            runtime.put("world_snapshot", worldQuery.snapshot(responder));
             runtime.put("message_from", actor);
             runtime.put("message_text", actorUtterance);
             runtime.put("allowed_targets", targets);

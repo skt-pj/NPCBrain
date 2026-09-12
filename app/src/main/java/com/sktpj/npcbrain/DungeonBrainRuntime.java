@@ -44,9 +44,11 @@ final class DungeonBrainRuntime {
     }
 
     private final Context appContext;
+    private final NpcBrainCoordinator brainCoordinator;
 
     DungeonBrainRuntime(Context context) {
         appContext = context.getApplicationContext();
+        brainCoordinator = new NpcBrainCoordinator(appContext);
     }
 
     Result run(
@@ -84,17 +86,12 @@ final class DungeonBrainRuntime {
             throw new IllegalStateException("OpenAI Luna AI STAMINA exhausted");
         }
 
-        Context storageContext = NpcContexts.storage(appContext, npcId);
         OpenAiClient client = new OpenAiClient(
                 appContext,
                 apiKey,
                 reasoningEffort,
                 null,
                 DungeonBrainRuntime::outputLimitForOrdinal);
-        BrainEngine engine = new BrainEngine(
-                client,
-                new MemoryStore(storageContext),
-                new CharacterStateStore(storageContext));
         JSONArray trace = new JSONArray();
         JSONObject runtimeJson = DungeonPerception.buildRuntimeJson(
                 state,
@@ -103,62 +100,71 @@ final class DungeonBrainRuntime {
                 existingPlan);
         runtimeJson.put("character_id", NpcId.of(npcId).value());
 
-        BrainEngine.Decision decision = engine.thinkDecision(
-                runtimeJson.toString(),
-                new BrainEngine.ProgressListener() {
-                    @Override
-                    public void onStageStarted(
-                            String stageId,
-                            String stageLabel,
-                            int current,
-                            int total
-                    ) {
-                        if (listener != null) {
-                            listener.onStageStarted(stageId, stageLabel, current, total);
-                        }
-                    }
+        BrainEngine.ProgressListener progress = new BrainEngine.ProgressListener() {
+            @Override
+            public void onStageStarted(
+                    String stageId,
+                    String stageLabel,
+                    int current,
+                    int total
+            ) {
+                if (listener != null) {
+                    listener.onStageStarted(stageId, stageLabel, current, total);
+                }
+            }
 
-                    @Override
-                    public void onStageCompleted(
-                            String stageId,
-                            String stageLabel,
-                            int current,
-                            int total,
-                            String summary,
-                            double confidence,
-                            JSONArray salientFacts,
-                            String personalityEffect
-                    ) {
-                        JSONObject item = new JSONObject();
-                        try {
-                            item.put("stage_id", stageId);
-                            item.put("stage_label", stageLabel);
-                            item.put("summary", summary == null ? "" : summary);
-                            item.put("confidence", confidence);
-                            item.put("salient_facts", salientFacts == null
-                                    ? new JSONArray() : new JSONArray(salientFacts.toString()));
-                            item.put("personality_effect", personalityEffect == null
-                                    ? "" : personalityEffect);
-                            item.put("model", OpenAiClient.MODEL);
-                            item.put("reasoning_effort",
-                                    ModelSettingsStore.normalizeReasoningEffort(reasoningEffort));
-                        } catch (Exception ignored) {
-                        }
-                        trace.put(item);
-                        if (listener != null) {
-                            listener.onStageCompleted(
-                                    stageId,
-                                    stageLabel,
-                                    current,
-                                    total,
-                                    summary,
-                                    confidence,
-                                    salientFacts,
-                                    personalityEffect);
-                        }
-                    }
-                },
-                false);
+            @Override
+            public void onStageCompleted(
+                    String stageId,
+                    String stageLabel,
+                    int current,
+                    int total,
+                    String summary,
+                    double confidence,
+                    JSONArray salientFacts,
+                    String personalityEffect
+            ) {
+                JSONObject item = new JSONObject();
+                try {
+                    item.put("stage_id", stageId);
+                    item.put("stage_label", stageLabel);
+                    item.put("summary", summary == null ? "" : summary);
+                    item.put("confidence", confidence);
+                    item.put("salient_facts", salientFacts == null
+                            ? new JSONArray() : new JSONArray(salientFacts.toString()));
+                    item.put("personality_effect", personalityEffect == null
+                            ? "" : personalityEffect);
+                    item.put("model", OpenAiClient.MODEL);
+                    item.put("reasoning_effort",
+                            ModelSettingsStore.normalizeReasoningEffort(reasoningEffort));
+                } catch (Exception ignored) {
+                }
+                trace.put(item);
+                if (listener != null) {
+                    listener.onStageCompleted(
+                            stageId,
+                            stageLabel,
+                            current,
+                            total,
+                            summary,
+                            confidence,
+                            salientFacts,
+                            personalityEffect);
+                }
+            }
+        };
+
+        NpcBrainCoordinator.BrainDecisionEnvelope envelope = brainCoordinator.request(
+                new NpcBrainCoordinator.BrainRequest(
+                        npcId,
+                        "dungeon",
+                        runtimeJson.toString(),
+                        apiKey,
+                        reasoningEffort,
+                        client,
+                        progress,
+                        false));
+        BrainEngine.Decision decision = envelope.decision;
 
         String summary = decision.internalState();
         DungeonIntent intent = DungeonIntent.fromEnvironmentAction(

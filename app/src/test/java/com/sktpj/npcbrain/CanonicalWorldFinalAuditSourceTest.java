@@ -25,20 +25,32 @@ public class CanonicalWorldFinalAuditSourceTest {
     @Test
     public void allBrainSessionsUseCanonicalWorldQuery() throws Exception {
         String source = read("src/main/java/com/sktpj/npcbrain/NpcBrainSessionFactory.java");
+        String coordinator = read("src/main/java/com/sktpj/npcbrain/NpcBrainCoordinator.java");
         assertTrue(source.contains("WorldQueryServiceV210 worldQuery"));
         assertTrue(source.contains("worldQuery.snapshot(id)"));
+        assertTrue(coordinator.contains("sessionFactory.worldSnapshot(request.npcId)"));
+        assertTrue(coordinator.contains("basisRevision"));
         assertFalse(source.contains("NpcWorldStateCoordinator"));
     }
 
     @Test
-    public void autonomousPeerConversationCommitsThroughKernelAndDoesNotWriteMemoryDirectly() throws Exception {
+    public void autonomousPeerConversationCommitsThroughKernelAndUsesSharedCoordinator() throws Exception {
         String source = read("src/main/java/com/sktpj/npcbrain/PeriodicNpcSocialRuntime.java");
         assertTrue(source.contains("WorldConversationGatewayV210"));
         assertTrue(source.contains("conversationGateway.postMessage("));
-        assertTrue(source.contains("thinkDecision(prompt, null, false)"));
+        assertTrue(source.contains("NpcBrainCoordinator brainCoordinator"));
+        assertTrue(source.contains("brainCoordinator.request("));
         assertFalse(source.contains("appendNpcMessageWithId("));
         assertFalse(source.contains("new MemoryStore"));
         assertFalse(source.contains(".remember("));
+    }
+
+    @Test
+    public void dungeonCognitionUsesSameNpcBrainCoordinator() throws Exception {
+        String source = read("src/main/java/com/sktpj/npcbrain/DungeonBrainRuntime.java");
+        assertTrue(source.contains("NpcBrainCoordinator brainCoordinator"));
+        assertTrue(source.contains("brainCoordinator.request("));
+        assertFalse(source.contains("new BrainEngine("));
     }
 
     @Test
@@ -51,6 +63,16 @@ public class CanonicalWorldFinalAuditSourceTest {
         assertTrue(source.contains("relationships.applyUpdate("));
         assertTrue(relationships.contains("evidenceLastInteraction <= currentLastInteraction"));
         assertTrue(source.contains("MemoryStore.isProfileSemantic(item)"));
+    }
+
+    @Test
+    public void relationshipMaintenanceCommitsCanonicalBeforeCompatibilityProjection() throws Exception {
+        String relationships = read("src/main/java/com/sktpj/npcbrain/SocialRelationshipStore.java");
+        String projection = read("src/main/java/com/sktpj/npcbrain/WorldProjectionRunnerV210.java");
+        assertTrue(relationships.contains("WorldCommandV210.APPLY_RELATIONSHIP"));
+        assertTrue(relationships.contains("WorldProjectionScopeV210.active()"));
+        assertTrue(projection.contains("RELATIONSHIP = \"relationship_v210\""));
+        assertTrue(projection.contains("projectCanonical(relationship)"));
     }
 
     @Test

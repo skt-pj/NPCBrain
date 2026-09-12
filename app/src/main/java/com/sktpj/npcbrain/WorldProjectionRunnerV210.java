@@ -13,6 +13,7 @@ import java.util.Set;
 final class WorldProjectionRunnerV210 {
     static final String CONVERSATION = "conversation_v210";
     static final String MEMORY = "memory_v210";
+    static final String RELATIONSHIP = "relationship_v210";
     private static final int BATCH = 64;
 
     interface ProjectionFaultInjector {
@@ -45,6 +46,7 @@ final class WorldProjectionRunnerV210 {
         running = true;
         try {
             projectConversation();
+            projectRelationship();
             projectMemory();
         } finally {
             running = false;
@@ -105,6 +107,29 @@ final class WorldProjectionRunnerV210 {
                     displayTime,
                     event.causationId,
                     event.payload.optJSONArray("brain_trace"));
+        }
+    }
+
+    private void projectRelationship() {
+        while (true) {
+            long checkpoint = database.projectionCheckpoint(RELATIONSHIP);
+            List<WorldEventV210> events = database.eventsAfter(checkpoint, BATCH);
+            if (events.isEmpty()) return;
+            for (WorldEventV210 event : events) {
+                beforeProject(RELATIONSHIP, event);
+                try (WorldProjectionScopeV210 ignored = WorldProjectionScopeV210.enter()) {
+                    if ("relationship_changed".equals(event.eventType)) {
+                        JSONObject relationship = event.payload.optJSONObject("relationship");
+                        if (relationship != null && relationship.length() > 0) {
+                            new SocialRelationshipStore(appContext).projectCanonical(relationship);
+                        } else if (event.payload.optBoolean("reset", false)) {
+                            new SocialRelationshipStore(appContext).clearLearnedFor(event.actorId);
+                        }
+                    }
+                }
+                database.setProjectionCheckpoint(RELATIONSHIP, event.sequence);
+            }
+            if (events.size() < BATCH) return;
         }
     }
 

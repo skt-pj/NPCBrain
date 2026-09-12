@@ -50,15 +50,19 @@ final class WorldQueryServiceV210 {
         JSONObject result = database.diagnostics();
         try {
             long latest = Math.max(0L, result.optLong("next_event_sequence", 1L) - 1L);
-            long conversation = database.projectionCheckpoint("conversation_v210");
-            long memory = database.projectionCheckpoint("memory_v210");
+            long conversation = database.projectionCheckpoint(WorldProjectionRunnerV210.CONVERSATION);
+            long memory = database.projectionCheckpoint(WorldProjectionRunnerV210.MEMORY);
+            long relationship = database.projectionCheckpoint(WorldProjectionRunnerV210.RELATIONSHIP);
             long conversationLag = Math.max(0L, latest - conversation);
             long memoryLag = Math.max(0L, latest - memory);
+            long relationshipLag = Math.max(0L, latest - relationship);
             result.put("conversation_projection_checkpoint", conversation);
             result.put("conversation_projection_lag", conversationLag);
             result.put("memory_projection_checkpoint", memory);
             result.put("memory_projection_lag", memoryLag);
-            result.put("projection_lag", Math.max(conversationLag, memoryLag));
+            result.put("relationship_projection_checkpoint", relationship);
+            result.put("relationship_projection_lag", relationshipLag);
+            result.put("projection_lag", Math.max(relationshipLag, Math.max(conversationLag, memoryLag)));
         } catch (Exception ignored) {
         }
         return result;
