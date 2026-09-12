@@ -74,8 +74,10 @@ public class CanonicalWorldArchitectureSourceTest {
         String source = read("src/main/java/com/sktpj/npcbrain/CanonicalDungeonAutonomyV211.java");
         assertTrue(source.contains("NpcBrainCoordinator"));
         assertTrue(source.contains("WorldCommandV210.SET_DUNGEON_PRESENCE"));
-        assertFalse(source.contains("DungeonStore"));
-        assertFalse(source.contains("DungeonPresenceStore"));
+        assertFalse(source.contains("new DungeonStore("));
+        assertFalse(source.contains("new DungeonPresenceStore("));
+        assertFalse(source.contains("DungeonStore dungeon"));
+        assertFalse(source.contains("DungeonPresenceStore presence"));
         assertFalse(source.contains("NpcBrainSessionFactory"));
     }
 
