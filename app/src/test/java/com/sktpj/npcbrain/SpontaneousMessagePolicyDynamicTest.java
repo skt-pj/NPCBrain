@@ -11,9 +11,9 @@ import org.junit.Test;
 
 public class SpontaneousMessagePolicyDynamicTest {
     @Test
-    public void npc3GetsUserOtherNpcsAndGroupTargets() {
+    public void npc3GetsUserAndOtherNpcTargetsWithoutImplicitGroup() {
         assertArrayEquals(
-                new String[]{"user", "npc1", "npc2", "npc4", "group"},
+                new String[]{"user", "npc1", "npc2", "npc4"},
                 SpontaneousMessagePolicy.allowedTargets(
                         "npc3", Arrays.asList("npc1", "npc2", "npc3", "npc4")));
     }
@@ -35,26 +35,25 @@ public class SpontaneousMessagePolicyDynamicTest {
     }
 
     @Test
-    public void anyOtherActiveNpcRoutesToSharedGroupRoom() {
+    public void anyOtherActiveNpcRoutesToPrivatePeerRoom() {
+        java.util.List<String> active = Arrays.asList("npc1", "npc2", "npc3", "npc4");
         assertEquals(
-                DemoRuntimeV032.ROOM_GROUP,
-                SpontaneousMessagePolicy.routeRoom(
-                        "npc4", "npc2", Arrays.asList("npc1", "npc2", "npc3", "npc4")));
-        assertTrue(SpontaneousMessagePolicy.isAllowedTarget(
-                "npc4", "npc3", Arrays.asList("npc1", "npc2", "npc3", "npc4")));
-        assertFalse(SpontaneousMessagePolicy.isAllowedTarget(
-                "npc4", "npc9", Arrays.asList("npc1", "npc2", "npc3", "npc4")));
+                NpcPeerRoomPolicy.roomId("npc4", "npc2"),
+                SpontaneousMessagePolicy.routeRoom("npc4", "npc2", active));
+        assertTrue(SpontaneousMessagePolicy.isAllowedTarget("npc4", "npc3", active));
+        assertFalse(SpontaneousMessagePolicy.isAllowedTarget("npc4", "npc9", active));
+        assertFalse(SpontaneousMessagePolicy.isAllowedTarget("npc4", "group", active));
     }
 
     @Test
-    public void explicitNpcTargetIsFirstGroupRecipient() {
+    public void explicitNpcTargetIsFirstPeerRecipient() {
         java.util.List<String> active = Arrays.asList("npc1", "npc2", "npc3", "npc4");
         assertEquals("npc4", SpontaneousMessagePolicy.firstRecipient("npc2", "npc4", active));
         assertEquals("npc3", SpontaneousMessagePolicy.firstRecipient("npc2", "group", active));
     }
 
     @Test
-    public void groupChainCyclesAcrossAllActiveNpcs() {
+    public void peerFallbackCyclesAcrossAllActiveNpcs() {
         java.util.List<String> active = Arrays.asList("npc1", "npc2", "npc3", "npc4");
         assertEquals("npc2", SpontaneousMessagePolicy.nextNpc("npc1", active));
         assertEquals("npc3", SpontaneousMessagePolicy.nextNpc("npc2", active));
