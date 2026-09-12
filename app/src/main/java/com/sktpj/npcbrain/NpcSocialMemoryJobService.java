@@ -71,11 +71,11 @@ public final class NpcSocialMemoryJobService extends JobService {
                 if (!actor.isEmpty() && NpcInferenceAccess.canRun(this, actor, key)) {
                     try {
                         new PeriodicNpcSocialRuntime(this).runOneOpportunity(key, reasoning, now);
+                        socialWindow.markAttempted(now);
                     } catch (Exception transientFailure) {
                         retry = true;
                     }
                 }
-                socialWindow.markAttempted(now);
             }
             NPCBrainApplication.requestDemoRoomRefresh();
         } catch (InterruptedException interrupted) {
