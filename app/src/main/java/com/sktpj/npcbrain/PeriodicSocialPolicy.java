@@ -4,11 +4,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 final class PeriodicSocialPolicy {
+    /**
+     * Social opportunities are intentionally independent from the 12-hour memory-maintenance
+     * cadence. The model may still choose silence; this only controls how often an NPC gets a
+     * chance to consider contacting another NPC while the app is not being actively used.
+     */
+    static final long SOCIAL_OPPORTUNITY_INTERVAL_MS = 60L * 60L * 1000L;
+
     private PeriodicSocialPolicy() {
     }
 
     static long window(long nowMs) {
-        return Math.max(0L, nowMs) / HumanMemoryPolicy.MAINTENANCE_INTERVAL_MS;
+        return Math.max(0L, nowMs) / SOCIAL_OPPORTUNITY_INTERVAL_MS;
     }
 
     static String initiator(List<String> activeNpcIds, long nowMs) {
