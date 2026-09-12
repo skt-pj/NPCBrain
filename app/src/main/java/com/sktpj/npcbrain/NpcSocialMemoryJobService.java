@@ -46,12 +46,21 @@ public final class NpcSocialMemoryJobService extends JobService {
             String key = apiKey == null ? "" : apiKey.trim();
             String reasoning = new ModelSettingsStore(this).reasoningEffort();
 
+            // All time progression is owned by the canonical simulation driver.
             new NpcWorldRuntimeV200(this).runBackgroundOpportunity(key, reasoning, now);
 
             NpcRegistryStore registry = new NpcRegistryStore(this);
             List<String> active = registry.activeNpcIds();
-            HumanMemoryMaintenanceEngine maintenance = new HumanMemoryMaintenanceEngine(this);
 
+            // Expensive autonomous choices are opportunities evaluated by the same per-NPC Brain
+            // coordinator and committed through WorldKernel; they are not UI-owned simulation.
+            try {
+                new CanonicalDungeonAutonomyV211(this).evaluateDue(key, reasoning, now);
+            } catch (Exception transientFailure) {
+                retry = true;
+            }
+
+            HumanMemoryMaintenanceEngine maintenance = new HumanMemoryMaintenanceEngine(this);
             for (String npcId : active) {
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                 if (!maintenance.isDue(npcId, now)) continue;
@@ -65,6 +74,8 @@ public final class NpcSocialMemoryJobService extends JobService {
                 }
             }
 
+            // Social opportunities have their own cadence. Memory consolidation stays on the 12h
+            // HumanMemoryPolicy cadence above.
             if (active.size() >= 2 && isSocialOpportunityDue(now)) {
                 String actor = PeriodicSocialPolicy.initiator(active, now);
                 if (!actor.isEmpty() && NpcInferenceAccess.canRun(this, actor, key)) {
@@ -74,6 +85,10 @@ public final class NpcSocialMemoryJobService extends JobService {
                     } catch (Exception transientFailure) {
                         retry = true;
                     }
+                } else {
+                    // No runnable actor this window. Mark the opportunity so we do not spin every
+                    // periodic job tick; the next social window naturally retries.
+                    markSocialOpportunityAttempted(now);
                 }
             }
             NPCBrainApplication.requestDemoRoomRefresh();
