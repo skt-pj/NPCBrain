@@ -60,9 +60,15 @@ public final class NPCBrainApplication extends Application {
                 AppWindowChrome.apply(activity);
                 PrimaryFooterBridge.install(activity);
                 installUnifiedShellBridge(activity);
+                if (activity instanceof WorldShellActivityV212) {
+                    WorldShellRefreshCoordinatorV212.onResumed((WorldShellActivityV212) activity);
+                }
             }
 
             @Override public void onActivityPaused(Activity activity) {
+                if (activity instanceof WorldShellActivityV212) {
+                    WorldShellRefreshCoordinatorV212.onPaused((WorldShellActivityV212) activity);
+                }
                 PrimaryUiCoordinator.onPaused(activity);
             }
 
@@ -82,6 +88,9 @@ public final class NPCBrainApplication extends Application {
                 if (activity == current) demoActivityRef = new WeakReference<>(null);
                 if (activity instanceof NpcStatusActivity) {
                     NpcAiUsageUiBridge.uninstall((NpcStatusActivity) activity);
+                }
+                if (activity instanceof WorldShellActivityV212) {
+                    WorldShellRefreshCoordinatorV212.onDestroyed((WorldShellActivityV212) activity);
                 }
             }
         });
