@@ -29,10 +29,22 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    testOptions {
+        unitTests.includeAndroidResources = true
+        unitTests.all {
+            testLogging {
+                events "started", "passed", "failed", "skipped"
+                exceptionFormat "full"
+                showStandardStreams = true
+            }
+        }
+    }
 }
 
 dependencies {
     implementation 'com.google.ai.edge.litertlm:litertlm-android:0.16.0'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
 }

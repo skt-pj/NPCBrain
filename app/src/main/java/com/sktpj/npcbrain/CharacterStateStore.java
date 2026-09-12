@@ -2,8 +2,11 @@ package com.sktpj.npcbrain;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.database.sqlite.SQLiteDatabase;
 
 import org.json.JSONObject;
+
+import java.util.UUID;
 
 final class CharacterStateStore {
     static final String DEFAULT_RELATIONSHIP = "知人";
@@ -30,14 +33,23 @@ final class CharacterStateStore {
     private static final String DEAD = "dead";
 
     private final Context storageContext;
+    private final Context appContext;
     private final SharedPreferences preferences;
+    private final String npcId;
+    private long brainBasisStateVersion = -1L;
 
     CharacterStateStore(Context context) {
         storageContext = context;
+        appContext = context.getApplicationContext();
         preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        npcId = context instanceof NpcStorageContext
+                ? ((NpcStorageContext) context).npcId()
+                : "npc1";
     }
 
     synchronized boolean isDead() {
+        CanonicalNpcStateV210 canonical = canonicalState();
+        if (canonical != null && canonical.stateVersion() > 0L) return canonical.dead();
         return preferences.getBoolean(DEAD, false);
     }
 
@@ -144,18 +156,29 @@ final class CharacterStateStore {
             traits.put(OPENNESS, openness);
             root.put("traits", traits);
 
-            dynamic.put("valence", clampSigned(preferences.getFloat(VALENCE, 0.0f)));
-            dynamic.put("arousal", clamp01(preferences.getFloat(AROUSAL, 0.25f)));
-            dynamic.put("stress", clamp01(preferences.getFloat(STRESS, 0.15f)));
-            root.put("current_state", dynamic);
+            CanonicalNpcStateV210 canonical = canonicalState();
+            if (canonical != null && canonical.stateVersion() > 0L) {
+                brainBasisStateVersion = canonical.stateVersion();
+                dynamic = canonical.dynamicState();
+                if (dynamic.length() == 0) dynamic = legacyDynamicState();
+                root.put("current_state", dynamic);
+                JSONObject inner = canonical.innerLife();
+                if (inner.length() == 0) {
+                    inner = new NpcInnerLifeStore(storageContext).snapshotForBrain(
+                            System.currentTimeMillis(), extraversion, neuroticism, openness);
+                }
+                root.put("inner_life", inner);
+                root.put("world_runtime", canonical.toJson());
+            } else {
+                brainBasisStateVersion = -1L;
+                dynamic = legacyDynamicState();
+                root.put("current_state", dynamic);
+                JSONObject innerLife = new NpcInnerLifeStore(storageContext).snapshotForBrain(
+                        System.currentTimeMillis(), extraversion, neuroticism, openness);
+                root.put("inner_life", innerLife);
+            }
 
             root.put("economy", economySnapshot());
-            JSONObject innerLife = new NpcInnerLifeStore(storageContext).snapshotForBrain(
-                    System.currentTimeMillis(),
-                    extraversion,
-                    neuroticism,
-                    openness);
-            root.put("inner_life", innerLife);
             root.put("neuroanatomy", NeuroanatomyModel.fullContext(root));
         } catch (Exception ignored) {
         }
@@ -187,35 +210,80 @@ final class CharacterStateStore {
 
     synchronized void updateDynamicState(JSONObject state) {
         if (state == null || isDead()) return;
-        float valence = (float) clampSigned(state.optDouble("valence", preferences.getFloat(VALENCE, 0.0f)));
-        float arousal = (float) clamp01(state.optDouble("arousal", preferences.getFloat(AROUSAL, 0.25f)));
-        float stress = (float) clamp01(state.optDouble("stress", preferences.getFloat(STRESS, 0.15f)));
-        preferences.edit()
-                .putFloat(VALENCE, valence)
-                .putFloat(AROUSAL, arousal)
-                .putFloat(STRESS, stress)
-                .apply();
+        JSONObject sanitized = sanitizeDynamic(state);
+        if (!canonicalEnabled()) {
+            writeLegacyDynamic(sanitized);
+            return;
+        }
+
+        WorldKernelV210 kernel = WorldKernelV210.get(appContext);
+        CanonicalNpcStateV210 current = canonicalState();
+        long basis = brainBasisStateVersion >= 0L
+                ? brainBasisStateVersion
+                : current == null ? -1L : current.stateVersion();
+        JSONObject payload = new JSONObject();
+        try {
+            payload.put("basis_state_version", basis);
+            payload.put("dynamic_state", sanitized);
+        } catch (Exception ignored) {
+        }
+        WorldCommitResultV210 commit = kernel.commit(WorldCommandV210.of(
+                WorldCommandV210.APPLY_BRAIN_DECISION,
+                System.currentTimeMillis(),
+                npcId,
+                "brain-state:" + npcId + ":" + UUID.randomUUID(),
+                payload));
+        if ("stale_brain_result".equals(commit.result.optString("status", ""))) {
+            throw new IllegalStateException("Brain result is stale for " + npcId);
+        }
+        CanonicalNpcStateV210 after = canonicalState();
+        brainBasisStateVersion = after == null ? -1L : after.stateVersion();
     }
 
     synchronized boolean resetDynamicState() {
         if (isDead()) return false;
-        return preferences.edit()
-                .remove(VALENCE)
-                .remove(AROUSAL)
-                .remove(STRESS)
-                .commit();
+        if (!canonicalEnabled()) {
+            return preferences.edit()
+                    .remove(VALENCE)
+                    .remove(AROUSAL)
+                    .remove(STRESS)
+                    .commit();
+        }
+        JSONObject payload = new JSONObject();
+        try { payload.put("dynamic_state", new JSONObject()); }
+        catch (Exception ignored) {}
+        WorldKernelV210.get(appContext).commit(WorldCommandV210.of(
+                WorldCommandV210.UPSERT_DYNAMIC_STATE,
+                System.currentTimeMillis(),
+                npcId,
+                "reset-dynamic:" + npcId + ":" + UUID.randomUUID(),
+                payload));
+        return true;
     }
 
     synchronized String dynamicStateSummary() {
         if (isDead()) return "—";
-        int valence = Math.round(preferences.getFloat(VALENCE, 0.0f) * 100f);
-        int arousal = Math.round(preferences.getFloat(AROUSAL, 0.25f) * 100f);
-        int stress = Math.round(preferences.getFloat(STRESS, 0.15f) * 100f);
+        JSONObject state = null;
+        CanonicalNpcStateV210 canonical = canonicalState();
+        if (canonical != null && canonical.stateVersion() > 0L) state = canonical.dynamicState();
+        if (state == null || state.length() == 0) state = legacyDynamicState();
+        int valence = (int) Math.round(clampSigned(state.optDouble("valence", 0.0)) * 100.0);
+        int arousal = (int) Math.round(clamp01(state.optDouble("arousal", 0.25)) * 100.0);
+        int stress = (int) Math.round(clamp01(state.optDouble("stress", 0.15)) * 100.0);
         return "感情価 " + signed(valence) + " · 覚醒 " + arousal + " · ストレス " + stress;
     }
 
     synchronized void markDead() {
-        preferences.edit().clear().putBoolean(DEAD, true).commit();
+        if (!canonicalEnabled() || WorldProjectionScopeV210.active()) {
+            preferences.edit().clear().putBoolean(DEAD, true).commit();
+            return;
+        }
+        WorldKernelV210.get(appContext).commit(WorldCommandV210.of(
+                WorldCommandV210.MARK_NPC_DEAD,
+                System.currentTimeMillis(),
+                npcId,
+                "death:" + npcId + ":" + UUID.randomUUID(),
+                new JSONObject()));
     }
 
     synchronized void reset() {
@@ -237,32 +305,73 @@ final class CharacterStateStore {
         editor.apply();
     }
 
-    static String extraversionKey() {
-        return EXTRAVERSION;
+    static String extraversionKey() { return EXTRAVERSION; }
+    static String neuroticismKey() { return NEUROTICISM; }
+    static String agreeablenessKey() { return AGREEABLENESS; }
+    static String conscientiousnessKey() { return CONSCIENTIOUSNESS; }
+    static String opennessKey() { return OPENNESS; }
+
+    private boolean canonicalEnabled() {
+        if (WorldProjectionScopeV210.active()) return false;
+        try {
+            WorldDatabaseV210 db = WorldKernelV210.get(appContext).database();
+            return "COMPLETED".equals(db.metaString(
+                    db.getReadableDatabase(),
+                    WorldDatabaseV210.META_MIGRATION_STATE,
+                    "NOT_STARTED"));
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
-    static String neuroticismKey() {
-        return NEUROTICISM;
+    private CanonicalNpcStateV210 canonicalState() {
+        if (!canonicalEnabled()) return null;
+        try {
+            WorldDatabaseV210 db = WorldKernelV210.get(appContext).database();
+            SQLiteDatabase readable = db.getReadableDatabase();
+            return db.loadNpc(readable, npcId);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
-    static String agreeablenessKey() {
-        return AGREEABLENESS;
+    private JSONObject legacyDynamicState() {
+        JSONObject dynamic = new JSONObject();
+        try {
+            dynamic.put("valence", clampSigned(preferences.getFloat(VALENCE, 0.0f)));
+            dynamic.put("arousal", clamp01(preferences.getFloat(AROUSAL, 0.25f)));
+            dynamic.put("stress", clamp01(preferences.getFloat(STRESS, 0.15f)));
+        } catch (Exception ignored) {
+        }
+        return dynamic;
     }
 
-    static String conscientiousnessKey() {
-        return CONSCIENTIOUSNESS;
+    private JSONObject sanitizeDynamic(JSONObject state) {
+        JSONObject fallback = legacyDynamicState();
+        JSONObject result = new JSONObject();
+        try {
+            result.put("valence", clampSigned(state.optDouble("valence", fallback.optDouble("valence", 0.0))));
+            result.put("arousal", clamp01(state.optDouble("arousal", fallback.optDouble("arousal", 0.25))));
+            result.put("stress", clamp01(state.optDouble("stress", fallback.optDouble("stress", 0.15))));
+        } catch (Exception ignored) {
+        }
+        return result;
     }
 
-    static String opennessKey() {
-        return OPENNESS;
+    private void writeLegacyDynamic(JSONObject state) {
+        float valence = (float) clampSigned(state.optDouble("valence", preferences.getFloat(VALENCE, 0.0f)));
+        float arousal = (float) clamp01(state.optDouble("arousal", preferences.getFloat(AROUSAL, 0.25f)));
+        float stress = (float) clamp01(state.optDouble("stress", preferences.getFloat(STRESS, 0.15f)));
+        preferences.edit()
+                .putFloat(VALENCE, valence)
+                .putFloat(AROUSAL, arousal)
+                .putFloat(STRESS, stress)
+                .apply();
     }
 
     private JSONObject economySnapshot() {
         JSONObject economy = new JSONObject();
         try {
-            String npcId = storageContext instanceof NpcStorageContext
-                    ? ((NpcStorageContext) storageContext).npcId()
-                    : "npc1";
             NpcWalletStore wallet = new NpcWalletStore(storageContext);
             DungeonInventoryStore inventory = new DungeonInventoryStore(storageContext);
             DungeonItem latest = inventory.latest(npcId);
@@ -281,17 +390,9 @@ final class CharacterStateStore {
         return economy;
     }
 
-    private static int clampPercent(int value) {
-        return Math.max(0, Math.min(100, value));
-    }
-
-    private static double clamp01(double value) {
-        return Math.max(0.0, Math.min(1.0, value));
-    }
-
-    private static double clampSigned(double value) {
-        return Math.max(-1.0, Math.min(1.0, value));
-    }
+    private static int clampPercent(int value) { return Math.max(0, Math.min(100, value)); }
+    private static double clamp01(double value) { return Math.max(0.0, Math.min(1.0, value)); }
+    private static double clampSigned(double value) { return Math.max(-1.0, Math.min(1.0, value)); }
 
     private static String safe(String value, String fallback) {
         if (value == null || value.trim().isEmpty()) return fallback;

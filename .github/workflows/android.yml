@@ -15,6 +15,10 @@ on:
       - 'dist/**'
   workflow_dispatch:
 
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -44,6 +48,7 @@ jobs:
           cache-provider: basic
 
       - name: Test and build APKs
+        timeout-minutes: 12
         run: gradle :app:testDebugUnitTest :app:assembleRelease :app:assembleDebug --stacktrace
 
       - name: Sign and prepare latest APKs

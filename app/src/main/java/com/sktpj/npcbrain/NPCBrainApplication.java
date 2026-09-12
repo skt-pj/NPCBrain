@@ -8,22 +8,22 @@ import android.os.Bundle;
 import java.lang.ref.WeakReference;
 
 public final class NPCBrainApplication extends Application {
+    private static WeakReference<NPCBrainApplication> applicationRef = new WeakReference<>(null);
     private static WeakReference<DemoActivityV032> demoActivityRef = new WeakReference<>(null);
     private static volatile boolean demoRoomRefreshRequested;
     private static volatile boolean debugBuild;
 
-    private NpcInnerLifeRuntime innerLifeRuntime;
     private NpcWorldRuntimeV200 worldRuntime;
     private int startedActivityCount;
 
     @Override
     public void onCreate() {
         super.onCreate();
+        applicationRef = new WeakReference<>(this);
         debugBuild = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         new ReplyTimerStore(this).rearmAll();
         NpcSocialMemoryScheduler.schedule(this);
         new DungeonPresenceStore(this).activePresentNpcIds();
-        innerLifeRuntime = new NpcInnerLifeRuntime(this);
         worldRuntime = new NpcWorldRuntimeV200(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityCreated(Activity activity, Bundle state) {
@@ -37,9 +37,8 @@ public final class NPCBrainApplication extends Application {
 
             @Override public void onActivityStarted(Activity activity) {
                 startedActivityCount++;
-                if (startedActivityCount == 1) {
-                    if (innerLifeRuntime != null) innerLifeRuntime.onForeground();
-                    if (worldRuntime != null) worldRuntime.start();
+                if (startedActivityCount == 1 && worldRuntime != null) {
+                    worldRuntime.start();
                 }
                 installRuntimeBridges(activity);
                 PrimaryUiCoordinator.onStarted(activity);
@@ -67,9 +66,8 @@ public final class NPCBrainApplication extends Application {
 
             @Override public void onActivityStopped(Activity activity) {
                 startedActivityCount = Math.max(0, startedActivityCount - 1);
-                if (startedActivityCount == 0) {
-                    if (innerLifeRuntime != null) innerLifeRuntime.onBackground();
-                    if (worldRuntime != null) worldRuntime.stop();
+                if (startedActivityCount == 0 && worldRuntime != null) {
+                    worldRuntime.stop();
                 }
             }
 
@@ -99,6 +97,16 @@ public final class NPCBrainApplication extends Application {
         demoRoomRefreshRequested = true;
     }
 
+    static WorldKernelV210 worldKernel() {
+        NPCBrainApplication app = applicationRef.get();
+        return app == null || app.worldRuntime == null ? null : app.worldRuntime.kernel();
+    }
+
+    static WorldQueryServiceV210 worldQuery() {
+        NPCBrainApplication app = applicationRef.get();
+        return app == null || app.worldRuntime == null ? null : app.worldRuntime.query();
+    }
+
     private static boolean consumeDemoRoomRefreshRequest() {
         if (!demoRoomRefreshRequested) return false;
         demoRoomRefreshRequested = false;
@@ -107,9 +115,11 @@ public final class NPCBrainApplication extends Application {
 
     private void installRuntimeBridges(Activity activity) {
         if (activity instanceof DemoActivityV032) {
+            DemoActivityV032 demo = (DemoActivityV032) activity;
             DynamicConversationUiBridge.install(activity);
-            ConversationSendQueueBridge.install((DemoActivityV032) activity);
-            ProcessingQueueDemoBridge.install((DemoActivityV032) activity);
+            NpcPeerConversationUiBridge.install(demo);
+            ConversationSendQueueBridge.install(demo);
+            ProcessingQueueDemoBridge.install(demo);
             return;
         }
         if (activity instanceof NpcStatusActivity) {
@@ -118,6 +128,7 @@ public final class NPCBrainApplication extends Application {
         }
         if (activity instanceof DungeonActivity) {
             DungeonActivity dungeon = (DungeonActivity) activity;
+            DungeonObserverModeV210.install(dungeon);
             DungeonGoalInputBridge.install(dungeon);
             DungeonAiStaminaBridge.install(dungeon);
             DungeonRosterBridge.install(dungeon);

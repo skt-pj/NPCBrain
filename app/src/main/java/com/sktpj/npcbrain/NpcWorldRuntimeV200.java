@@ -4,14 +4,11 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
-/** Single runtime entry that keeps life, dungeon and observable world state synchronized. */
+/** v2.0 compatibility name; v2.1 delegates every time path to one canonical driver. */
 final class NpcWorldRuntimeV200 {
     private static final long FOREGROUND_TICK_MS = 650L;
 
-    private final WorldRuntimeV040 lifeRuntime;
-    private final DungeonWorldProgressRuntime dungeonProgress;
-    private final DungeonWorldEventSynchronizer dungeonEvents;
-    private final DungeonAutonomyRuntime dungeonAutonomy;
+    private final WorldSimulationDriverV210 driver;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean running;
 
@@ -19,17 +16,13 @@ final class NpcWorldRuntimeV200 {
         @Override
         public void run() {
             if (!running) return;
-            syncForegroundOnce(System.currentTimeMillis());
+            driver.advanceTo(System.currentTimeMillis());
             handler.postDelayed(this, FOREGROUND_TICK_MS);
         }
     };
 
     NpcWorldRuntimeV200(Context context) {
-        Context app = context.getApplicationContext();
-        lifeRuntime = new WorldRuntimeV040(app);
-        dungeonProgress = new DungeonWorldProgressRuntime(app);
-        dungeonEvents = new DungeonWorldEventSynchronizer(app);
-        dungeonAutonomy = new DungeonAutonomyRuntime(app);
+        driver = new WorldSimulationDriverV210(context.getApplicationContext());
     }
 
     synchronized void start() {
@@ -45,15 +38,18 @@ final class NpcWorldRuntimeV200 {
     }
 
     void syncForegroundOnce(long nowMs) {
-        lifeRuntime.syncAllNow();
-        dungeonProgress.advanceSoloPresentOnce(nowMs);
-        dungeonEvents.syncAll(nowMs);
+        driver.advanceTo(nowMs);
     }
 
     void runBackgroundOpportunity(String apiKey, String reasoningEffort, long nowMs) {
-        lifeRuntime.syncAllNow();
-        dungeonAutonomy.evaluateAndJoin(nowMs, apiKey, reasoningEffort);
-        dungeonProgress.advanceSoloPresentOnce(nowMs);
-        dungeonEvents.syncAll(nowMs);
+        driver.advanceTo(nowMs);
+    }
+
+    WorldQueryServiceV210 query() {
+        return driver.query();
+    }
+
+    WorldKernelV210 kernel() {
+        return driver.kernel();
     }
 }

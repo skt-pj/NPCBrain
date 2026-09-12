@@ -6,6 +6,8 @@ import android.content.SharedPreferences;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -79,14 +81,14 @@ final class HumanMemoryMaintenanceEngine {
         JSONArray semantics = memory.maintenanceSemantics();
         SharedPreferences checkpoint = storage.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         long lastSuccess = checkpoint.getLong(LAST_SUCCESS_MS, 0L);
-        JSONArray socialTranscript = socialTranscriptSince(lastSuccess);
+        List<String> activeNpcIds = registry.activeNpcIds();
+        JSONArray socialTranscript = socialTranscriptSince(id, activeNpcIds, lastSuccess);
 
         if (episodes.length() == 0 && socialTranscript.length() == 0) {
             checkpoint.edit().putLong(LAST_SUCCESS_MS, nowMs).commit();
             return new Result(false, 0, 0, 0, 0, 0);
         }
 
-        List<String> activeNpcIds = registry.activeNpcIds();
         JSONObject character = new CharacterStateStore(storage).snapshotJson();
         JSONArray relationContext = relationships.contextFor(id, activeNpcIds);
         JSONArray promptEpisodes = tail(episodes, MAX_EPISODES_IN_PROMPT);
@@ -129,7 +131,7 @@ final class HumanMemoryMaintenanceEngine {
             data.put("now_ms", nowMs);
             data.put("character", character);
             data.put("memory_candidates", episodes);
-            data.put("new_group_transcript", transcript);
+            data.put("new_social_transcript", transcript);
             data.put("social_relationships", relationContext);
         } catch (Exception ignored) {
         }
@@ -158,7 +160,7 @@ final class HumanMemoryMaintenanceEngine {
             data.put("character", character);
             data.put("appraised_memories", episodes);
             data.put("existing_semantic_memory", tail(semantics, 24));
-            data.put("new_group_transcript", transcript);
+            data.put("new_social_transcript", transcript);
             data.put("social_relationships", relationContext);
             data.put("encoding_appraisal", appraisal);
         } catch (Exception ignored) {
@@ -263,6 +265,7 @@ final class HumanMemoryMaintenanceEngine {
             if (interaction == null || interaction.count <= 0) continue;
             String summary = update.optString("summary", "").trim();
             double learnedFamiliarity = Math.min(0.10, interaction.count * 0.02);
+            JSONObject before = relationships.get(npcId, other);
             JSONObject stored = relationships.applyUpdate(
                     npcId,
                     other,
@@ -273,6 +276,10 @@ final class HumanMemoryMaintenanceEngine {
                     interaction.count,
                     interaction.lastMs,
                     nowMs);
+            if (stored.optLong("last_interaction_ms", 0L)
+                    <= before.optLong("last_interaction_ms", 0L)) {
+                continue;
+            }
             String storedSummary = stored.optString("summary", "").trim();
             if (!storedSummary.isEmpty()) {
                 memory.upsertLearnedSemantic(
@@ -383,9 +390,35 @@ final class HumanMemoryMaintenanceEngine {
         replaceContents(semantics, kept);
     }
 
-    private JSONArray socialTranscriptSince(long sinceMs) {
-        JSONArray all = conversations.messages(GROUP_ROOM);
+    private JSONArray socialTranscriptSince(String subject, List<String> activeNpcIds, long sinceMs) {
+        List<JSONObject> collected = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        collectRoomMessages(GROUP_ROOM, sinceMs, collected, seen);
+        for (String raw : activeNpcIds) {
+            String other;
+            try {
+                other = NpcId.of(raw).value();
+            } catch (Exception ignored) {
+                continue;
+            }
+            if (subject.equals(other)) continue;
+            String roomId = NpcPeerRoomPolicy.roomId(subject, other);
+            if (!roomId.isEmpty()) collectRoomMessages(roomId, sinceMs, collected, seen);
+        }
+        collected.sort(Comparator.comparingLong(item -> item.optLong("time_ms", 0L)));
         JSONArray result = new JSONArray();
+        int start = Math.max(0, collected.size() - MAX_MESSAGES_IN_PROMPT);
+        for (int i = start; i < collected.size(); i++) result.put(collected.get(i));
+        return result;
+    }
+
+    private void collectRoomMessages(
+            String roomId,
+            long sinceMs,
+            List<JSONObject> output,
+            Set<String> seen
+    ) {
+        JSONArray all = conversations.messages(roomId);
         int start = Math.max(0, all.length() - MAX_MESSAGES_IN_PROMPT * 2);
         for (int i = start; i < all.length(); i++) {
             JSONObject message = all.optJSONObject(i);
@@ -393,9 +426,14 @@ final class HumanMemoryMaintenanceEngine {
             if (message.optLong("time_ms", 0L) <= Math.max(0L, sinceMs)) continue;
             String sender = message.optString("sender_id", "");
             if (sender.startsWith("decision_")) continue;
-            result.put(message);
+            String messageId = message.optString("id", "").trim();
+            String dedupe = messageId.isEmpty()
+                    ? roomId + ":" + message.optLong("time_ms", 0L) + ":" + sender
+                    + ":" + message.optString("text", "").hashCode()
+                    : messageId;
+            if (!seen.add(dedupe)) continue;
+            output.add(message);
         }
-        return tail(result, MAX_MESSAGES_IN_PROMPT);
     }
 
     private static Map<String, InteractionEvidence> interactionEvidence(
