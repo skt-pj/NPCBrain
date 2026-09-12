@@ -18,25 +18,24 @@ public class SpontaneousMessagePolicyTest {
     }
 
     @Test
-    public void routesAllowedTargetsAndRejectsSelf() {
-        assertArrayEquals(new String[]{"user", "npc2", "group"},
+    public void routesNpcTargetsToPrivatePeerThreadsAndRejectsSelf() {
+        assertArrayEquals(new String[]{"user", "npc2"},
                 SpontaneousMessagePolicy.allowedTargets("npc1"));
-        assertArrayEquals(new String[]{"user", "npc1", "group"},
+        assertArrayEquals(new String[]{"user", "npc1"},
                 SpontaneousMessagePolicy.allowedTargets("npc2"));
         assertEquals(DemoRuntimeV032.ROOM_NPC1,
                 SpontaneousMessagePolicy.routeRoom("npc1", "user"));
         assertEquals(DemoRuntimeV032.ROOM_NPC2,
                 SpontaneousMessagePolicy.routeRoom("npc2", "user"));
-        assertEquals(DemoRuntimeV032.ROOM_GROUP,
+        assertEquals(NpcPeerRoomPolicy.roomId("npc1", "npc2"),
                 SpontaneousMessagePolicy.routeRoom("npc1", "npc2"));
-        assertEquals(DemoRuntimeV032.ROOM_GROUP,
-                SpontaneousMessagePolicy.routeRoom("npc2", "group"));
+        assertEquals("", SpontaneousMessagePolicy.routeRoom("npc2", "group"));
         assertEquals("", SpontaneousMessagePolicy.routeRoom("npc1", "npc1"));
         assertEquals("", SpontaneousMessagePolicy.routeRoom("npc2", "npc2"));
     }
 
     @Test
-    public void deferAndGroupLimitAreDeterministic() {
+    public void deferAndLegacyChainLimitAreDeterministic() {
         assertFalse(SpontaneousMessagePolicy.isDeferredDue(2001L, 2000L));
         assertTrue(SpontaneousMessagePolicy.isDeferredDue(2000L, 2000L));
         assertFalse(SpontaneousMessagePolicy.isDeferredDue(0L, 2000L));
