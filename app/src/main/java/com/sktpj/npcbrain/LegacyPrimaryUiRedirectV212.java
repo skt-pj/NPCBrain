@@ -54,8 +54,18 @@ final class LegacyPrimaryUiRedirectV212 {
     private static String tabFor(Activity activity) {
         if (activity instanceof DemoActivityV032) return "CONVERSATION";
         if (activity instanceof NpcStatusActivity) return "STATUS";
-        if (activity instanceof DungeonActivity) return "DUNGEON";
+        if (activity instanceof DungeonActivity || activity instanceof IndividualDungeonActivity) {
+            return "DUNGEON";
+        }
         if (activity instanceof CodexActivity) return "CODEX";
+        if (activity instanceof SettingsActivity && isRestoredLegacyTask(activity)) return "SETTINGS";
         return "";
+    }
+
+    /** Settings opened from the new shell carries REORDER_TO_FRONT; restored old tasks do not. */
+    private static boolean isRestoredLegacyTask(Activity activity) {
+        Intent intent = activity.getIntent();
+        if (intent == null) return true;
+        return (intent.getFlags() & Intent.FLAG_ACTIVITY_REORDER_TO_FRONT) == 0;
     }
 }
