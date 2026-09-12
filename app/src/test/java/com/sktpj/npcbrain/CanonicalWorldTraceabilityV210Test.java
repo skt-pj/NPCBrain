@@ -9,7 +9,7 @@ import java.nio.file.Paths;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-/** One-to-one gates for T-WK-210-001..026. */
+/** One-to-one gates for T-WK-210-001..027. */
 public class CanonicalWorldTraceabilityV210Test {
     @Test public void tWk210001CanonicalSsotAndSingleWriter() throws Exception {
         String db = read("src/main/java/com/sktpj/npcbrain/WorldDatabaseV210.java");
@@ -203,8 +203,8 @@ public class CanonicalWorldTraceabilityV210Test {
     @Test public void tWk210025VersionAndBuildContract() throws Exception {
         String version = read("../version.properties");
         String workflow = read("../.github/workflows/android.yml");
-        assertTrue(version.contains("VERSION_NAME=2.1.1"));
-        assertTrue(version.contains("VERSION_CODE=86"));
+        assertTrue(version.contains("VERSION_NAME=2.1.2"));
+        assertTrue(version.contains("VERSION_CODE=87"));
         assertTrue(workflow.contains(":app:testDebugUnitTest :app:assembleRelease :app:assembleDebug"));
         assertTrue(workflow.contains("apksigner"));
     }
@@ -216,6 +216,29 @@ public class CanonicalWorldTraceabilityV210Test {
         assertTrue(Files.exists(Paths.get("src/test/java/com/sktpj/npcbrain/HumanMemoryPolicyTest.java")));
         assertTrue(Files.exists(Paths.get("src/test/java/com/sktpj/npcbrain/CanonicalObserverRuntimeV211Test.java")));
         assertTrue(Files.exists(Paths.get("src/test/java/com/sktpj/npcbrain/SpontaneousMessagePolicyTest.java")));
+    }
+
+    @Test public void tWk210027PrimaryUiIsOneWorldShell() throws Exception {
+        String manifest = read("src/main/AndroidManifest.xml");
+        String shell = read("src/main/java/com/sktpj/npcbrain/WorldShellActivityV212.java");
+        String focus = read("src/main/java/com/sktpj/npcbrain/WorldFocusStoreV212.java");
+        String individual = read("src/main/java/com/sktpj/npcbrain/IndividualDungeonActivity.java");
+        assertTrue(manifest.contains(".WorldShellActivityV212"));
+        assertTrue(shell.contains("NPCBRAIN · ONE WORLD"));
+        assertTrue(shell.contains("WorldQueryServiceV210"));
+        assertTrue(shell.contains("WORLD REV"));
+        assertTrue(shell.contains("CONVERSATION(\"会話\")"));
+        assertTrue(shell.contains("STATUS(\"NPC状況\")"));
+        assertTrue(shell.contains("DUNGEON(\"ダンジョン\")"));
+        assertTrue(shell.contains("CODEX(\"図鑑\")"));
+        assertTrue(shell.contains("SETTINGS(\"設定\")"));
+        assertTrue(shell.contains("NpcPeerRoomPolicy.isPeerRoom"));
+        assertFalse(shell.contains("DungeonStore"));
+        assertFalse(shell.contains("DungeonEngine"));
+        assertTrue(focus.contains("UI-only observation focus"));
+        assertTrue(individual.contains("WorldQueryServiceV210"));
+        assertFalse(individual.contains("DungeonPresenceStore"));
+        assertFalse(individual.contains("DungeonRosterStore"));
     }
 
     private static String read(String path) throws Exception {

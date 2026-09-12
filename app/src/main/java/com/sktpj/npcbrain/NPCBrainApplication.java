@@ -26,12 +26,17 @@ public final class NPCBrainApplication extends Application {
         worldRuntime = new NpcWorldRuntimeV200(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityCreated(Activity activity, Bundle state) {
+                if (LegacyPrimaryUiRedirectV212.redirectIfLegacyPrimary(activity)) return;
                 if (activity instanceof DemoActivityV032) {
                     demoActivityRef = new WeakReference<>((DemoActivityV032) activity);
                 }
                 PrimaryUiCoordinator.onCreated(activity, state);
                 AppWindowChrome.apply(activity);
                 PrimaryFooterBridge.install(activity);
+                installUnifiedShellBridge(activity);
+                if (activity instanceof WorldShellActivityV212) {
+                    LegacyPrimaryUiRedirectV212.applyPendingTab((WorldShellActivityV212) activity);
+                }
             }
 
             @Override public void onActivityStarted(Activity activity) {
@@ -43,6 +48,7 @@ public final class NPCBrainApplication extends Application {
                 PrimaryUiCoordinator.onStarted(activity);
                 AppWindowChrome.apply(activity);
                 PrimaryFooterBridge.install(activity);
+                installUnifiedShellBridge(activity);
             }
 
             @Override public void onActivityResumed(Activity activity) {
@@ -57,9 +63,18 @@ public final class NPCBrainApplication extends Application {
                 PrimaryUiCoordinator.onResumed(activity);
                 AppWindowChrome.apply(activity);
                 PrimaryFooterBridge.install(activity);
+                installUnifiedShellBridge(activity);
+                if (activity instanceof WorldShellActivityV212) {
+                    WorldShellActivityV212 shell = (WorldShellActivityV212) activity;
+                    LegacyPrimaryUiRedirectV212.applyPendingTab(shell);
+                    WorldShellRefreshCoordinatorV212.onResumed(shell);
+                }
             }
 
             @Override public void onActivityPaused(Activity activity) {
+                if (activity instanceof WorldShellActivityV212) {
+                    WorldShellRefreshCoordinatorV212.onPaused((WorldShellActivityV212) activity);
+                }
                 PrimaryUiCoordinator.onPaused(activity);
             }
 
@@ -79,6 +94,9 @@ public final class NPCBrainApplication extends Application {
                 if (activity == current) demoActivityRef = new WeakReference<>(null);
                 if (activity instanceof NpcStatusActivity) {
                     NpcAiUsageUiBridge.uninstall((NpcStatusActivity) activity);
+                }
+                if (activity instanceof WorldShellActivityV212) {
+                    WorldShellRefreshCoordinatorV212.onDestroyed((WorldShellActivityV212) activity);
                 }
             }
         });
@@ -110,6 +128,12 @@ public final class NPCBrainApplication extends Application {
         if (!demoRoomRefreshRequested) return false;
         demoRoomRefreshRequested = false;
         return true;
+    }
+
+    private static void installUnifiedShellBridge(Activity activity) {
+        if (activity instanceof WorldShellActivityV212) {
+            WorldShellPeerConversationBridgeV212.install((WorldShellActivityV212) activity);
+        }
     }
 
     private void installRuntimeBridges(Activity activity) {

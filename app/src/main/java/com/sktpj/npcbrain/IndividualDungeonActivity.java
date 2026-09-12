@@ -9,105 +9,108 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.widget.Button;
-import android.widget.FrameLayout;
 import android.widget.GridLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
+
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
+/** Legacy route kept as a canonical, read-only eight-NPC dungeon monitor. */
 public final class IndividualDungeonActivity extends Activity {
-    private static final long REFRESH_MS = 400L;
+    private static final long REFRESH_MS = 500L;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<Panel> panels = new ArrayList<>();
-    private DungeonPresenceStore presenceStore;
-    private DungeonRosterStore rosterStore;
-
     private final Runnable refreshTask = new Runnable() {
-        @Override
-        public void run() {
+        @Override public void run() {
             renderPanels();
             handler.postDelayed(this, REFRESH_MS);
         }
     };
 
+    private WorldQueryServiceV210 query;
+    private NpcRegistryStore registry;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        presenceStore = new DungeonPresenceStore(this);
-        rosterStore = new DungeonRosterStore(this);
+        registry = new NpcRegistryStore(this);
+        query = NPCBrainApplication.worldQuery();
+        if (query == null) {
+            WorldKernelV210 kernel = WorldKernelV210.get(getApplicationContext());
+            new LegacyWorldImporterV210(getApplicationContext(), kernel.database()).importIfNeeded();
+            query = new WorldQueryServiceV210(kernel.database());
+        }
         setContentView(buildContent());
         renderPanels();
     }
 
-    @Override
-    protected void onResume() {
+    @Override protected void onResume() {
         super.onResume();
         handler.removeCallbacks(refreshTask);
         handler.post(refreshTask);
     }
 
-    @Override
-    protected void onPause() {
+    @Override protected void onPause() {
         handler.removeCallbacks(refreshTask);
         super.onPause();
+    }
+
+    @Override protected void onDestroy() {
+        handler.removeCallbacksAndMessages(null);
+        super.onDestroy();
     }
 
     private LinearLayout buildContent() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(8), dp(8), dp(8), dp(8));
-        root.setBackgroundColor(Color.rgb(5, 9, 16));
+        root.setBackgroundColor(AppUiTheme.APP_BACKGROUND);
+        root.setFitsSystemWindows(true);
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView title = text("各自ダンジョン", 18, Color.WHITE, true);
-        header.addView(title, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        Button party = modeButton("パーティ", false);
-        party.setOnClickListener(v -> finish());
-        header.addView(party, new LinearLayout.LayoutParams(dp(100), dp(42)));
-
-        Button individual = modeButton("各自 8画面", true);
-        individual.setEnabled(false);
-        LinearLayout.LayoutParams individualParams = new LinearLayout.LayoutParams(dp(112), dp(42));
-        individualParams.leftMargin = dp(6);
-        header.addView(individual, individualParams);
+        LinearLayout heading = new LinearLayout(this);
+        heading.setOrientation(LinearLayout.VERTICAL);
+        heading.addView(text("ONE WORLD · DUNGEON", 9, Color.rgb(116, 156, 197), true));
+        heading.addView(text("最大8人 同時監視", 18, Color.WHITE, true));
+        header.addView(heading, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        Button back = modeButton("戻る");
+        back.setOnClickListener(v -> finish());
+        header.addView(back, new LinearLayout.LayoutParams(dp(82), dp(42)));
         root.addView(header);
 
         TextView note = text(
-                "同じダンジョン世界を8人までキャラ視点GB画面で同時監視 · party外の単独探索も表示",
-                10,
-                Color.rgb(137, 161, 187),
-                false);
+                "Canonical Worldの同じダンジョン状態を同時観測します。この画面は生成・ターン進行・保存を行いません。",
+                10, AppUiTheme.APP_MUTED, false);
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
-        noteParams.topMargin = dp(3);
-        noteParams.bottomMargin = dp(5);
+        noteParams.topMargin = dp(4);
+        noteParams.bottomMargin = dp(4);
         root.addView(note, noteParams);
 
+        ScrollView scroll = new ScrollView(this);
         GridLayout grid = new GridLayout(this);
         grid.setColumnCount(2);
-        grid.setRowCount(4);
         grid.setUseDefaultMargins(false);
-        root.addView(grid, new LinearLayout.LayoutParams(
+        scroll.addView(grid);
+        root.addView(scroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         for (int index = 0; index < IndividualDungeonPolicy.MAX_SLOTS; index++) {
-            Panel panel = new Panel(index);
+            Panel panel = new Panel();
             panels.add(panel);
             GridLayout.LayoutParams params = new GridLayout.LayoutParams();
             params.width = 0;
-            params.height = 0;
+            params.height = dp(220);
             params.columnSpec = GridLayout.spec(index % 2, 1f);
-            params.rowSpec = GridLayout.spec(index / 2, 1f);
             int margin = dp(3);
             params.setMargins(margin, margin, margin, margin);
             grid.addView(panel.root, params);
@@ -116,31 +119,29 @@ public final class IndividualDungeonActivity extends Activity {
     }
 
     private void renderPanels() {
-        List<String> ids = IndividualDungeonPolicy.visibleNpcIds(
-                presenceStore.activePresentNpcIds());
-        List<String> party = rosterStore.activeNpcIds();
+        if (query == null || registry == null) return;
+        List<String> present = new ArrayList<>();
+        for (String npcId : registry.activeNpcIds()) {
+            JSONObject npc = query.snapshot(npcId).optJSONObject("npc");
+            if (npc != null && npc.optBoolean("dungeon_present", false)
+                    && !npc.optBoolean("dead", false)) {
+                present.add(npcId);
+            }
+        }
         for (int i = 0; i < panels.size(); i++) {
-            if (i >= ids.size()) {
+            if (i >= present.size()) {
                 panels.get(i).bindEmpty(i + 1);
                 continue;
             }
-            String npcId = ids.get(i);
-            DungeonMonitorSnapshot snapshot = DungeonMonitorSnapshot.load(this, npcId);
-            CharacterStateStore character =
-                    new CharacterStateStore(NpcContexts.storage(this, npcId));
-            String name = character.displayName();
-            if (name == null || name.trim().isEmpty() || "NPC".equals(name.trim())) {
-                name = npcId.toUpperCase(Locale.US);
-            }
-            DungeonState state = snapshot.state;
-            String mode = party.contains(npcId) ? "PARTY" : "SOLO";
+            String npcId = present.get(i);
+            JSONObject snapshot = query.snapshot(npcId);
+            JSONObject npc = snapshot.optJSONObject("npc");
+            DungeonState state = npc == null ? null : DungeonState.fromJson(npc.optJSONObject("dungeon_actor"));
+            CharacterStateStore character = new CharacterStateStore(NpcContexts.storage(this, npcId));
             String status = state == null
-                    ? mode + " · 開始待ち"
-                    : "HP " + state.hp + "/" + state.maxHp
-                    + " · " + state.floor + "F"
-                    + " · T" + state.turn
-                    + " · " + mode;
-            panels.get(i).bind(name, status, snapshot);
+                    ? "開始待ち · WORLD REV " + snapshot.optLong("revision", 0L)
+                    : "HP " + state.hp + "/" + state.maxHp + " · " + state.floor + "F · T" + state.turn;
+            panels.get(i).bind(character.displayName(), status, state);
         }
     }
 
@@ -149,76 +150,53 @@ public final class IndividualDungeonActivity extends Activity {
         final TextView name;
         final TextView status;
         final DungeonBoardView board;
-        final FrameLayout filteredBoard;
 
-        Panel(int index) {
+        Panel() {
             root = new LinearLayout(IndividualDungeonActivity.this);
             root.setOrientation(LinearLayout.VERTICAL);
-            root.setPadding(dp(5), dp(4), dp(5), dp(5));
+            root.setPadding(dp(6), dp(5), dp(6), dp(6));
             root.setBackground(panelBackground());
-
-            name = text("", 11, Color.rgb(232, 240, 250), true);
-            name.setMaxLines(1);
-            root.addView(name, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT));
-
-            status = text("", 8, Color.rgb(151, 178, 204), false);
-            status.setMaxLines(1);
-            LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT);
-            statusParams.topMargin = dp(1);
-            root.addView(status, statusParams);
-
+            name = text("", 11, AppUiTheme.APP_TEXT, true);
+            root.addView(name);
+            status = text("", 8, AppUiTheme.APP_MUTED, false);
+            root.addView(status);
             board = new DungeonBoardView(IndividualDungeonActivity.this);
             board.setClickable(false);
             board.setFocusable(false);
-            filteredBoard = DungeonGameBoyFilterBridge.filteredSurface(
-                    IndividualDungeonActivity.this,
-                    board,
-                    false);
             LinearLayout.LayoutParams boardParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
             boardParams.topMargin = dp(3);
-            root.addView(filteredBoard, boardParams);
+            root.addView(board, boardParams);
         }
 
-        void bind(String displayName, String stateText, DungeonMonitorSnapshot snapshot) {
+        void bind(String displayName, String stateText, DungeonState state) {
             name.setText(displayName);
             status.setText(stateText);
-            board.setState(snapshot == null ? null : snapshot.state);
-            root.setContentDescription(displayName + "、" + stateText + "、GBダンジョン画面");
+            board.setState(state);
         }
 
         void bindEmpty(int slot) {
             name.setText("空き " + slot);
             status.setText("探索中NPCなし");
             board.setState(null);
-            root.setContentDescription("空きスロット " + slot);
         }
     }
 
-    private Button modeButton(String label, boolean selected) {
+    private Button modeButton(String label) {
         Button button = new Button(this);
-        button.setText(label);
         button.setAllCaps(false);
+        button.setText(label);
         button.setTextSize(10);
-        button.setTypeface(Typeface.DEFAULT_BOLD);
         button.setTextColor(Color.WHITE);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(10));
-        bg.setColor(selected ? Color.rgb(45, 94, 137) : Color.rgb(19, 34, 50));
-        bg.setStroke(dp(1), selected ? Color.rgb(90, 157, 214) : Color.rgb(47, 69, 91));
-        button.setBackground(bg);
+        button.setBackground(panelBackground());
         return button;
     }
 
     private GradientDrawable panelBackground() {
         GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(8));
-        bg.setColor(Color.rgb(12, 20, 31));
-        bg.setStroke(dp(1), Color.rgb(35, 55, 76));
+        bg.setCornerRadius(dp(9));
+        bg.setColor(AppUiTheme.APP_SURFACE);
+        bg.setStroke(dp(1), AppUiTheme.APP_BORDER);
         return bg;
     }
 

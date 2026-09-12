@@ -74,6 +74,11 @@
         <activity
             android:name=".DemoActivityV032"
             android:enableOnBackInvokedCallback="true"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".WorldShellActivityV212"
+            android:enableOnBackInvokedCallback="true"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
