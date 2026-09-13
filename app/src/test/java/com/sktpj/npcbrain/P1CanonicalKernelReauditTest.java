@@ -46,6 +46,8 @@ public class P1CanonicalKernelReauditTest {
     @Test
     public void oneBrainOwnerUsesFrozenCanonicalSnapshotAndSameNpcIdentity() throws Exception {
         String coordinator = read("src/main/java/com/sktpj/npcbrain/NpcBrainCoordinator.java");
+        String scope = read("src/main/java/com/sktpj/npcbrain/BrainContextScopeV210.java");
+        String character = read("src/main/java/com/sktpj/npcbrain/CharacterStateStore.java");
         String factory = read("src/main/java/com/sktpj/npcbrain/NpcBrainSessionFactory.java");
         String demoRuntime = read("src/main/java/com/sktpj/npcbrain/DemoRuntimeV032.java");
         String dungeonAutonomy = read("src/main/java/com/sktpj/npcbrain/CanonicalDungeonAutonomyV211.java");
@@ -53,7 +55,12 @@ public class P1CanonicalKernelReauditTest {
         assertTrue(coordinator.contains("sessionFactory.worldSnapshot(request.npcId)"));
         assertTrue(coordinator.contains("long basisRevision = frozen.optLong(\"revision\""));
         assertTrue(coordinator.contains("long basisStateVersion"));
+        assertTrue(coordinator.contains("BrainContextScopeV210.enter(request.npcId, frozen)"));
         assertTrue(coordinator.contains("engine.thinkDecision("));
+        assertTrue(scope.contains("ThreadLocal<FrozenContext>"));
+        assertTrue(scope.contains("frozenNpc(String npcId)"));
+        assertTrue(scope.contains("basisRevision(String npcId)"));
+        assertTrue(character.contains("BrainContextScopeV210.frozenNpc(npcId)"));
         assertTrue(factory.contains("WorldQueryServiceV210"));
         assertFalse(factory.contains("NpcWorldStateCoordinator"));
 
@@ -70,6 +77,7 @@ public class P1CanonicalKernelReauditTest {
 
         assertTrue(character.contains("brainBasisStateVersion"));
         assertTrue(character.contains("basis_state_version"));
+        assertTrue(character.contains("basis_revision"));
         assertTrue(character.contains("WorldCommandV210.APPLY_BRAIN_DECISION"));
         assertTrue(character.contains("stale_brain_result"));
 
