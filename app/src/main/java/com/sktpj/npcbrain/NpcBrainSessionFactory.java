@@ -28,7 +28,8 @@ final class NpcBrainSessionFactory {
         return new BrainEngine(
                 client,
                 new MemoryStore(storage),
-                new CharacterStateStore(storage));
+                new CharacterStateStore(storage),
+                new ClefActionSelectionRuntime(appContext, id));
     }
 
     JSONObject worldSnapshot(String npcId) {

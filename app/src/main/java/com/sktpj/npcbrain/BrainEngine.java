@@ -216,11 +216,22 @@ final class BrainEngine {
     private final OpenAiClient client;
     private final MemoryStore memoryStore;
     private final CharacterStateStore characterStore;
+    private final ClefActionSelectionRuntime clefActionSelectionRuntime;
 
     BrainEngine(OpenAiClient client, MemoryStore memoryStore, CharacterStateStore characterStore) {
+        this(client, memoryStore, characterStore, null);
+    }
+
+    BrainEngine(
+            OpenAiClient client,
+            MemoryStore memoryStore,
+            CharacterStateStore characterStore,
+            ClefActionSelectionRuntime clefActionSelectionRuntime
+    ) {
         this.client = client;
         this.memoryStore = memoryStore;
         this.characterStore = characterStore;
+        this.clefActionSelectionRuntime = clefActionSelectionRuntime;
     }
 
     String think(String userInput, ProgressListener listener) throws Exception {
@@ -272,7 +283,14 @@ final class BrainEngine {
                             module,
                             specialistCommonJson,
                             graphFocusJson[index]);
-                    JSONObject result = client.requestJson(prompt);
+                    JSONObject result;
+                    if ("action_selection".equals(module.id)
+                            && clefActionSelectionRuntime != null
+                            && clefActionSelectionRuntime.shouldHandle()) {
+                        result = clefActionSelectionRuntime.request(prompt.fullText());
+                    } else {
+                        result = client.requestJson(prompt);
+                    }
                     result.put("module", module.id);
                     JSONArray rawFacts = result.optJSONArray("salient_facts");
                     JSONArray facts = rawFacts == null
