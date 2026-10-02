@@ -94,7 +94,7 @@ final class ClefDecisionClient {
     private static JSONObject actionCriteria(String state) throws Exception {
         String source = state == null ? "" : state;
         JSONObject criteria = new JSONObject();
-        if (source.contains("\"mode\":\"dungeon_turn\"")) {
+        if (hasMode(source, "dungeon_turn")) {
             return criteria
                     .put("attack", "Attack a currently legal target when combat is the chosen course.")
                     .put("advance", "Move toward the current grounded objective using legal movement.")
@@ -102,9 +102,9 @@ final class ClefDecisionClient {
                     .put("retreat", "Move away from danger or leave combat when withdrawal is preferred.")
                     .put("wait", "Take no committed movement or attack now.");
         }
-        if (source.contains("\"mode\":\"conversational_message\"")
-                || source.contains("\"mode\":\"spontaneous_life_event\"")
-                || source.contains("\"mode\":\"reply_timer\"")) {
+        if (hasMode(source, "conversational_message")
+                || hasMode(source, "spontaneous_life_event")
+                || hasMode(source, "reply_timer")) {
             return criteria
                     .put("speak_now", "Communicate now with grounded content relevant to the current interaction.")
                     .put("remain_silent", "Do not communicate now.")
@@ -118,6 +118,12 @@ final class ClefDecisionClient {
                 .put("gather_information", "Seek grounded information before committing further.")
                 .put("withdraw_or_avoid", "Reduce exposure to a relevant threat or unwanted situation.")
                 .put("wait", "Take no new committed action now.");
+    }
+
+    private static boolean hasMode(String source, String mode) {
+        String plain = "\"mode\":\"" + mode + "\"";
+        String escaped = "\\\"mode\\\":\\\"" + mode + "\\\"";
+        return source.contains(plain) || source.contains(escaped);
     }
 
     private void validateConfiguration() {
