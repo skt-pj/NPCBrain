@@ -200,8 +200,8 @@ public final class SettingsActivity extends Activity {
         card.addView(text("CLEF 行動選択", 18, AppUiTheme.APP_TEXT, true));
 
         TextView note = text(
-                "有効時は9専門領域のaction_selectionだけをCloudflare CLEFで実行します。"
-                        + "他の8専門領域とGlobal Workspace、NPC別の通常推論モデルは変更しません。",
+                "NPCの行動選択にCloudflare CLEFを使用します。"
+                        + "会話生成などの通常推論モデルは変更しません。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false);
