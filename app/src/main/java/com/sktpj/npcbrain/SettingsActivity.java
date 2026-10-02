@@ -24,10 +24,15 @@ import java.util.Locale;
 /** Global app settings and canonical per-NPC AI budget controls. */
 public final class SettingsActivity extends Activity {
     private SecureApiKeyStore apiKeyStore;
+    private SecureCloudflareTokenStore cloudflareTokenStore;
     private ModelSettingsStore modelSettingsStore;
+    private ClefSettingsStore clefSettingsStore;
     private NpcRegistryStore registryStore;
     private NpcAiStaminaStore staminaStore;
     private TextView apiKeyStatus;
+    private TextView clefAccountStatus;
+    private TextView clefTokenStatus;
+    private Button clefToggleButton;
     private LinearLayout budgetContainer;
     private Button cacheProbeButton;
     private TextView cacheProbeStatus;
@@ -37,7 +42,9 @@ public final class SettingsActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         apiKeyStore = new SecureApiKeyStore(this);
+        cloudflareTokenStore = new SecureCloudflareTokenStore(this);
         modelSettingsStore = new ModelSettingsStore(this);
+        clefSettingsStore = new ClefSettingsStore(this);
         registryStore = new NpcRegistryStore(this);
         staminaStore = new NpcAiStaminaStore(this);
         setContentView(buildContent());
@@ -82,6 +89,13 @@ public final class SettingsActivity extends Activity {
         scroll.addView(body);
 
         body.addView(buildAiSettingsCard());
+
+        LinearLayout.LayoutParams clefParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        clefParams.topMargin = dp(12);
+        body.addView(buildClefSettingsCard(), clefParams);
+
         if (isDebuggableBuild()) {
             LinearLayout.LayoutParams cacheParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -181,6 +195,208 @@ public final class SettingsActivity extends Activity {
         return card;
     }
 
+    private View buildClefSettingsCard() {
+        LinearLayout card = card();
+        card.addView(text("CLEF 行動選択", 18, AppUiTheme.APP_TEXT, true));
+
+        TextView note = text(
+                "有効時は9専門領域のaction_selectionだけをCloudflare CLEFで実行します。"
+                        + "他の8専門領域とGlobal Workspace、NPC別の通常推論モデルは変更しません。",
+                11,
+                AppUiTheme.APP_MUTED,
+                false);
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        noteParams.topMargin = dp(5);
+        card.addView(note, noteParams);
+
+        TextView modelTitle = text("Decision model", 13, AppUiTheme.APP_TEXT, true);
+        LinearLayout.LayoutParams modelTitleParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        modelTitleParams.topMargin = dp(12);
+        card.addView(modelTitle, modelTitleParams);
+
+        RadioGroup models = new RadioGroup(this);
+        String currentModel = clefSettingsStore.model();
+        for (String model : ClefSettingsStore.supportedModels()) {
+            RadioButton option = new RadioButton(this);
+            option.setId(View.generateViewId());
+            option.setTag(model);
+            option.setText(ClefSettingsStore.displayLabel(model));
+            option.setTextColor(AppUiTheme.APP_TEXT);
+            option.setTextSize(12);
+            option.setChecked(model.equals(currentModel));
+            models.addView(option);
+        }
+        models.setOnCheckedChangeListener((group, checkedId) -> {
+            View selected = group.findViewById(checkedId);
+            if (selected != null && selected.getTag() != null) {
+                clefSettingsStore.setModel(selected.getTag().toString());
+                refreshClef();
+            }
+        });
+        card.addView(models);
+
+        clefAccountStatus = text("", 12, AppUiTheme.APP_TEXT, true);
+        LinearLayout.LayoutParams accountStatusParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        accountStatusParams.topMargin = dp(10);
+        card.addView(clefAccountStatus, accountStatusParams);
+
+        LinearLayout accountActions = new LinearLayout(this);
+        accountActions.setOrientation(LinearLayout.HORIZONTAL);
+        Button accountSave = actionButton("Account IDを設定 / 変更");
+        accountSave.setOnClickListener(v -> showCloudflareAccountDialog());
+        accountActions.addView(accountSave, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        Button accountClear = actionButton("削除");
+        accountClear.setOnClickListener(v -> {
+            clefSettingsStore.clearAccountId();
+            refreshClef();
+        });
+        LinearLayout.LayoutParams accountClearParams =
+                new LinearLayout.LayoutParams(dp(82), dp(48));
+        accountClearParams.leftMargin = dp(7);
+        accountActions.addView(accountClear, accountClearParams);
+        LinearLayout.LayoutParams accountActionsParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        accountActionsParams.topMargin = dp(7);
+        card.addView(accountActions, accountActionsParams);
+
+        clefTokenStatus = text("", 12, AppUiTheme.APP_TEXT, true);
+        LinearLayout.LayoutParams tokenStatusParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        tokenStatusParams.topMargin = dp(10);
+        card.addView(clefTokenStatus, tokenStatusParams);
+
+        LinearLayout tokenActions = new LinearLayout(this);
+        tokenActions.setOrientation(LinearLayout.HORIZONTAL);
+        Button tokenSave = actionButton("API tokenを設定 / 変更");
+        tokenSave.setOnClickListener(v -> showCloudflareTokenDialog());
+        tokenActions.addView(tokenSave, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        Button tokenClear = actionButton("削除");
+        tokenClear.setOnClickListener(v -> {
+            cloudflareTokenStore.clear();
+            clefSettingsStore.setEnabled(false);
+            refreshClef();
+        });
+        LinearLayout.LayoutParams tokenClearParams =
+                new LinearLayout.LayoutParams(dp(82), dp(48));
+        tokenClearParams.leftMargin = dp(7);
+        tokenActions.addView(tokenClear, tokenClearParams);
+        LinearLayout.LayoutParams tokenActionsParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        tokenActionsParams.topMargin = dp(7);
+        card.addView(tokenActions, tokenActionsParams);
+
+        clefToggleButton = actionButton("");
+        clefToggleButton.setOnClickListener(v -> toggleClef());
+        LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(48));
+        toggleParams.topMargin = dp(10);
+        card.addView(clefToggleButton, toggleParams);
+        return card;
+    }
+
+    private void showCloudflareAccountDialog() {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("Cloudflare Account ID");
+        input.setText(clefSettingsStore.accountId());
+        input.setSelectAllOnFocus(true);
+        int pad = dp(20);
+        input.setPadding(pad, dp(6), pad, dp(6));
+        new AlertDialog.Builder(this)
+                .setTitle("Cloudflare Account ID")
+                .setView(input)
+                .setPositiveButton("保存", (dialog, which) -> {
+                    String value = input.getText() == null ? "" : input.getText().toString().trim();
+                    try {
+                        clefSettingsStore.setAccountId(value);
+                        refreshClef();
+                    } catch (IllegalArgumentException error) {
+                        Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton("キャンセル", null)
+                .show();
+    }
+
+    private void showCloudflareTokenDialog() {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("Cloudflare API token");
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        int pad = dp(20);
+        input.setPadding(pad, dp(6), pad, dp(6));
+        new AlertDialog.Builder(this)
+                .setTitle("Cloudflare API token")
+                .setMessage("tokenはAndroid Keystoreで暗号化して保存し、保存後は再表示しません。")
+                .setView(input)
+                .setPositiveButton("保存", (dialog, which) -> {
+                    String value = input.getText() == null ? "" : input.getText().toString().trim();
+                    if (value.isEmpty()) return;
+                    try {
+                        cloudflareTokenStore.save(value);
+                        refreshClef();
+                    } catch (Exception error) {
+                        Toast.makeText(this, "Cloudflare API token保存失敗", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton("キャンセル", null)
+                .show();
+    }
+
+    private void toggleClef() {
+        if (clefSettingsStore.enabled()) {
+            clefSettingsStore.setEnabled(false);
+            refreshClef();
+            return;
+        }
+        if (clefSettingsStore.accountId().isEmpty()) {
+            Toast.makeText(this, "Cloudflare Account IDを設定してください。", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!hasCloudflareToken()) {
+            Toast.makeText(this, "Cloudflare API tokenを設定してください。", Toast.LENGTH_LONG).show();
+            return;
+        }
+        clefSettingsStore.setEnabled(true);
+        refreshClef();
+    }
+
+    private boolean hasCloudflareToken() {
+        try {
+            return !cloudflareTokenStore.load().trim().isEmpty();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void refreshClef() {
+        if (clefAccountStatus != null) {
+            clefAccountStatus.setText(clefSettingsStore.accountId().isEmpty()
+                    ? "Cloudflare Account ID  未設定"
+                    : "Cloudflare Account ID  設定済み");
+        }
+        if (clefTokenStatus != null) {
+            clefTokenStatus.setText(hasCloudflareToken()
+                    ? "Cloudflare API token  設定済み（値は非表示）"
+                    : "Cloudflare API token  未設定");
+        }
+        if (clefToggleButton != null) {
+            clefToggleButton.setText(clefSettingsStore.enabled()
+                    ? "CLEF action_selection を無効化"
+                    : "CLEF action_selection を有効化");
+        }
+    }
+
     private View buildPromptCacheDebugCard() {
         LinearLayout card = card();
         card.addView(text("Brain Prompt Cache Test", 18, AppUiTheme.APP_TEXT, true));
@@ -269,6 +485,7 @@ public final class SettingsActivity extends Activity {
     }
 
     private void refresh() {
+        refreshClef();
         if (apiKeyStatus != null) {
             apiKeyStatus.setText(hasApiKey()
                     ? "OpenAI APIキー  設定済み（値は非表示）"
