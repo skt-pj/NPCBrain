@@ -47,7 +47,7 @@ final class ClefActionSelectionRuntime {
         }
     }
 
-    static JSONObject adaptResult(JSONObject result) {
+    static JSONObject adaptResult(JSONObject result) throws Exception {
         JSONObject answers = result == null ? null : result.optJSONObject("answers");
         JSONObject action = answers == null ? null : answers.optJSONObject("action");
         if (action == null) {
