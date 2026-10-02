@@ -8,7 +8,7 @@ import static org.junit.Assert.assertTrue;
 
 public final class ClefDecisionRuntimeTest {
     @Test
-    public void defaultsToFlashAndBuildsTypedDecisionQuestions() {
+    public void defaultsToFlashAndBuildsTypedDecisionQuestions() throws Exception {
         assertEquals(ClefSettingsStore.MODEL_CLEF_FLASH, ClefSettingsStore.normalizeModel(null));
         assertEquals(ClefSettingsStore.MODEL_CLEF_FLASH, ClefSettingsStore.normalizeModel("unknown"));
         assertEquals(ClefSettingsStore.MODEL_CLEF, ClefSettingsStore.normalizeModel("clef"));
@@ -26,7 +26,7 @@ public final class ClefDecisionRuntimeTest {
     }
 
     @Test
-    public void adaptsChoiceProbabilityToExistingActionSelectionContract() {
+    public void adaptsChoiceProbabilityToExistingActionSelectionContract() throws Exception {
         JSONObject result = new JSONObject()
                 .put("answers", new JSONObject()
                         .put("action", new JSONObject()
