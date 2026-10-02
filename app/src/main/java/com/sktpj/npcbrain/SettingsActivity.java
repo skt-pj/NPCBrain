@@ -27,11 +27,13 @@ public final class SettingsActivity extends Activity {
     private SecureCloudflareTokenStore cloudflareTokenStore;
     private ModelSettingsStore modelSettingsStore;
     private ClefSettingsStore clefSettingsStore;
+    private ClefPerformanceStore clefPerformanceStore;
     private NpcRegistryStore registryStore;
     private NpcAiStaminaStore staminaStore;
     private TextView apiKeyStatus;
     private TextView clefAccountStatus;
     private TextView clefTokenStatus;
+    private TextView clefPerformanceStatus;
     private Button clefToggleButton;
     private LinearLayout budgetContainer;
     private Button cacheProbeButton;
@@ -45,6 +47,7 @@ public final class SettingsActivity extends Activity {
         cloudflareTokenStore = new SecureCloudflareTokenStore(this);
         modelSettingsStore = new ModelSettingsStore(this);
         clefSettingsStore = new ClefSettingsStore(this);
+        clefPerformanceStore = new ClefPerformanceStore(this);
         registryStore = new NpcRegistryStore(this);
         staminaStore = new NpcAiStaminaStore(this);
         setContentView(buildContent());
@@ -95,6 +98,12 @@ public final class SettingsActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT);
         clefParams.topMargin = dp(12);
         body.addView(buildClefSettingsCard(), clefParams);
+
+        LinearLayout.LayoutParams clefPerformanceParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        clefPerformanceParams.topMargin = dp(12);
+        body.addView(buildClefPerformanceCard(), clefPerformanceParams);
 
         if (isDebuggableBuild()) {
             LinearLayout.LayoutParams cacheParams = new LinearLayout.LayoutParams(
@@ -304,6 +313,48 @@ public final class SettingsActivity extends Activity {
         return card;
     }
 
+    private View buildClefPerformanceCard() {
+        LinearLayout card = card();
+        card.addView(text("CLEF 実測パフォーマンス", 18, AppUiTheme.APP_TEXT, true));
+
+        TextView note = text(
+                "CLEFを実際に使用したときの処理時間とアプリprocessのメモリを自動記録します。"
+                        + "測定のための追加API呼び出しは行いません。",
+                11,
+                AppUiTheme.APP_MUTED,
+                false);
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        noteParams.topMargin = dp(5);
+        card.addView(note, noteParams);
+
+        clefPerformanceStatus = text("", 11, AppUiTheme.APP_TEXT, false);
+        clefPerformanceStatus.setLineSpacing(0f, 1.2f);
+        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        statusParams.topMargin = dp(9);
+        card.addView(clefPerformanceStatus, statusParams);
+
+        Button reset = actionButton("実測データをリセット");
+        reset.setOnClickListener(v -> {
+            clefPerformanceStore.clear();
+            refreshClefPerformance();
+        });
+        LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(48));
+        resetParams.topMargin = dp(10);
+        card.addView(reset, resetParams);
+        return card;
+    }
+
+    private void refreshClefPerformance() {
+        if (clefPerformanceStatus == null) return;
+        clefPerformanceStatus.setText(clefPerformanceStore.snapshot().displayText());
+    }
+
     private void showCloudflareAccountDialog() {
         EditText input = new EditText(this);
         input.setSingleLine(true);
@@ -486,6 +537,7 @@ public final class SettingsActivity extends Activity {
 
     private void refresh() {
         refreshClef();
+        refreshClefPerformance();
         if (apiKeyStatus != null) {
             apiKeyStatus.setText(hasApiKey()
                     ? "OpenAI APIキー  設定済み（値は非表示）"
