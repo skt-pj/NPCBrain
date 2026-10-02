@@ -71,7 +71,7 @@ final class ClefDecisionClient {
         }
     }
 
-    static JSONObject buildRequestBody(String model, String state) {
+    static JSONObject buildRequestBody(String model, String state) throws Exception {
         JSONObject questions = new JSONObject();
         JSONObject action = new JSONObject()
                 .put("type", "choice")
@@ -91,7 +91,7 @@ final class ClefDecisionClient {
                 .put("questions", questions);
     }
 
-    private static JSONObject actionCriteria(String state) {
+    private static JSONObject actionCriteria(String state) throws Exception {
         String source = state == null ? "" : state;
         JSONObject criteria = new JSONObject();
         if (source.contains("\"mode\":\"dungeon_turn\"")) {
