@@ -1,6 +1,8 @@
 package com.sktpj.npcbrain;
 
 import android.content.Context;
+import android.os.Debug;
+import android.os.SystemClock;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -32,6 +34,11 @@ final class ClefActionSelectionRuntime {
                 npcId,
                 model + " · brain_stage=action_selection",
                 System.currentTimeMillis());
+        long startedNs = SystemClock.elapsedRealtimeNanos();
+        long pssBeforeKb = Debug.getPss();
+        long heapBeforeBytes = usedJavaHeapBytes();
+        boolean success = false;
+        Throwable failure = null;
         try {
             JSONObject result = new ClefDecisionClient(
                     appContext,
@@ -39,12 +46,34 @@ final class ClefActionSelectionRuntime {
                     token,
                     model).decide(state);
             JSONObject adapted = adaptResult(result);
+            success = true;
             ProcessingQueueRegistry.markCompleted(queueId);
             return adapted;
         } catch (Exception error) {
+            failure = error;
             ProcessingQueueRegistry.markFailed(queueId, error);
             throw error;
+        } finally {
+            long durationMs = Math.max(
+                    0L,
+                    (SystemClock.elapsedRealtimeNanos() - startedNs) / 1_000_000L);
+            long pssAfterKb = Debug.getPss();
+            long heapAfterBytes = usedJavaHeapBytes();
+            new ClefPerformanceStore(appContext).record(
+                    model,
+                    durationMs,
+                    pssBeforeKb,
+                    pssAfterKb,
+                    heapBeforeBytes,
+                    heapAfterBytes,
+                    success,
+                    failure);
         }
+    }
+
+    private static long usedJavaHeapBytes() {
+        Runtime runtime = Runtime.getRuntime();
+        return Math.max(0L, runtime.totalMemory() - runtime.freeMemory());
     }
 
     static JSONObject adaptResult(JSONObject result) throws Exception {
