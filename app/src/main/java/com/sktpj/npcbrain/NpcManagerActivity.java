@@ -80,7 +80,7 @@ public final class NpcManagerActivity extends Activity {
         root.addView(header);
 
         TextView note = new TextView(this);
-        note.setText("Debugビルド専用。NPCはAI管理の共通設定を継承し、必要な場合だけGlobal Workspace / Specialist Brainを個別上書きします。");
+        note.setText("Debugビルド専用。NPCはAI管理の共通設定を継承します。分割脳が通常LLMのときだけ、そのモデルをNPCごとに上書きできます。");
         note.setTextColor(AppUiTheme.APP_MUTED);
         note.setTextSize(13);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
@@ -164,6 +164,8 @@ public final class NpcManagerActivity extends Activity {
 
         NpcModelStore modelStore = new NpcModelStore(this, npcId);
         RoutingSettingsStore defaults = new RoutingSettingsStore(this);
+        boolean decisionSpecialists =
+                new SpecialistInferenceSettingsStore(this).usesDecisionModel();
 
         TextView inference = new TextView(this);
         inference.setText(
@@ -171,10 +173,12 @@ public final class NpcManagerActivity extends Activity {
                         + routeDisplay(modelStore.hasGlobalOverride(),
                         modelStore.effectiveGlobalModel(),
                         defaults.globalModel())
-                        + "\nSpecialist Brain  "
-                        + routeDisplay(modelStore.hasSpecialistOverride(),
+                        + "\n分割脳  "
+                        + (decisionSpecialists
+                        ? "共通設定 · 判断モデル / CLEF-Flash"
+                        : routeDisplay(modelStore.hasSpecialistOverride(),
                         modelStore.effectiveSpecialistModel(),
-                        defaults.specialistModel()));
+                        defaults.specialistModel())));
         inference.setTextColor(Color.rgb(52, 67, 101));
         inference.setTextSize(13);
         inference.setTypeface(Typeface.DEFAULT_BOLD);
@@ -193,14 +197,16 @@ public final class NpcManagerActivity extends Activity {
             globalParams.topMargin = dp(8);
             card.addView(globalModel, globalParams);
 
-            Button specialistModel = new Button(this);
-            specialistModel.setText("Specialist Brain 上書き");
-            specialistModel.setAllCaps(false);
-            specialistModel.setOnClickListener(v -> showModelDialog(npcId, false));
-            LinearLayout.LayoutParams specialistParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
-            specialistParams.topMargin = dp(6);
-            card.addView(specialistModel, specialistParams);
+            if (!decisionSpecialists) {
+                Button specialistModel = new Button(this);
+                specialistModel.setText("分割脳 通常LLM 上書き");
+                specialistModel.setAllCaps(false);
+                specialistModel.setOnClickListener(v -> showModelDialog(npcId, false));
+                LinearLayout.LayoutParams specialistParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
+                specialistParams.topMargin = dp(6);
+                card.addView(specialistModel, specialistParams);
+            }
 
             Button edit = new Button(this);
             edit.setText("設定を編集");
@@ -268,7 +274,7 @@ public final class NpcManagerActivity extends Activity {
             if (overridden && values[i].equals(current)) checked = i + 1;
         }
 
-        String title = global ? "Global Workspace 上書き" : "Specialist Brain 上書き";
+        String title = global ? "Global Workspace 上書き" : "分割脳 通常LLM 上書き";
         new AlertDialog.Builder(this)
                 .setTitle(title)
                 .setSingleChoiceItems(labels, checked, (dialog, which) -> {
