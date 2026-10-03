@@ -27,7 +27,7 @@ public class LocalLlmRuntimeSourceTest {
     @Test
     public void localRuntimeStillHasBoundedJsonRetryAndNoOpenAiFallback() throws Exception {
         String source = read("src/main/java/com/sktpj/npcbrain/LocalLlmRuntime.java");
-        assertTrue(source.contains("JSON_GENERATION_ATTEMPTS = 2"));
+        assertTrue(source.contains("localSettings.retryInvalidJson() ? 2 : 1"));
         assertTrue(source.contains("LocalPromptCompactor.MAX_COMPACTION_LEVEL"));
         assertTrue(source.contains("Never falls back to OpenAI"));
         assertFalse(source.contains("new OpenAiClient("));
