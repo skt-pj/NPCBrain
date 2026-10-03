@@ -182,11 +182,14 @@ void append_bounded_state(
 PromptInput build_prompt(
         const llama_vocab * vocab,
         const std::string & state,
-        const std::vector<std::string> & action_ids,
-        const std::vector<std::string> & action_descriptions,
+        const std::string & question_id,
+        const std::string & question_instruction,
+        const std::string & evidence_instruction,
+        const std::vector<std::string> & option_ids,
+        const std::vector<std::string> & option_descriptions,
         size_t max_state_tokens) {
-    if (action_ids.empty() || action_ids.size() != action_descriptions.size()) {
-        throw std::runtime_error("CLEF action criteria are invalid");
+    if (option_ids.empty() || option_ids.size() != option_descriptions.size()) {
+        throw std::runtime_error("CLEF decision criteria are invalid");
     }
 
     static const std::string system_prompt =
@@ -206,16 +209,15 @@ PromptInput build_prompt(
     append_piece(
             input,
             vocab,
-            "\nFIELD 1\nID: action\nTYPE: choice\nINSTRUCTION: ",
+            "\nFIELD 1\nID: " + question_id + "\nTYPE: choice\nINSTRUCTION: ",
             LLAMA_DECISION_ORDER_NONE);
     append_piece(
             input,
             vocab,
-            "Choose the single action class this NPC should take now. "
-                    "Use only the grounded state, goals, memory, personality, and constraints.",
+            question_instruction,
             LLAMA_DECISION_ORDER_QUESTION_CHOICE);
     append_piece(input, vocab, "\nALLOWED OPTIONS:\n", LLAMA_DECISION_ORDER_NONE);
-    for (size_t i = 0; i < action_ids.size(); ++i) {
+    for (size_t i = 0; i < option_ids.size(); ++i) {
         append_piece(
                 input,
                 vocab,
@@ -224,7 +226,7 @@ PromptInput build_prompt(
         append_piece(
                 input,
                 vocab,
-                option_json(action_ids[i], action_descriptions[i]),
+                option_json(option_ids[i], option_descriptions[i]),
                 LLAMA_DECISION_ORDER_OPTION);
         append_piece(input, vocab, "\n", LLAMA_DECISION_ORDER_NONE);
     }
@@ -233,12 +235,12 @@ PromptInput build_prompt(
     append_piece(
             input,
             vocab,
-            "\nFIELD 2\nID: commit_now\nTYPE: noul\nINSTRUCTION: ",
+            "\nFIELD 2\nID: evidence_sufficient\nTYPE: noul\nINSTRUCTION: ",
             LLAMA_DECISION_ORDER_NONE);
     append_piece(
             input,
             vocab,
-            "Should this NPC commit to the chosen action class now rather than remain undecided?",
+            evidence_instruction,
             LLAMA_DECISION_ORDER_QUESTION_NOUL);
     append_piece(input, vocab, "\nALLOWED OPTIONS:\n", LLAMA_DECISION_ORDER_NONE);
     append_piece(input, vocab, "OPTION 1: ", LLAMA_DECISION_ORDER_NONE);
@@ -334,18 +336,36 @@ void ensure_loaded_locked(const std::string & path) {
 std::vector<double> run_decision_locked(
         const std::string & model_path,
         const std::string & state,
-        const std::vector<std::string> & action_ids,
-        const std::vector<std::string> & action_descriptions) {
+        const std::string & question_id,
+        const std::string & question_instruction,
+        const std::string & evidence_instruction,
+        const std::vector<std::string> & option_ids,
+        const std::vector<std::string> & option_descriptions) {
     ensure_loaded_locked(model_path);
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
-    PromptInput fixed = build_prompt(vocab, "", action_ids, action_descriptions, 0);
+    PromptInput fixed = build_prompt(
+            vocab,
+            "",
+            question_id,
+            question_instruction,
+            evidence_instruction,
+            option_ids,
+            option_descriptions,
+            0);
     if (fixed.tokens.size() >= CLEF_CONTEXT_TOKENS) {
         throw std::runtime_error("CLEF schema itself exceeds the local context window");
     }
     const size_t state_budget =
             static_cast<size_t>(CLEF_CONTEXT_TOKENS) - fixed.tokens.size();
     PromptInput prompt = build_prompt(
-            vocab, state, action_ids, action_descriptions, state_budget);
+            vocab,
+            state,
+            question_id,
+            question_instruction,
+            evidence_instruction,
+            option_ids,
+            option_descriptions,
+            state_budget);
 
     if (prompt.tokens.empty() || prompt.tokens.size() > CLEF_CONTEXT_TOKENS) {
         throw std::runtime_error(
@@ -353,7 +373,7 @@ std::vector<double> run_decision_locked(
                         + std::to_string(prompt.tokens.size())
                         + " / " + std::to_string(CLEF_CONTEXT_TOKENS) + " tokens");
     }
-    if (prompt.n_scores != static_cast<int32_t>(action_ids.size() + 2)) {
+    if (prompt.n_scores != static_cast<int32_t>(option_ids.size() + 2)) {
         throw std::runtime_error("CLEF option score countが不正です");
     }
 
@@ -414,17 +434,30 @@ Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeDecide(
         jclass,
         jstring model_path,
         jstring state,
-        jobjectArray action_ids,
-        jobjectArray action_descriptions) {
+        jstring question_id,
+        jstring question_instruction,
+        jstring evidence_instruction,
+        jobjectArray option_ids,
+        jobjectArray option_descriptions) {
     try {
         const std::string model = jstring_to_utf8(env, model_path);
         const std::string state_text = jstring_to_utf8(env, state);
-        const std::vector<std::string> ids = jobject_array_to_strings(env, action_ids);
+        const std::string question = jstring_to_utf8(env, question_id);
+        const std::string instruction = jstring_to_utf8(env, question_instruction);
+        const std::string evidence = jstring_to_utf8(env, evidence_instruction);
+        const std::vector<std::string> ids = jobject_array_to_strings(env, option_ids);
         const std::vector<std::string> descriptions =
-                jobject_array_to_strings(env, action_descriptions);
+                jobject_array_to_strings(env, option_descriptions);
         std::lock_guard<std::mutex> guard(g_mutex);
         const std::vector<double> scores =
-                run_decision_locked(model, state_text, ids, descriptions);
+                run_decision_locked(
+                        model,
+                        state_text,
+                        question,
+                        instruction,
+                        evidence,
+                        ids,
+                        descriptions);
         jdoubleArray result = env->NewDoubleArray(static_cast<jsize>(scores.size()));
         if (result != nullptr && !scores.empty()) {
             env->SetDoubleArrayRegion(
