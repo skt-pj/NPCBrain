@@ -278,6 +278,7 @@ final class ProcessingQueueRegistry {
         if ("spontaneous_cognition".equals(value)) return "自発送信判断";
         if ("llm_request".equals(value)) return "LLM推論";
         if ("clef_decision".equals(value)) return "CLEF行動判断";
+        if ("decision_model".equals(value)) return "判断モデル推論";
         if ("memory_maintenance".equals(value)) return "記憶整理";
         if ("periodic_social".equals(value)) return "NPC間会話判断";
         if ("reply_timer".equals(value)) return "返信タイマー再判断";
