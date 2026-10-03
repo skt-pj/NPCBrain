@@ -2,7 +2,6 @@ package com.sktpj.npcbrain;
 
 import android.content.Context;
 
-/** Shared preflight policy for NPC-owned LLM execution. */
 final class NpcInferenceAccess {
     private NpcInferenceAccess() {
     }
@@ -12,7 +11,9 @@ final class NpcInferenceAccess {
     }
 
     static boolean usesOpenAi(Context context, String npcId) {
-        return NpcInferenceModel.usesOpenAi(selectedModel(context, npcId));
+        NpcModelStore store = new NpcModelStore(context, npcId);
+        return NpcInferenceModel.usesOpenAi(store.effectiveGlobalModel())
+                || NpcInferenceModel.usesOpenAi(store.effectiveSpecialistModel());
     }
 
     static boolean hasRequiredApiKey(Context context, String npcId, String apiKey) {
