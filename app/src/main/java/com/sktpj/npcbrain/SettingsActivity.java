@@ -28,7 +28,9 @@ public final class SettingsActivity extends Activity {
     private ModelSettingsStore modelSettingsStore;
     private RoutingSettingsStore routingSettingsStore;
     private LocalInferenceSettingsStore localInferenceSettingsStore;
-    private ClefSettingsStore clefSettingsStore;
+    private SpecialistInferenceSettingsStore specialistInferenceSettingsStore;
+    private DecisionModelSettingsStore decisionModelSettingsStore;
+    private SecureCloudflareTokenStore cloudflareTokenStore;
     private ClefPerformanceStore clefPerformanceStore;
     private NpcRegistryStore registryStore;
     private NpcAiStaminaStore staminaStore;
@@ -49,7 +51,9 @@ public final class SettingsActivity extends Activity {
         modelSettingsStore = new ModelSettingsStore(this);
         routingSettingsStore = new RoutingSettingsStore(this);
         localInferenceSettingsStore = new LocalInferenceSettingsStore(this);
-        clefSettingsStore = new ClefSettingsStore(this);
+        specialistInferenceSettingsStore = new SpecialistInferenceSettingsStore(this);
+        decisionModelSettingsStore = new DecisionModelSettingsStore(this);
+        cloudflareTokenStore = new SecureCloudflareTokenStore(this);
         clefPerformanceStore = new ClefPerformanceStore(this);
         registryStore = new NpcRegistryStore(this);
         staminaStore = new NpcAiStaminaStore(this);
@@ -76,7 +80,7 @@ public final class SettingsActivity extends Activity {
         header.addView(eyebrow);
         header.addView(text("AI管理", 26, AppUiTheme.APP_TEXT, true));
         TextView note = text(
-                "実行場所 → モデル → 詳細の順で共通AI構成を設定します。NPC個別の上書きはDEBUGのNPC管理で行います。",
+                "Global Workspaceは通常LLM、分割脳は「通常LLM / 判断モデル」のどちらか一方を設定します。NPC個別のLLM上書きはDEBUGのNPC管理で行います。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false);
