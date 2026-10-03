@@ -1,7 +1,9 @@
 package com.sktpj.npcbrain;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 final class ClefNativeRuntime {
     private static final Object LOCK = new Object();
@@ -10,36 +12,91 @@ final class ClefNativeRuntime {
         System.loadLibrary("npcbrain_clef");
     }
 
+    static double[] evaluate(
+            File modelFile,
+            String state,
+            List<ClefSpecialistSchema.Field> fields
+    ) {
+        if (modelFile == null || !modelFile.isFile() || modelFile.length() <= 0L) {
+            throw new IllegalStateException("ローカルCLEFモデルがありません");
+        }
+        if (fields == null || fields.isEmpty()) {
+            throw new IllegalArgumentException("CLEF specialist fields are empty");
+        }
+
+        String[] fieldIds = new String[fields.size()];
+        String[] instructions = new String[fields.size()];
+        int[] optionCounts = new int[fields.size()];
+        List<String> optionIds = new ArrayList<>();
+        List<String> optionDescriptions = new ArrayList<>();
+        int expectedScores = 0;
+
+        for (int i = 0; i < fields.size(); i++) {
+            ClefSpecialistSchema.Field field = fields.get(i);
+            if (field == null
+                    || field.id == null
+                    || field.id.trim().isEmpty()
+                    || field.instruction == null
+                    || field.optionIds == null
+                    || field.optionDescriptions == null
+                    || field.optionIds.length < 2
+                    || field.optionIds.length != field.optionDescriptions.length) {
+                throw new IllegalArgumentException("CLEF specialist field is invalid");
+            }
+            fieldIds[i] = field.id;
+            instructions[i] = field.instruction;
+            optionCounts[i] = field.optionIds.length;
+            expectedScores += field.optionIds.length;
+            optionIds.addAll(Arrays.asList(field.optionIds));
+            optionDescriptions.addAll(Arrays.asList(field.optionDescriptions));
+        }
+
+        synchronized (LOCK) {
+            double[] scores = nativeEvaluate(
+                    modelFile.getAbsolutePath(),
+                    state == null ? "" : state,
+                    fieldIds,
+                    instructions,
+                    optionIds.toArray(new String[0]),
+                    optionDescriptions.toArray(new String[0]),
+                    optionCounts);
+            if (scores == null || scores.length != expectedScores) {
+                throw new IllegalStateException(
+                        "CLEF native score countが不正です: "
+                                + (scores == null ? 0 : scores.length)
+                                + " / expected " + expectedScores);
+            }
+            return scores;
+        }
+    }
+
+    /**
+     * Backward-compatible path for the old action-selection runtime.
+     * New split-brain execution uses evaluate().
+     */
     static double[] decide(
             File modelFile,
             String state,
             String[] actionIds,
             String[] actionDescriptions
     ) {
-        if (modelFile == null || !modelFile.isFile() || modelFile.length() <= 0L) {
-            throw new IllegalStateException("ローカルCLEFモデルがありません");
-        }
         if (actionIds == null
                 || actionDescriptions == null
                 || actionIds.length == 0
                 || actionIds.length != actionDescriptions.length) {
             throw new IllegalArgumentException("CLEF action criteria are invalid");
         }
-        synchronized (LOCK) {
-            double[] scores = nativeDecide(
-                    modelFile.getAbsolutePath(),
-                    state == null ? "" : state,
-                    Arrays.copyOf(actionIds, actionIds.length),
-                    Arrays.copyOf(actionDescriptions, actionDescriptions.length));
-            int expected = actionIds.length + 2;
-            if (scores == null || scores.length != expected) {
-                throw new IllegalStateException(
-                        "CLEF native score countが不正です: "
-                                + (scores == null ? 0 : scores.length)
-                                + " / expected " + expected);
-            }
-            return scores;
-        }
+        ClefSpecialistSchema.Field action = new ClefSpecialistSchema.Field(
+                "action",
+                "Choose the single action class this NPC should take now.",
+                actionIds,
+                actionDescriptions);
+        ClefSpecialistSchema.Field commit = new ClefSpecialistSchema.Field(
+                "commit_now",
+                "Should this NPC commit to the chosen action class now?",
+                new String[]{"true", "false"},
+                new String[]{"Yes.", "No."});
+        return evaluate(modelFile, state, Arrays.asList(action, commit));
     }
 
     static void unload() {
@@ -48,11 +105,14 @@ final class ClefNativeRuntime {
         }
     }
 
-    private static native double[] nativeDecide(
+    private static native double[] nativeEvaluate(
             String modelPath,
             String state,
-            String[] actionIds,
-            String[] actionDescriptions);
+            String[] fieldIds,
+            String[] instructions,
+            String[] optionIds,
+            String[] optionDescriptions,
+            int[] optionCounts);
 
     private static native void nativeUnload();
 
