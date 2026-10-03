@@ -28,7 +28,6 @@ public final class SettingsActivity extends Activity {
     private ModelSettingsStore modelSettingsStore;
     private RoutingSettingsStore routingSettingsStore;
     private LocalInferenceSettingsStore localInferenceSettingsStore;
-    private ClefSettingsStore clefSettingsStore;
     private SpecialistInferenceSettingsStore specialistInferenceSettingsStore;
     private ClefPerformanceStore clefPerformanceStore;
     private NpcRegistryStore registryStore;
@@ -50,7 +49,6 @@ public final class SettingsActivity extends Activity {
         modelSettingsStore = new ModelSettingsStore(this);
         routingSettingsStore = new RoutingSettingsStore(this);
         localInferenceSettingsStore = new LocalInferenceSettingsStore(this);
-        clefSettingsStore = new ClefSettingsStore(this);
         specialistInferenceSettingsStore = new SpecialistInferenceSettingsStore(this);
         clefPerformanceStore = new ClefPerformanceStore(this);
         registryStore = new NpcRegistryStore(this);
