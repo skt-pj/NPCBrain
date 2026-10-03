@@ -86,7 +86,7 @@ final class ClefPerformanceStore {
 
         String displayText() {
             if (count <= 0L) {
-                return "まだ実測データはありません。CLEFを使った認知を実行すると自動記録されます。";
+                return "まだ実測データはありません。判断モデルで分割脳を実行すると自動記録されます。";
             }
             StringBuilder result = new StringBuilder();
             result.append("端末  ")
@@ -185,7 +185,7 @@ final class ClefPerformanceStore {
                             Math.max(oldPeakHeap,
                                     Math.max(normalizedHeapBefore, normalizedHeapAfter)))
                     .putLong(LAST_AT_MS, System.currentTimeMillis())
-                    .putString(LAST_MODEL, ClefSettingsStore.normalizeModel(model))
+                    .putString(LAST_MODEL, safe(model))
                     .putBoolean(LAST_SUCCESS, success)
                     .putString(LAST_ERROR, error == null ? "" : ProcessingQueueRegistry.rootMessage(error))
                     .apply();
