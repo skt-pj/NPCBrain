@@ -205,7 +205,7 @@ public final class SettingsActivity extends Activity {
         LinearLayout card = card();
         card.addView(text("ローカルモデル 共通管理", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text(
-                "Light・Medium・HeavyのモデルデータはNPC間で共有されます。取得操作はDEBUGのNPC管理からも行えます。",
+                "Light・Medium・HeavyのモデルデータはNPC間で共有します。ここでは共通の取得状態を確認できます。未取得モデルは利用時にapp-private領域へ取得されます。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false));
