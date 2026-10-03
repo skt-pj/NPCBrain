@@ -25,6 +25,7 @@ import java.util.Locale;
 public final class SettingsActivity extends Activity {
     private SecureApiKeyStore apiKeyStore;
     private ModelSettingsStore modelSettingsStore;
+    private RoutingSettingsStore routingSettingsStore;
     private ClefSettingsStore clefSettingsStore;
     private ClefPerformanceStore clefPerformanceStore;
     private NpcRegistryStore registryStore;
@@ -34,6 +35,7 @@ public final class SettingsActivity extends Activity {
     private Button clefModelButton;
     private TextView clefPerformanceStatus;
     private Button clefToggleButton;
+    private LinearLayout localModelsContainer;
     private LinearLayout budgetContainer;
     private Button cacheProbeButton;
     private TextView cacheProbeStatus;
@@ -44,6 +46,7 @@ public final class SettingsActivity extends Activity {
         super.onCreate(savedInstanceState);
         apiKeyStore = new SecureApiKeyStore(this);
         modelSettingsStore = new ModelSettingsStore(this);
+        routingSettingsStore = new RoutingSettingsStore(this);
         clefSettingsStore = new ClefSettingsStore(this);
         clefPerformanceStore = new ClefPerformanceStore(this);
         registryStore = new NpcRegistryStore(this);
