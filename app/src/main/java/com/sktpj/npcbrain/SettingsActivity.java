@@ -572,6 +572,7 @@ public final class SettingsActivity extends Activity {
     }
 
     private void refresh() {
+        refreshLocalModels();
         refreshClef();
         refreshClefPerformance();
         if (apiKeyStatus != null) {
