@@ -80,7 +80,7 @@ public final class NpcManagerActivity extends Activity {
         root.addView(header);
 
         TextView note = new TextView(this);
-        note.setText("Debugビルド専用。NPCの追加、全設定のLLM整合・再編集、脳内リセット、削除ができます。ローカルモデルは選択後に明示ダウンロードできます。同じモデルはNPC間で共有されます。");
+        note.setText("Debugビルド専用。NPCはAI管理の共通設定を継承し、必要な場合だけGlobal Workspace / Specialist Brainを個別上書きします。");
         note.setTextColor(AppUiTheme.APP_MUTED);
         note.setTextSize(13);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
