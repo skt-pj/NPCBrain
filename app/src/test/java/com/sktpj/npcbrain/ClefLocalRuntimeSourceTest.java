@@ -12,13 +12,14 @@ import static org.junit.Assert.assertTrue;
 public final class ClefLocalRuntimeSourceTest {
     @Test
     public void productionClefPathIsLocalAndUsesIntegratedJointHeadModel() throws Exception {
-        String runtime = read("src/main/java/com/sktpj/npcbrain/ClefActionSelectionRuntime.java");
+        String runtime = read("src/main/java/com/sktpj/npcbrain/ClefSpecialistRuntime.java");
         String repository = read("src/main/java/com/sktpj/npcbrain/ClefLocalModelRepository.java");
         String nativeSource = read("src/main/cpp/clef_jni.cpp");
         String cmake = read("src/main/cpp/CMakeLists.txt");
         String settings = read("src/main/java/com/sktpj/npcbrain/SettingsActivity.java");
 
-        assertTrue(runtime.contains("ClefNativeRuntime.decide("));
+        assertTrue(runtime.contains("ClefNativeRuntime.evaluate("));
+        assertTrue(runtime.contains("ClefLocalExecutionQueue.execute("));
         assertFalse(runtime.contains("ClefDecisionClient"));
         assertTrue(repository.contains("ggml-org/Clef-Flash-GGUF"));
         assertTrue(repository.contains("Clef-Flash-Q4_K_M.gguf"));
@@ -26,10 +27,13 @@ public final class ClefLocalRuntimeSourceTest {
         assertTrue(nativeSource.contains("!= \"clef\""));
         assertTrue(nativeSource.contains("llama_batch_ext_set_decision_order"));
         assertTrue(nativeSource.contains("LLAMA_DECISION_ORDER_OPTION"));
+        assertTrue(nativeSource.contains("CLEF_CONTEXT_TOKENS = 2048"));
+        assertTrue(nativeSource.contains("append_bounded_state"));
         assertTrue(cmake.contains("99b95488cac0f00ce3f05af113a8c1e287753f87"));
 
         assertTrue(settings.contains("CLEF-Flash 共通設定"));
         assertTrue(settings.contains("CLEFモデルをダウンロード"));
+        assertTrue(settings.contains("分割脳9専門"));
         assertFalse(settings.contains("Cloudflare Account ID"));
         assertFalse(settings.contains("Cloudflare API token"));
     }
