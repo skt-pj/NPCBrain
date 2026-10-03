@@ -1036,7 +1036,7 @@ public final class SettingsActivity extends Activity {
                     if (value.isEmpty()) return;
                     try {
                         apiKeyStore.save(value);
-                        refresh();
+                        rebuildContent();
                     } catch (Exception error) {
                         Toast.makeText(this, "APIキー保存失敗", Toast.LENGTH_LONG).show();
                     }
@@ -1051,7 +1051,7 @@ public final class SettingsActivity extends Activity {
                 .setMessage("保存済みのOpenAI APIキーを削除します。")
                 .setPositiveButton("削除", (dialog, which) -> {
                     apiKeyStore.clear();
-                    refresh();
+                    rebuildContent();
                 })
                 .setNegativeButton("キャンセル", null)
                 .show();
