@@ -203,8 +203,8 @@ public class CanonicalWorldTraceabilityV210Test {
     @Test public void tWk210025VersionAndBuildContract() throws Exception {
         String version = read("../version.properties");
         String workflow = read("../.github/workflows/android.yml");
-        assertTrue(version.contains("VERSION_NAME=2.1.5"));
-        assertTrue(version.contains("VERSION_CODE=90"));
+        assertTrue(version.contains("VERSION_NAME=2.1.6"));
+        assertTrue(version.contains("VERSION_CODE=91"));
         assertTrue(workflow.contains(":app:testDebugUnitTest :app:assembleRelease :app:assembleDebug"));
         assertTrue(workflow.contains("apksigner"));
     }
