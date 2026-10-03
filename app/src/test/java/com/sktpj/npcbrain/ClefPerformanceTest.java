@@ -26,7 +26,7 @@ public final class ClefPerformanceTest {
                 12L * 1024L * 1024L,
                 14L * 1024L * 1024L,
                 1L,
-                "clef-flash",
+                "Clef-flash 9B Q4_K_M · ローカル",
                 true,
                 "");
         assertEquals(250L, snapshot.averageDurationMs());
@@ -35,16 +35,17 @@ public final class ClefPerformanceTest {
     }
 
     @Test
-    public void runtimeMeasuresExistingClefCallWithoutAddingProbeRequest() throws Exception {
-        String runtime = read("src/main/java/com/sktpj/npcbrain/ClefActionSelectionRuntime.java");
+    public void specialistDecisionRuntimeMeasuresTheRealRequestOnly() throws Exception {
+        String runtime = read("src/main/java/com/sktpj/npcbrain/SpecialistDecisionModelRuntime.java");
         assertTrue(runtime.contains("SystemClock.elapsedRealtimeNanos()"));
         assertTrue(runtime.contains("Debug.getPss()"));
         assertTrue(runtime.contains("new ClefPerformanceStore(appContext).record("));
         assertEquals(1, occurrences(runtime, "ClefNativeRuntime.decide("));
-        assertTrue(runtime.contains("modelRepository.isDownloaded()"));
+        assertTrue(runtime.contains("localRepository.isDownloaded()"));
+        assertTrue(runtime.contains("CloudflareDecisionModelClient"));
 
         String settings = read("src/main/java/com/sktpj/npcbrain/SettingsActivity.java");
-        assertTrue(settings.contains("CLEF 実測パフォーマンス"));
+        assertTrue(settings.contains("判断モデル 実測パフォーマンス"));
         assertTrue(settings.contains("実測データをリセット"));
         assertTrue(settings.contains("clefPerformanceStore.snapshot().displayText()"));
     }
