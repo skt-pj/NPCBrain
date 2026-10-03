@@ -854,12 +854,15 @@ public final class WorldShellActivityV212 extends Activity {
         ScrollView scroll = new ScrollView(this);
         LinearLayout body = verticalBody();
         LinearLayout ai = card();
-        ai.addView(text("AI / 推論設定", 17, AppUiTheme.APP_TEXT, true));
-        ai.addView(text("GPT-5.6 Luna · "
+        ai.addView(text("AI管理", 17, AppUiTheme.APP_TEXT, true));
+        ai.addView(text(
+                "Global Workspace  " + NpcInferenceModel.displayLabel(routingSettingsStore.globalModel())
+                        + "\nSpecialist Brain  " + NpcInferenceModel.displayLabel(routingSettingsStore.specialistModel())
+                        + "\nOpenAI  GPT-5.6 Luna · "
                         + ModelSettingsStore.displayLabel(modelSettingsStore.reasoningEffort())
                         + " · APIキー " + (loadApiKey().isEmpty() ? "未設定" : "設定済み"),
                 11, AppUiTheme.APP_MUTED, false), matchTop(dp(5)));
-        Button details = actionButton("詳細設定を開く");
+        Button details = actionButton("AI管理を開く");
         details.setOnClickListener(v -> openDetailsSettings());
         ai.addView(details, matchTop(dp(9)));
         body.addView(ai);
