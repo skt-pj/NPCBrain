@@ -24,15 +24,14 @@ import java.util.Locale;
 /** Global app settings and canonical per-NPC AI budget controls. */
 public final class SettingsActivity extends Activity {
     private SecureApiKeyStore apiKeyStore;
-    private SecureCloudflareTokenStore cloudflareTokenStore;
     private ModelSettingsStore modelSettingsStore;
     private ClefSettingsStore clefSettingsStore;
     private ClefPerformanceStore clefPerformanceStore;
     private NpcRegistryStore registryStore;
     private NpcAiStaminaStore staminaStore;
     private TextView apiKeyStatus;
-    private TextView clefAccountStatus;
-    private TextView clefTokenStatus;
+    private TextView clefModelStatus;
+    private Button clefModelButton;
     private TextView clefPerformanceStatus;
     private Button clefToggleButton;
     private LinearLayout budgetContainer;
@@ -44,7 +43,6 @@ public final class SettingsActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         apiKeyStore = new SecureApiKeyStore(this);
-        cloudflareTokenStore = new SecureCloudflareTokenStore(this);
         modelSettingsStore = new ModelSettingsStore(this);
         clefSettingsStore = new ClefSettingsStore(this);
         clefPerformanceStore = new ClefPerformanceStore(this);
@@ -206,11 +204,11 @@ public final class SettingsActivity extends Activity {
 
     private View buildClefSettingsCard() {
         LinearLayout card = card();
-        card.addView(text("CLEF 行動選択", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text("ローカル CLEF 行動選択", 18, AppUiTheme.APP_TEXT, true));
 
         TextView note = text(
-                "NPCの行動選択にCloudflare CLEFを使用します。"
-                        + "会話生成などの通常推論モデルは変更しません。",
+                "CLEF-Flashを端末内で実行します。モデルの初回ダウンロード後は"
+                        + "action_selection推論にCloudflare APIやAPI tokenを使用しません。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false);
@@ -220,97 +218,70 @@ public final class SettingsActivity extends Activity {
         noteParams.topMargin = dp(5);
         card.addView(note, noteParams);
 
-        TextView modelTitle = text("Decision model", 13, AppUiTheme.APP_TEXT, true);
-        LinearLayout.LayoutParams modelTitleParams = new LinearLayout.LayoutParams(
+        TextView model = text(
+                ClefSettingsStore.displayLabel() + "  ·  約6.49 GB",
+                12,
+                AppUiTheme.APP_TEXT,
+                true);
+        LinearLayout.LayoutParams modelParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
-        modelTitleParams.topMargin = dp(12);
-        card.addView(modelTitle, modelTitleParams);
+        modelParams.topMargin = dp(10);
+        card.addView(model, modelParams);
 
-        RadioGroup models = new RadioGroup(this);
-        String currentModel = clefSettingsStore.model();
-        for (String model : ClefSettingsStore.supportedModels()) {
-            RadioButton option = new RadioButton(this);
-            option.setId(View.generateViewId());
-            option.setTag(model);
-            option.setText(ClefSettingsStore.displayLabel(model));
-            option.setTextColor(AppUiTheme.APP_TEXT);
-            option.setTextSize(12);
-            option.setChecked(model.equals(currentModel));
-            models.addView(option);
-        }
-        models.setOnCheckedChangeListener((group, checkedId) -> {
-            View selected = group.findViewById(checkedId);
-            if (selected != null && selected.getTag() != null) {
-                clefSettingsStore.setModel(selected.getTag().toString());
-                refreshClef();
-            }
-        });
-        card.addView(models);
+        TextView source = text(
+                "モデル: ggml-org/Clef-Flash-GGUF（architecture=clef / joint head込み）",
+                11,
+                AppUiTheme.APP_MUTED,
+                false);
+        card.addView(source);
 
-        clefAccountStatus = text("", 12, AppUiTheme.APP_TEXT, true);
-        LinearLayout.LayoutParams accountStatusParams = new LinearLayout.LayoutParams(
+        clefModelStatus = text("", 12, AppUiTheme.APP_TEXT, true);
+        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
-        accountStatusParams.topMargin = dp(10);
-        card.addView(clefAccountStatus, accountStatusParams);
+        statusParams.topMargin = dp(10);
+        card.addView(clefModelStatus, statusParams);
 
-        LinearLayout accountActions = new LinearLayout(this);
-        accountActions.setOrientation(LinearLayout.HORIZONTAL);
-        Button accountSave = actionButton("Account IDを設定 / 変更");
-        accountSave.setOnClickListener(v -> showCloudflareAccountDialog());
-        accountActions.addView(accountSave, new LinearLayout.LayoutParams(0, dp(48), 1f));
-        Button accountClear = actionButton("削除");
-        accountClear.setOnClickListener(v -> {
-            clefSettingsStore.clearAccountId();
-            refreshClef();
-        });
-        LinearLayout.LayoutParams accountClearParams =
-                new LinearLayout.LayoutParams(dp(82), dp(48));
-        accountClearParams.leftMargin = dp(7);
-        accountActions.addView(accountClear, accountClearParams);
-        LinearLayout.LayoutParams accountActionsParams = new LinearLayout.LayoutParams(
+        clefModelButton = actionButton("");
+        clefModelButton.setOnClickListener(v -> handleClefModelButton());
+        LinearLayout.LayoutParams modelButtonParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        accountActionsParams.topMargin = dp(7);
-        card.addView(accountActions, accountActionsParams);
-
-        clefTokenStatus = text("", 12, AppUiTheme.APP_TEXT, true);
-        LinearLayout.LayoutParams tokenStatusParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        tokenStatusParams.topMargin = dp(10);
-        card.addView(clefTokenStatus, tokenStatusParams);
-
-        LinearLayout tokenActions = new LinearLayout(this);
-        tokenActions.setOrientation(LinearLayout.HORIZONTAL);
-        Button tokenSave = actionButton("API tokenを設定 / 変更");
-        tokenSave.setOnClickListener(v -> showCloudflareTokenDialog());
-        tokenActions.addView(tokenSave, new LinearLayout.LayoutParams(0, dp(48), 1f));
-        Button tokenClear = actionButton("削除");
-        tokenClear.setOnClickListener(v -> {
-            cloudflareTokenStore.clear();
-            clefSettingsStore.setEnabled(false);
-            refreshClef();
-        });
-        LinearLayout.LayoutParams tokenClearParams =
-                new LinearLayout.LayoutParams(dp(82), dp(48));
-        tokenClearParams.leftMargin = dp(7);
-        tokenActions.addView(tokenClear, tokenClearParams);
-        LinearLayout.LayoutParams tokenActionsParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        tokenActionsParams.topMargin = dp(7);
-        card.addView(tokenActions, tokenActionsParams);
+                dp(48));
+        modelButtonParams.topMargin = dp(8);
+        card.addView(clefModelButton, modelButtonParams);
 
         clefToggleButton = actionButton("");
         clefToggleButton.setOnClickListener(v -> toggleClef());
         LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(48));
-        toggleParams.topMargin = dp(10);
+        toggleParams.topMargin = dp(8);
         card.addView(clefToggleButton, toggleParams);
         return card;
+    }
+
+    private void handleClefModelButton() {
+        ClefLocalDownloadManager.Snapshot snapshot = ClefLocalDownloadManager.snapshot(this);
+        if (snapshot.downloading) return;
+        if (!snapshot.downloaded) {
+            ClefLocalDownloadManager.startDownload(this);
+            refreshClef();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("ローカルCLEFモデルを削除")
+                .setMessage("約6.49 GBのCLEF-Flashモデルを端末から削除します。"
+                        + "CLEF行動選択も無効になります。")
+                .setPositiveButton("削除", (dialog, which) -> {
+                    clefSettingsStore.setEnabled(false);
+                    if (!ClefLocalDownloadManager.deleteModel(this)) {
+                        Toast.makeText(this, "CLEFモデルを削除できませんでした。", Toast.LENGTH_LONG).show();
+                    }
+                    refreshClef();
+                })
+                .setNegativeButton("キャンセル", null)
+                .show();
     }
 
     private View buildClefPerformanceCard() {
@@ -318,8 +289,8 @@ public final class SettingsActivity extends Activity {
         card.addView(text("CLEF 実測パフォーマンス", 18, AppUiTheme.APP_TEXT, true));
 
         TextView note = text(
-                "CLEFを実際に使用したときの処理時間とアプリprocessのメモリを自動記録します。"
-                        + "測定のための追加API呼び出しは行いません。",
+                "端末内CLEFを実際に実行したときの処理時間とアプリprocessのメモリを自動記録します。"
+                        + "測定のための追加推論は行いません。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false);
@@ -355,98 +326,56 @@ public final class SettingsActivity extends Activity {
         clefPerformanceStatus.setText(clefPerformanceStore.snapshot().displayText());
     }
 
-    private void showCloudflareAccountDialog() {
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setHint("Cloudflare Account ID");
-        input.setText(clefSettingsStore.accountId());
-        input.setSelectAllOnFocus(true);
-        int pad = dp(20);
-        input.setPadding(pad, dp(6), pad, dp(6));
-        new AlertDialog.Builder(this)
-                .setTitle("Cloudflare Account ID")
-                .setView(input)
-                .setPositiveButton("保存", (dialog, which) -> {
-                    String value = input.getText() == null ? "" : input.getText().toString().trim();
-                    try {
-                        clefSettingsStore.setAccountId(value);
-                        refreshClef();
-                    } catch (IllegalArgumentException error) {
-                        Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show();
-                    }
-                })
-                .setNegativeButton("キャンセル", null)
-                .show();
-    }
-
-    private void showCloudflareTokenDialog() {
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setHint("Cloudflare API token");
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        int pad = dp(20);
-        input.setPadding(pad, dp(6), pad, dp(6));
-        new AlertDialog.Builder(this)
-                .setTitle("Cloudflare API token")
-                .setMessage("tokenはAndroid Keystoreで暗号化して保存し、保存後は再表示しません。")
-                .setView(input)
-                .setPositiveButton("保存", (dialog, which) -> {
-                    String value = input.getText() == null ? "" : input.getText().toString().trim();
-                    if (value.isEmpty()) return;
-                    try {
-                        cloudflareTokenStore.save(value);
-                        refreshClef();
-                    } catch (Exception error) {
-                        Toast.makeText(this, "Cloudflare API token保存失敗", Toast.LENGTH_LONG).show();
-                    }
-                })
-                .setNegativeButton("キャンセル", null)
-                .show();
-    }
-
     private void toggleClef() {
         if (clefSettingsStore.enabled()) {
             clefSettingsStore.setEnabled(false);
             refreshClef();
             return;
         }
-        if (clefSettingsStore.accountId().isEmpty()) {
-            Toast.makeText(this, "Cloudflare Account IDを設定してください。", Toast.LENGTH_LONG).show();
-            return;
-        }
-        if (!hasCloudflareToken()) {
-            Toast.makeText(this, "Cloudflare API tokenを設定してください。", Toast.LENGTH_LONG).show();
+        ClefLocalDownloadManager.Snapshot snapshot = ClefLocalDownloadManager.snapshot(this);
+        if (!snapshot.downloaded) {
+            Toast.makeText(
+                    this,
+                    "先にローカルCLEF-Flashモデルをダウンロードしてください。",
+                    Toast.LENGTH_LONG).show();
             return;
         }
         clefSettingsStore.setEnabled(true);
         refreshClef();
     }
 
-    private boolean hasCloudflareToken() {
-        try {
-            return !cloudflareTokenStore.load().trim().isEmpty();
-        } catch (Exception ignored) {
-            return false;
+    private void refreshClef() {
+        ClefLocalDownloadManager.Snapshot snapshot = ClefLocalDownloadManager.snapshot(this);
+        if (!snapshot.downloaded && clefSettingsStore.enabled()) {
+            clefSettingsStore.setEnabled(false);
+        }
+        if (clefModelStatus != null) {
+            clefModelStatus.setText(snapshot.displayText());
+        }
+        if (clefModelButton != null) {
+            clefModelButton.setEnabled(!snapshot.downloading);
+            clefModelButton.setText(snapshot.downloading
+                    ? "ダウンロード中…"
+                    : snapshot.downloaded ? "ローカルモデルを削除" : "ローカルモデルをダウンロード");
+        }
+        if (clefToggleButton != null) {
+            clefToggleButton.setEnabled(snapshot.downloaded);
+            clefToggleButton.setText(clefSettingsStore.enabled()
+                    ? "ローカル CLEF action_selection を無効化"
+                    : "ローカル CLEF action_selection を有効化");
+        }
+        if (snapshot.downloading && clefModelStatus != null) {
+            clefModelStatus.removeCallbacks(clefDownloadRefresh);
+            clefModelStatus.postDelayed(clefDownloadRefresh, 750L);
         }
     }
 
-    private void refreshClef() {
-        if (clefAccountStatus != null) {
-            clefAccountStatus.setText(clefSettingsStore.accountId().isEmpty()
-                    ? "Cloudflare Account ID  未設定"
-                    : "Cloudflare Account ID  設定済み");
+    private final Runnable clefDownloadRefresh = new Runnable() {
+        @Override public void run() {
+            if (isFinishing() || isDestroyed()) return;
+            refreshClef();
         }
-        if (clefTokenStatus != null) {
-            clefTokenStatus.setText(hasCloudflareToken()
-                    ? "Cloudflare API token  設定済み（値は非表示）"
-                    : "Cloudflare API token  未設定");
-        }
-        if (clefToggleButton != null) {
-            clefToggleButton.setText(clefSettingsStore.enabled()
-                    ? "CLEF action_selection を無効化"
-                    : "CLEF action_selection を有効化");
-        }
-    }
+    };
 
     private View buildPromptCacheDebugCard() {
         LinearLayout card = card();
