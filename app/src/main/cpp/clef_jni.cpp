@@ -60,6 +60,21 @@ std::vector<std::string> jobject_array_to_strings(JNIEnv * env, jobjectArray arr
     return result;
 }
 
+std::vector<int32_t> jint_array_to_ints(JNIEnv * env, jintArray array) {
+    std::vector<int32_t> result;
+    if (array == nullptr) return result;
+    const jsize n = env->GetArrayLength(array);
+    result.resize(static_cast<size_t>(n));
+    if (n > 0) {
+        env->GetIntArrayRegion(
+                array,
+                0,
+                n,
+                reinterpret_cast<jint *>(result.data()));
+    }
+    return result;
+}
+
 std::string json_escape(const std::string & value) {
     std::ostringstream out;
     for (unsigned char c : value) {
@@ -182,14 +197,28 @@ void append_bounded_state(
 PromptInput build_prompt(
         const llama_vocab * vocab,
         const std::string & state,
-        const std::string & question_id,
-        const std::string & question_instruction,
-        const std::string & evidence_instruction,
+        const std::vector<std::string> & question_ids,
+        const std::vector<std::string> & question_instructions,
+        const std::vector<std::string> & evidence_instructions,
+        const std::vector<int32_t> & option_counts,
         const std::vector<std::string> & option_ids,
         const std::vector<std::string> & option_descriptions,
         size_t max_state_tokens) {
-    if (option_ids.empty() || option_ids.size() != option_descriptions.size()) {
-        throw std::runtime_error("CLEF decision criteria are invalid");
+    const size_t question_count = question_ids.size();
+    if (question_count == 0
+            || question_instructions.size() != question_count
+            || evidence_instructions.size() != question_count
+            || option_counts.size() != question_count
+            || option_ids.size() != option_descriptions.size()) {
+        throw std::runtime_error("CLEF decision schema arrays are invalid");
+    }
+    size_t expected_options = 0;
+    for (int32_t count : option_counts) {
+        if (count <= 0) throw std::runtime_error("CLEF decision criteria are empty");
+        expected_options += static_cast<size_t>(count);
+    }
+    if (expected_options != option_ids.size()) {
+        throw std::runtime_error("CLEF decision option counts do not match");
     }
 
     static const std::string system_prompt =
@@ -206,57 +235,68 @@ PromptInput build_prompt(
     append_bounded_state(input, vocab, state, max_state_tokens);
     append_piece(input, vocab, "\n\nSCHEMA FIELDS:\n", LLAMA_DECISION_ORDER_NONE);
 
-    append_piece(
-            input,
-            vocab,
-            "\nFIELD 1\nID: " + question_id + "\nTYPE: choice\nINSTRUCTION: ",
-            LLAMA_DECISION_ORDER_NONE);
-    append_piece(
-            input,
-            vocab,
-            question_instruction,
-            LLAMA_DECISION_ORDER_QUESTION_CHOICE);
-    append_piece(input, vocab, "\nALLOWED OPTIONS:\n", LLAMA_DECISION_ORDER_NONE);
-    for (size_t i = 0; i < option_ids.size(); ++i) {
+    size_t option_cursor = 0;
+    int field_number = 1;
+    for (size_t q = 0; q < question_count; ++q) {
         append_piece(
                 input,
                 vocab,
-                "OPTION " + std::to_string(i + 1) + ": ",
+                "\nFIELD " + std::to_string(field_number++)
+                        + "\nID: " + question_ids[q]
+                        + "\nTYPE: choice\nINSTRUCTION: ",
                 LLAMA_DECISION_ORDER_NONE);
         append_piece(
                 input,
                 vocab,
-                option_json(option_ids[i], option_descriptions[i]),
-                LLAMA_DECISION_ORDER_OPTION);
-        append_piece(input, vocab, "\n", LLAMA_DECISION_ORDER_NONE);
-    }
-    append_piece(input, vocab, "END FIELD\n", LLAMA_DECISION_ORDER_NONE);
+                question_instructions[q],
+                LLAMA_DECISION_ORDER_QUESTION_CHOICE);
+        append_piece(input, vocab, "\nALLOWED OPTIONS:\n", LLAMA_DECISION_ORDER_NONE);
+        const int32_t count = option_counts[q];
+        for (int32_t i = 0; i < count; ++i) {
+            append_piece(
+                    input,
+                    vocab,
+                    "OPTION " + std::to_string(i + 1) + ": ",
+                    LLAMA_DECISION_ORDER_NONE);
+            append_piece(
+                    input,
+                    vocab,
+                    option_json(
+                            option_ids[option_cursor],
+                            option_descriptions[option_cursor]),
+                    LLAMA_DECISION_ORDER_OPTION);
+            append_piece(input, vocab, "\n", LLAMA_DECISION_ORDER_NONE);
+            ++option_cursor;
+        }
+        append_piece(input, vocab, "END FIELD\n", LLAMA_DECISION_ORDER_NONE);
 
-    append_piece(
-            input,
-            vocab,
-            "\nFIELD 2\nID: evidence_sufficient\nTYPE: noul\nINSTRUCTION: ",
-            LLAMA_DECISION_ORDER_NONE);
-    append_piece(
-            input,
-            vocab,
-            evidence_instruction,
-            LLAMA_DECISION_ORDER_QUESTION_NOUL);
-    append_piece(input, vocab, "\nALLOWED OPTIONS:\n", LLAMA_DECISION_ORDER_NONE);
-    append_piece(input, vocab, "OPTION 1: ", LLAMA_DECISION_ORDER_NONE);
-    append_piece(
-            input,
-            vocab,
-            option_json("true", "The proposition is true or the answer is yes."),
-            LLAMA_DECISION_ORDER_OPTION);
-    append_piece(input, vocab, "\n", LLAMA_DECISION_ORDER_NONE);
-    append_piece(input, vocab, "OPTION 2: ", LLAMA_DECISION_ORDER_NONE);
-    append_piece(
-            input,
-            vocab,
-            option_json("false", "The proposition is false or the answer is no."),
-            LLAMA_DECISION_ORDER_OPTION);
-    append_piece(input, vocab, "\nEND FIELD\n", LLAMA_DECISION_ORDER_NONE);
+        append_piece(
+                input,
+                vocab,
+                "\nFIELD " + std::to_string(field_number++)
+                        + "\nID: " + question_ids[q]
+                        + "_evidence\nTYPE: noul\nINSTRUCTION: ",
+                LLAMA_DECISION_ORDER_NONE);
+        append_piece(
+                input,
+                vocab,
+                evidence_instructions[q],
+                LLAMA_DECISION_ORDER_QUESTION_NOUL);
+        append_piece(input, vocab, "\nALLOWED OPTIONS:\n", LLAMA_DECISION_ORDER_NONE);
+        append_piece(input, vocab, "OPTION 1: ", LLAMA_DECISION_ORDER_NONE);
+        append_piece(
+                input,
+                vocab,
+                option_json("true", "The proposition is true or the answer is yes."),
+                LLAMA_DECISION_ORDER_OPTION);
+        append_piece(input, vocab, "\nOPTION 2: ", LLAMA_DECISION_ORDER_NONE);
+        append_piece(
+                input,
+                vocab,
+                option_json("false", "The proposition is false or the answer is no."),
+                LLAMA_DECISION_ORDER_OPTION);
+        append_piece(input, vocab, "\nEND FIELD\n", LLAMA_DECISION_ORDER_NONE);
+    }
 
     append_piece(
             input,
@@ -264,7 +304,6 @@ PromptInput build_prompt(
             "\n<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
                     "JOINT SCHEMA DECISIONS:",
             LLAMA_DECISION_ORDER_NONE);
-
     return input;
 }
 
@@ -336,9 +375,10 @@ void ensure_loaded_locked(const std::string & path) {
 std::vector<double> run_decision_locked(
         const std::string & model_path,
         const std::string & state,
-        const std::string & question_id,
-        const std::string & question_instruction,
-        const std::string & evidence_instruction,
+        const std::vector<std::string> & question_ids,
+        const std::vector<std::string> & question_instructions,
+        const std::vector<std::string> & evidence_instructions,
+        const std::vector<int32_t> & option_counts,
         const std::vector<std::string> & option_ids,
         const std::vector<std::string> & option_descriptions) {
     ensure_loaded_locked(model_path);
@@ -346,9 +386,10 @@ std::vector<double> run_decision_locked(
     PromptInput fixed = build_prompt(
             vocab,
             "",
-            question_id,
-            question_instruction,
-            evidence_instruction,
+            question_ids,
+            question_instructions,
+            evidence_instructions,
+            option_counts,
             option_ids,
             option_descriptions,
             0);
@@ -360,9 +401,10 @@ std::vector<double> run_decision_locked(
     PromptInput prompt = build_prompt(
             vocab,
             state,
-            question_id,
-            question_instruction,
-            evidence_instruction,
+            question_ids,
+            question_instructions,
+            evidence_instructions,
+            option_counts,
             option_ids,
             option_descriptions,
             state_budget);
@@ -373,7 +415,10 @@ std::vector<double> run_decision_locked(
                         + std::to_string(prompt.tokens.size())
                         + " / " + std::to_string(CLEF_CONTEXT_TOKENS) + " tokens");
     }
-    if (prompt.n_scores != static_cast<int32_t>(option_ids.size() + 2)) {
+
+    int32_t expected_scores = static_cast<int32_t>(question_ids.size() * 2);
+    for (int32_t count : option_counts) expected_scores += count;
+    if (prompt.n_scores != expected_scores) {
         throw std::runtime_error("CLEF option score countが不正です");
     }
 
@@ -429,33 +474,42 @@ std::vector<double> run_decision_locked(
 
 extern "C"
 JNIEXPORT jdoubleArray JNICALL
-Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeDecide(
+Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeDecideBatch(
         JNIEnv * env,
         jclass,
         jstring model_path,
         jstring state,
-        jstring question_id,
-        jstring question_instruction,
-        jstring evidence_instruction,
+        jobjectArray question_ids,
+        jobjectArray question_instructions,
+        jobjectArray evidence_instructions,
+        jintArray option_counts,
         jobjectArray option_ids,
         jobjectArray option_descriptions) {
     try {
         const std::string model = jstring_to_utf8(env, model_path);
         const std::string state_text = jstring_to_utf8(env, state);
-        const std::string question = jstring_to_utf8(env, question_id);
-        const std::string instruction = jstring_to_utf8(env, question_instruction);
-        const std::string evidence = jstring_to_utf8(env, evidence_instruction);
-        const std::vector<std::string> ids = jobject_array_to_strings(env, option_ids);
+        const std::vector<std::string> questions =
+                jobject_array_to_strings(env, question_ids);
+        const std::vector<std::string> instructions =
+                jobject_array_to_strings(env, question_instructions);
+        const std::vector<std::string> evidence =
+                jobject_array_to_strings(env, evidence_instructions);
+        const std::vector<int32_t> counts =
+                jint_array_to_ints(env, option_counts);
+        const std::vector<std::string> ids =
+                jobject_array_to_strings(env, option_ids);
         const std::vector<std::string> descriptions =
                 jobject_array_to_strings(env, option_descriptions);
+
         std::lock_guard<std::mutex> guard(g_mutex);
         const std::vector<double> scores =
                 run_decision_locked(
                         model,
                         state_text,
-                        question,
-                        instruction,
+                        questions,
+                        instructions,
                         evidence,
+                        counts,
                         ids,
                         descriptions);
         jdoubleArray result = env->NewDoubleArray(static_cast<jsize>(scores.size()));
