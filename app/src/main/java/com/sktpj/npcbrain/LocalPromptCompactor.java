@@ -36,6 +36,16 @@ final class LocalPromptCompactor {
     private LocalPromptCompactor() {
     }
 
+    static JSONObject compactGroundedJson(JSONObject source, int requestedLevel) {
+        int level = Math.max(0, Math.min(MAX_COMPACTION_LEVEL, requestedLevel));
+        if (source == null) return new JSONObject();
+        try {
+            return compactObject(new JSONObject(source.toString()), level, "");
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
+    }
+
     static String compact(String prompt, int requestedLevel) {
         String original = prompt == null ? "" : prompt;
         int level = Math.max(0, Math.min(MAX_COMPACTION_LEVEL, requestedLevel));
@@ -211,8 +221,12 @@ final class LocalPromptCompactor {
             if (specialist == null) continue;
             JSONObject item = new JSONObject();
             copyIfPresent(specialist, item, "module");
+            copyIfPresent(specialist, item, "engine");
+            copyIfPresent(specialist, item, "model");
             put(item, "content", head(specialist.optString("content", ""), specialistContentLimit(level)));
             copyIfPresent(specialist, item, "confidence");
+            JSONObject signals = specialist.optJSONObject("signals");
+            if (signals != null) put(item, "signals", compactObject(signals, level, "signals"));
             put(item, "salient_facts", compactStringArray(
                     specialist.optJSONArray("salient_facts"), specialistFactCount(level), specialistFactLimit(level)));
             String effect = specialist.optString("personality_effect", "").trim();

@@ -216,7 +216,7 @@ final class BrainEngine {
     private final OpenAiClient client;
     private final MemoryStore memoryStore;
     private final CharacterStateStore characterStore;
-    private final ClefActionSelectionRuntime clefActionSelectionRuntime;
+    private final ClefSpecialistRuntime clefSpecialistRuntime;
 
     BrainEngine(OpenAiClient client, MemoryStore memoryStore, CharacterStateStore characterStore) {
         this(client, memoryStore, characterStore, null);
@@ -226,12 +226,12 @@ final class BrainEngine {
             OpenAiClient client,
             MemoryStore memoryStore,
             CharacterStateStore characterStore,
-            ClefActionSelectionRuntime clefActionSelectionRuntime
+            ClefSpecialistRuntime clefSpecialistRuntime
     ) {
         this.client = client;
         this.memoryStore = memoryStore;
         this.characterStore = characterStore;
-        this.clefActionSelectionRuntime = clefActionSelectionRuntime;
+        this.clefSpecialistRuntime = clefSpecialistRuntime;
     }
 
     String think(String userInput, ProgressListener listener) throws Exception {
@@ -274,21 +274,24 @@ final class BrainEngine {
                 .put("peer_outputs_available", false)
                 .put("specialist_count", MODULES.size()));
         final String specialistCommonJson = specialistCommonContext.toString();
+        final boolean decisionSpecialists =
+                clefSpecialistRuntime != null && clefSpecialistRuntime.shouldHandle();
+        final String decisionModelState = decisionSpecialists
+                ? ClefSpecialistContextBuilder.build(specialistCommonJson)
+                : "";
 
         List<ModuleResult> specialistResults = ParallelCognitionScheduler.run(
                 MODULES.size(),
                 index -> {
                     Module module = MODULES.get(index);
-                    PromptCacheRequest.Prompt prompt = specialistPrompt(
-                            module,
-                            specialistCommonJson,
-                            graphFocusJson[index]);
                     JSONObject result;
-                    if ("action_selection".equals(module.id)
-                            && clefActionSelectionRuntime != null
-                            && clefActionSelectionRuntime.shouldHandle()) {
-                        result = clefActionSelectionRuntime.request(prompt.fullText());
+                    if (decisionSpecialists) {
+                        result = clefSpecialistRuntime.request(module.id, decisionModelState);
                     } else {
+                        PromptCacheRequest.Prompt prompt = specialistPrompt(
+                                module,
+                                specialistCommonJson,
+                                graphFocusJson[index]);
                         result = client.requestJson(prompt);
                     }
                     result.put("module", module.id);
@@ -353,6 +356,8 @@ final class BrainEngine {
         finalContext.put("specialist_execution", new JSONObject()
                 .put("mode", EXECUTION_MODE)
                 .put("parallel_specialists", MODULES.size())
+                .put("inference_family", decisionSpecialists ? "decision_model" : "normal_llm")
+                .put("decision_model_queue", decisionSpecialists ? "independent_fifo_items" : "not_applicable")
                 .put("result_order", "canonical_module_identity_not_temporal_completion"));
         finalContext.put("cognitive_graph_focus", safeGraphFocus(cognitiveGraph, GLOBAL_ID));
 
@@ -604,7 +609,8 @@ final class BrainEngine {
     private static PromptCacheRequest.Prompt globalWorkspacePrompt(JSONObject context) {
         String staticProtocol = "You are the existing Global Workspace of a brain-inspired NPC cognitive architecture. "
                 + "Integrate the nine specialist outputs, the character's stable personality, current affective state, and long-term adaptations. "
-                + "The nine specialist outputs were produced concurrently from the same frozen input snapshot. Their working_memory array order is canonical functional identity only, not temporal or causal order: no later array item saw an earlier item. Resolve agreement, conflict, uncertainty, and complementary evidence explicitly at integration instead of assuming a serial reasoning chain. "
+                + "The nine specialist outputs were produced from the same frozen input snapshot. Their working_memory array order is canonical functional identity only, not a reasoning chain: no specialist may depend on a same-cycle peer result. Resolve agreement, conflict, uncertainty, and complementary evidence explicitly at integration. "
+                + "A specialist using engine=decision_model returns fixed low-level reaction signals under signals. Treat those as brain-region reactions, not final conclusions, plans, or literal actions. You must supply the detailed interpretation and concrete in-world decision at Global Workspace integration. "
                 + "The user_input is a scene/event presented to the character, NOT a request for an AI assistant answer. "
                 + "cognitive_graph_focus is a bounded semantic point-link working-memory view of currently active evidence and committed specialist outputs. "
                 + "Use activation only to prioritize attention; it is not truth probability and may not override grounded facts, uncertainty, or hard constraints. "

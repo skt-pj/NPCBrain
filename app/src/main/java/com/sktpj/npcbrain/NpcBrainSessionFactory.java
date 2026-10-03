@@ -29,7 +29,7 @@ final class NpcBrainSessionFactory {
                 client,
                 new MemoryStore(storage),
                 new CharacterStateStore(storage),
-                new ClefActionSelectionRuntime(appContext, id));
+                new ClefSpecialistRuntime(appContext, id));
     }
 
     JSONObject worldSnapshot(String npcId) {

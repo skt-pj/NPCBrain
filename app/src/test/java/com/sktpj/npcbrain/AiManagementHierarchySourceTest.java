@@ -37,11 +37,15 @@ public final class AiManagementHierarchySourceTest {
     }
 
     @Test
-    public void clefIsOnlyActionSelectionChoice() throws Exception {
+    public void splitBrainChoosesOneInferenceFamilyForAllNineSpecialists() throws Exception {
         String settings = read("src/main/java/com/sktpj/npcbrain/SettingsActivity.java");
-        assertTrue(settings.contains("Specialist Brainと同じ"));
-        assertTrue(settings.contains("CLEF-Flash 9B Q4_K_M"));
-        assertTrue(settings.contains("CLEFは一般モデルではなくAction Selection専用です"));
+        assertTrue(settings.contains("分割脳（9専門）"));
+        assertTrue(settings.contains("通常LLM"));
+        assertTrue(settings.contains("判断モデル（CLEF-Flash）"));
+        assertTrue(settings.contains("9専門すべてで同じ推論カテゴリを使います"));
+        assertFalse(settings.contains("Action Selection専用"));
+        assertFalse(settings.contains("Specialist Brainと同じ"));
+
         String models = read("src/main/java/com/sktpj/npcbrain/NpcInferenceModel.java");
         assertFalse(models.contains("CLEF-Flash"));
     }
