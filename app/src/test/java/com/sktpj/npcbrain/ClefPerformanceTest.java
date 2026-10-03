@@ -36,11 +36,11 @@ public final class ClefPerformanceTest {
 
     @Test
     public void runtimeMeasuresExistingClefCallWithoutAddingProbeRequest() throws Exception {
-        String runtime = read("src/main/java/com/sktpj/npcbrain/ClefActionSelectionRuntime.java");
+        String runtime = read("src/main/java/com/sktpj/npcbrain/ClefSpecialistRuntime.java");
         assertTrue(runtime.contains("SystemClock.elapsedRealtimeNanos()"));
         assertTrue(runtime.contains("Debug.getPss()"));
         assertTrue(runtime.contains("new ClefPerformanceStore(appContext).record("));
-        assertEquals(1, occurrences(runtime, "ClefNativeRuntime.decide("));
+        assertEquals(1, occurrences(runtime, "ClefNativeRuntime.evaluate("));
         assertTrue(runtime.contains("modelRepository.isDownloaded()"));
 
         String settings = read("src/main/java/com/sktpj/npcbrain/SettingsActivity.java");
