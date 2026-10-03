@@ -7,15 +7,17 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public final class ClefRoutingSourceTest {
     @Test
-    public void clefReplacesOnlyActionSelectionRequestWithoutAddingBrainStage() throws Exception {
+    public void decisionModelRoutesAllNineSpecialistsWithoutChangingTopology() throws Exception {
         String source = new String(Files.readAllBytes(Paths.get(
                 "src/main/java/com/sktpj/npcbrain/BrainEngine.java")), StandardCharsets.UTF_8);
-        assertTrue(source.contains("\"action_selection\".equals(module.id)"));
-        assertTrue(source.contains("clefActionSelectionRuntime.request(prompt.fullText())"));
+        assertTrue(source.contains("if (specialistsUseDecisionModel)"));
+        assertTrue(source.contains("specialistDecisionRuntime.request("));
+        assertFalse(source.contains("\"action_selection\".equals(module.id)"));
         assertTrue(source.contains("parallel_specialists_then_global_workspace"));
 
         assertEquals(9, BrainEngine.moduleCount());
