@@ -20,6 +20,8 @@ public final class NpcInferenceModelTest {
         assertFalse(NpcInferenceModel.usesOpenAi(NpcInferenceModel.LOCAL_MEDIUM));
         assertFalse(NpcInferenceModel.usesOpenAi(NpcInferenceModel.LOCAL_HEAVY));
         assertTrue(NpcInferenceModel.usesOpenAi(NpcInferenceModel.OPENAI_LUNA));
+        assertTrue(NpcInferenceModel.usesOpenAi(NpcInferenceModel.OPENAI_GPT56_LUNA));
+        assertTrue(NpcInferenceModel.usesOpenAi(NpcInferenceModel.OPENAI_GPT6_LUNA));
     }
 
     @Test
@@ -32,10 +34,20 @@ public final class NpcInferenceModelTest {
                 NpcInferenceModel.displayLabel(NpcInferenceModel.LOCAL_HEAVY));
         assertEquals("GPT-5.6 Luna",
                 NpcInferenceModel.displayLabel(NpcInferenceModel.OPENAI_LUNA));
+        assertEquals("GPT-5.6 Luna",
+                NpcInferenceModel.displayLabel(NpcInferenceModel.OPENAI_GPT56_LUNA));
+        assertEquals("GPT-6 Luna",
+                NpcInferenceModel.displayLabel(NpcInferenceModel.OPENAI_GPT6_LUNA));
+        assertEquals("gpt-5.6-luna",
+                NpcInferenceModel.openAiApiModel(NpcInferenceModel.OPENAI_GPT56_LUNA));
+        assertEquals("gpt-6-luna",
+                NpcInferenceModel.openAiApiModel(NpcInferenceModel.OPENAI_GPT6_LUNA));
         assertEquals("ローカル",
                 NpcInferenceModel.executionLocationLabel(NpcInferenceModel.LOCAL_MEDIUM));
         assertEquals("クラウド",
                 NpcInferenceModel.executionLocationLabel(NpcInferenceModel.OPENAI_LUNA));
+        assertEquals("クラウド",
+                NpcInferenceModel.executionLocationLabel(NpcInferenceModel.OPENAI_GPT6_LUNA));
     }
 
     @Test

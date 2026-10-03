@@ -30,6 +30,7 @@ public final class AiManagementHierarchySourceTest {
         assertTrue(models.contains("Qwen2.5 1.5B Instruct"));
         assertTrue(models.contains("Gemma 4 E2B"));
         assertTrue(models.contains("GPT-5.6 Luna"));
+        assertTrue(models.contains("GPT-6 Luna"));
         assertFalse(models.contains("軽い（ローカル）"));
         assertFalse(models.contains("中（ローカル）"));
         assertFalse(models.contains("重い（ローカル）"));

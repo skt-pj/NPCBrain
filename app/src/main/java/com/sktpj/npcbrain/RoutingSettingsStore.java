@@ -57,10 +57,10 @@ final class RoutingSettingsStore {
     }
 
     synchronized void setGlobalCloud(boolean cloud) {
-        setGlobalModel(cloud ? NpcInferenceModel.OPENAI_LUNA : globalLastLocalModel());
+        setGlobalModel(cloud ? NpcInferenceModel.OPENAI_GPT6_LUNA : globalLastLocalModel());
     }
 
     synchronized void setSpecialistCloud(boolean cloud) {
-        setSpecialistModel(cloud ? NpcInferenceModel.OPENAI_LUNA : specialistLastLocalModel());
+        setSpecialistModel(cloud ? NpcInferenceModel.OPENAI_GPT6_LUNA : specialistLastLocalModel());
     }
 }

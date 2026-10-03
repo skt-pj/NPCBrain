@@ -87,7 +87,9 @@ final class OpenAiClient {
         }
     }
 
-    static final String MODEL = "gpt-5.6-luna";
+    static final String GPT56_MODEL = "gpt-5.6-luna";
+    static final String GPT6_MODEL = "gpt-6-luna";
+    static final String MODEL = GPT6_MODEL;
     static final String DEFAULT_REASONING_EFFORT = "max";
     static final int DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
@@ -227,7 +229,7 @@ final class OpenAiClient {
         JSONObject local = requestLocalIfSelected(prompt, maxOutputTokens, tool);
         if (local != null) return local;
         JSONObject body = new JSONObject();
-        body.put("model", MODEL);
+        body.put("model", selectedOpenAiApiModel(prompt));
         body.put("reasoning", new JSONObject().put("effort", reasoningEffort));
         body.put("max_output_tokens", maxOutputTokens);
         body.put("input", prompt);
@@ -264,7 +266,7 @@ final class OpenAiClient {
         JSONObject local = requestLocalIfSelected(fullPrompt, maxOutputTokens, tool);
         if (local != null) return local;
         JSONObject body = PromptCacheRequest.buildBody(
-                MODEL,
+                selectedOpenAiApiModel(fullPrompt),
                 reasoningEffort,
                 maxOutputTokens,
                 prompt);
@@ -326,6 +328,15 @@ final class OpenAiClient {
     private void failDiagnosticLlmRequest(String queueId, Exception error) {
         if (queueId == null || queueId.isEmpty()) return;
         ProcessingQueueRegistry.markFailed(queueId, error);
+    }
+
+    private String selectedOpenAiApiModel(String fullPrompt) {
+        String npcId = attributedNpcId(fullPrompt);
+        if (npcId.isEmpty()) return GPT6_MODEL;
+        String stage = diagnosticBrainStage(fullPrompt);
+        String selectedModel = new NpcModelStore(appContext, npcId).effectiveModelForStage(stage);
+        if (!NpcInferenceModel.usesOpenAi(selectedModel)) return GPT6_MODEL;
+        return NpcInferenceModel.openAiApiModel(selectedModel);
     }
 
     private JSONObject requestLocalIfSelected(
@@ -425,7 +436,7 @@ final class OpenAiClient {
             if (call != null) {
                 JSONObject toolOutput = tool.invoke(call.arguments);
                 JSONObject continuation = new JSONObject();
-                continuation.put("model", MODEL);
+                continuation.put("model", response.optString("model", MODEL));
                 continuation.put("reasoning", new JSONObject().put("effort", reasoningEffort));
                 continuation.put("max_output_tokens", maxOutputTokens);
                 continuation.put("previous_response_id", response.optString("id", ""));
