@@ -1,0 +1,6 @@
+run_id=37095959588
+status=cancelled
+job_commit=885c1e05e0aa68cd5eda74aed5fd7c502fa9402b
+apk_path=dist/NPCBrain-release.apk
+debug_apk_path=dist/NPCBrain-debug.apk
+versionName=
