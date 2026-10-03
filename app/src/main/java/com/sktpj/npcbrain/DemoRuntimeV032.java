@@ -495,6 +495,31 @@ final class DemoRuntimeV032 {
         }
     }
 
+    private String inferenceModelLabel(String npcId, String stageId) {
+        if (!"global_workspace".equals(stageId)
+                && new SpecialistInferenceSettingsStore(appContext).usesDecisionModel()) {
+            String decision = new DecisionModelSettingsStore(appContext).model();
+            return "判断モデル · " + DecisionModelCatalog.displayLabel(decision);
+        }
+        NpcModelStore store = new NpcModelStore(appContext, npcId);
+        String model = "global_workspace".equals(stageId)
+                ? store.effectiveGlobalModel()
+                : store.effectiveSpecialistModel();
+        return NpcInferenceModel.displayLabel(model);
+    }
+
+    private String inferenceReasoningLabel(String npcId, String stageId, String effort) {
+        if (!"global_workspace".equals(stageId)
+                && new SpecialistInferenceSettingsStore(appContext).usesDecisionModel()) {
+            return "SYSTEM_ONE";
+        }
+        NpcModelStore store = new NpcModelStore(appContext, npcId);
+        String model = "global_workspace".equals(stageId)
+                ? store.effectiveGlobalModel()
+                : store.effectiveSpecialistModel();
+        return NpcInferenceModel.usesOpenAi(model) ? effort : "";
+    }
+
     private BrainRun runBrain(
             String npcId,
             String name,
@@ -533,6 +558,8 @@ final class DemoRuntimeV032 {
                 } catch (Exception ignored) {
                     copiedFacts = new JSONArray();
                 }
+                String stageModel = inferenceModelLabel(npcId, stageId);
+                String stageEffort = inferenceReasoningLabel(npcId, stageId, effort);
                 try {
                     JSONObject stage = new JSONObject();
                     stage.put("stage_id", stageId);
@@ -541,8 +568,8 @@ final class DemoRuntimeV032 {
                     stage.put("confidence", confidence);
                     stage.put("salient_facts", new JSONArray(copiedFacts.toString()));
                     stage.put("personality_effect", personalityEffect == null ? "" : personalityEffect);
-                    stage.put("model", OpenAiClient.MODEL);
-                    stage.put("reasoning_effort", effort);
+                    stage.put("model", stageModel);
+                    stage.put("reasoning_effort", stageEffort);
                     trace.put(stage);
                 } catch (Exception ignored) {
                 }
@@ -558,8 +585,8 @@ final class DemoRuntimeV032 {
                             confidence,
                             copiedFacts,
                             personalityEffect == null ? "" : personalityEffect,
-                            OpenAiClient.MODEL,
-                            effort);
+                            stageModel,
+                            stageEffort);
                 }
             }
         };
