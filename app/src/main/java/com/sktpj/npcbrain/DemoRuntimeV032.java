@@ -648,6 +648,13 @@ final class DemoRuntimeV032 {
                 + "otherwise skip. NPC targets are private peer conversations; the user is not implicitly included.";
     }
 
+    boolean roomUsesOpenAi(String roomId) {
+        for (String npcId : npcParticipants(roomId)) {
+            if (NpcInferenceAccess.usesOpenAi(appContext, npcId)) return true;
+        }
+        return false;
+    }
+
     String[] npcParticipants(String roomId) {
         String directNpcId = npcIdFromDirectRoom(roomId);
         if (!directNpcId.isEmpty()) {
