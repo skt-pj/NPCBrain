@@ -201,6 +201,50 @@ public final class SettingsActivity extends Activity {
         card.addView(group);
     }
 
+    private View buildLocalModelsCard() {
+        LinearLayout card = card();
+        card.addView(text("ローカルモデル 共通管理", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text(
+                "Light・Medium・HeavyのモデルデータはNPC間で共有されます。取得操作はDEBUGのNPC管理からも行えます。",
+                11,
+                AppUiTheme.APP_MUTED,
+                false));
+        localModelsContainer = new LinearLayout(this);
+        localModelsContainer.setOrientation(LinearLayout.VERTICAL);
+        card.addView(localModelsContainer);
+        refreshLocalModels();
+        return card;
+    }
+
+    private void refreshLocalModels() {
+        if (localModelsContainer == null) return;
+        localModelsContainer.removeAllViews();
+        addLocalModelStatus(NpcInferenceModel.LOCAL_LIGHT);
+        addLocalModelStatus(NpcInferenceModel.LOCAL_MEDIUM);
+        addLocalModelStatus(NpcInferenceModel.LOCAL_HEAVY);
+    }
+
+    private void addLocalModelStatus(String modelId) {
+        LocalModelRepository.ModelSpec spec = LocalModelRepository.spec(modelId);
+        LocalModelDownloadManager.Snapshot snapshot =
+                LocalModelDownloadManager.snapshot(this, modelId);
+        TextView title = text(
+                NpcInferenceModel.displayLabel(modelId) + "  ·  " + spec.fileName,
+                12,
+                AppUiTheme.APP_TEXT,
+                true);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(9);
+        localModelsContainer.addView(title, params);
+        localModelsContainer.addView(text(
+                spec.repository + "\n" + snapshot.displayText(),
+                10,
+                AppUiTheme.APP_MUTED,
+                false));
+    }
+
     private View buildAiSettingsCard() {
         LinearLayout card = card();
         card.addView(text("OpenAI 共通設定", 18, AppUiTheme.APP_TEXT, true));
