@@ -10,6 +10,7 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
@@ -26,6 +27,7 @@ public final class SettingsActivity extends Activity {
     private SecureApiKeyStore apiKeyStore;
     private ModelSettingsStore modelSettingsStore;
     private RoutingSettingsStore routingSettingsStore;
+    private LocalInferenceSettingsStore localInferenceSettingsStore;
     private ClefSettingsStore clefSettingsStore;
     private ClefPerformanceStore clefPerformanceStore;
     private NpcRegistryStore registryStore;
@@ -34,7 +36,6 @@ public final class SettingsActivity extends Activity {
     private TextView clefModelStatus;
     private Button clefModelButton;
     private TextView clefPerformanceStatus;
-    private Button clefToggleButton;
     private LinearLayout localModelsContainer;
     private LinearLayout budgetContainer;
     private Button cacheProbeButton;
@@ -47,6 +48,7 @@ public final class SettingsActivity extends Activity {
         apiKeyStore = new SecureApiKeyStore(this);
         modelSettingsStore = new ModelSettingsStore(this);
         routingSettingsStore = new RoutingSettingsStore(this);
+        localInferenceSettingsStore = new LocalInferenceSettingsStore(this);
         clefSettingsStore = new ClefSettingsStore(this);
         clefPerformanceStore = new ClefPerformanceStore(this);
         registryStore = new NpcRegistryStore(this);
@@ -74,7 +76,7 @@ public final class SettingsActivity extends Activity {
         header.addView(eyebrow);
         header.addView(text("AI管理", 26, AppUiTheme.APP_TEXT, true));
         TextView note = text(
-                "Global WorkspaceとSpecialist Brainの共通モデル割り当て、各Providerの共通設定を管理します。NPC個別の上書きはDEBUGのNPC管理で行います。",
+                "実行場所 → モデル → 詳細の順で共通AI構成を設定します。NPC個別の上書きはDEBUGのNPC管理で行います。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false);
@@ -92,7 +94,13 @@ public final class SettingsActivity extends Activity {
         body.setPadding(0, dp(12), 0, dp(18));
         scroll.addView(body);
 
-        body.addView(buildRoutingCard());
+        body.addView(buildCurrentConfigurationCard());
+
+        LinearLayout.LayoutParams routingParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        routingParams.topMargin = dp(12);
+        body.addView(buildRoutingCard(), routingParams);
 
         LinearLayout.LayoutParams openAiParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
