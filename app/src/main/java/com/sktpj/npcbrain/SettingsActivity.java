@@ -29,6 +29,7 @@ public final class SettingsActivity extends Activity {
     private RoutingSettingsStore routingSettingsStore;
     private LocalInferenceSettingsStore localInferenceSettingsStore;
     private ClefSettingsStore clefSettingsStore;
+    private SpecialistInferenceSettingsStore specialistInferenceSettingsStore;
     private ClefPerformanceStore clefPerformanceStore;
     private NpcRegistryStore registryStore;
     private NpcAiStaminaStore staminaStore;
@@ -50,6 +51,7 @@ public final class SettingsActivity extends Activity {
         routingSettingsStore = new RoutingSettingsStore(this);
         localInferenceSettingsStore = new LocalInferenceSettingsStore(this);
         clefSettingsStore = new ClefSettingsStore(this);
+        specialistInferenceSettingsStore = new SpecialistInferenceSettingsStore(this);
         clefPerformanceStore = new ClefPerformanceStore(this);
         registryStore = new NpcRegistryStore(this);
         staminaStore = new NpcAiStaminaStore(this);
@@ -170,14 +172,10 @@ public final class SettingsActivity extends Activity {
                 routeSummary(routingSettingsStore.globalModel()));
         addConfigurationRow(
                 card,
-                "Specialist Brain",
-                routeSummary(routingSettingsStore.specialistModel()));
-        addConfigurationRow(
-                card,
-                "Action Selection",
-                clefSettingsStore.enabled()
-                        ? "CLEF-Flash 9B Q4_K_M"
-                        : "Specialist Brainと同じ");
+                "分割脳（9専門）",
+                specialistInferenceSettingsStore.usesDecisionModel()
+                        ? "判断モデル / ローカル / CLEF-Flash 9B Q4_K_M"
+                        : "通常LLM / " + routeSummary(routingSettingsStore.specialistModel()));
         return card;
     }
 
@@ -208,15 +206,16 @@ public final class SettingsActivity extends Activity {
         LinearLayout card = card();
         card.addView(text("脳への割り当て", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text(
-                "Global Workspaceと9専門Brainは、実行場所 → モデル → 詳細の順で設定します。"
-                        + "詳細は共通設定を別ダイアログで編集します。",
+                "Global Workspaceは通常LLM固定。分割脳9専門は通常LLMか判断モデルのどちらか一方を使います。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false));
 
         addRoutingGroup(card, "Global Workspace", true);
-        addRoutingGroup(card, "Specialist Brain", false);
-        addActionSelectionGroup(card);
+        addSpecialistInferenceModeGroup(card);
+        if (!specialistInferenceSettingsStore.usesDecisionModel()) {
+            addRoutingGroup(card, "分割脳（通常LLM）", false);
+        }
         return card;
     }
 
@@ -502,51 +501,56 @@ public final class SettingsActivity extends Activity {
                 .show();
     }
 
-    private void addActionSelectionGroup(LinearLayout card) {
-        TextView heading = text("Action Selection", 15, AppUiTheme.APP_TEXT, true);
+    private void addSpecialistInferenceModeGroup(LinearLayout card) {
+        TextView heading = text("分割脳（9専門）", 15, AppUiTheme.APP_TEXT, true);
         LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
         headingParams.topMargin = dp(18);
         card.addView(heading, headingParams);
         card.addView(text(
-                "9専門のうちaction_selectionだけをSpecialist Brainと同じモデルにするか、CLEFへ置換します。",
+                "9専門すべてで同じ推論カテゴリを使います。判断モデルでは各専門が固定反応信号だけを返し、詳細な解釈と最終判断はGlobal Workspaceが行います。",
                 10,
                 AppUiTheme.APP_MUTED,
                 false));
 
         RadioGroup group = new RadioGroup(this);
-        RadioButton same = routeRadio("Specialist Brainと同じ");
-        RadioButton clef = routeRadio("CLEF-Flash 9B Q4_K_M");
-        int sameId = View.generateViewId();
-        int clefId = View.generateViewId();
-        same.setId(sameId);
-        clef.setId(clefId);
-        group.addView(same);
-        group.addView(clef);
-        group.check(clefSettingsStore.enabled() ? clefId : sameId);
+        RadioButton normal = routeRadio("通常LLM");
+        RadioButton decision = routeRadio("判断モデル（CLEF-Flash）");
+        int normalId = View.generateViewId();
+        int decisionId = View.generateViewId();
+        normal.setId(normalId);
+        decision.setId(decisionId);
+        group.addView(normal);
+        group.addView(decision);
+        group.check(specialistInferenceSettingsStore.usesDecisionModel()
+                ? decisionId : normalId);
+
         group.setOnCheckedChangeListener((radioGroup, checkedId) -> {
-            if (checkedId == sameId) {
-                if (clefSettingsStore.enabled()) {
-                    clefSettingsStore.setEnabled(false);
+            if (checkedId == normalId) {
+                if (specialistInferenceSettingsStore.usesDecisionModel()) {
+                    specialistInferenceSettingsStore.setMode(
+                            SpecialistInferenceSettingsStore.MODE_NORMAL_LLM);
                     rebuildContent();
                 }
                 return;
             }
+
             ClefLocalDownloadManager.Snapshot snapshot =
                     ClefLocalDownloadManager.snapshot(this);
             if (snapshot.downloaded) {
-                if (!clefSettingsStore.enabled()) {
-                    clefSettingsStore.setEnabled(true);
+                if (!specialistInferenceSettingsStore.usesDecisionModel()) {
+                    specialistInferenceSettingsStore.setMode(
+                            SpecialistInferenceSettingsStore.MODE_DECISION_MODEL);
                     rebuildContent();
                 }
                 return;
             }
-            clefSettingsStore.setEnabled(false);
-            radioGroup.check(sameId);
+
+            radioGroup.check(normalId);
             new AlertDialog.Builder(this)
                     .setTitle("CLEF-Flashが未ダウンロードです")
-                    .setMessage("Action SelectionでCLEFを使うには、約6.49GBのモデルを先にダウンロードします。")
+                    .setMessage("判断モデルを選ぶには、約6.49GBのCLEF-Flashを先にダウンロードします。")
                     .setPositiveButton("ダウンロード", (dialog, which) -> {
                         ClefLocalDownloadManager.startDownload(this);
                         refreshClef();
@@ -556,15 +560,20 @@ public final class SettingsActivity extends Activity {
         });
         card.addView(group, matchTop(dp(7)));
 
-        ClefLocalDownloadManager.Snapshot snapshot =
-                ClefLocalDownloadManager.snapshot(this);
-        card.addView(text(
-                "CLEF状態  " + snapshot.displayText()
-                        + (clefSettingsStore.enabled() ? " · 使用中" : " · 未使用"),
-                10,
-                AppUiTheme.APP_MUTED,
-                false),
-                matchTop(dp(5)));
+        if (specialistInferenceSettingsStore.usesDecisionModel()) {
+            ClefLocalDownloadManager.Snapshot snapshot =
+                    ClefLocalDownloadManager.snapshot(this);
+            card.addView(text(
+                    "実行場所  ローカル"
+                            + "\nモデル  CLEF-Flash 9B · Q4_K_M"
+                            + "\n処理  9専門を独立キュー項目としてFIFO実行"
+                            + "\ncontext  2048 tokens内へgrounded snapshotを自動圧縮"
+                            + "\n状態  " + snapshot.displayText(),
+                    10,
+                    AppUiTheme.APP_MUTED,
+                    false),
+                    matchTop(dp(6)));
+        }
     }
 
     private View buildLocalModelsCard() {
@@ -674,7 +683,7 @@ public final class SettingsActivity extends Activity {
         LinearLayout card = card();
         card.addView(text("CLEF-Flash 共通設定", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text(
-                "CLEFは一般モデルではなくAction Selection専用です。選択は上のAction Selectionで行います。",
+                "CLEF-Flashは分割脳9専門の判断モデルとして使います。各専門は固定の低レベル反応だけを返します。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false));
@@ -710,9 +719,10 @@ public final class SettingsActivity extends Activity {
         }
         new AlertDialog.Builder(this)
                 .setTitle("CLEF-Flashモデルを削除")
-                .setMessage("約6.49 GBのCLEF-Flashモデルを端末から削除します。Action SelectionはSpecialist Brainと同じ設定へ戻ります。")
+                .setMessage("約6.49 GBのCLEF-Flashモデルを端末から削除します。分割脳は通常LLMへ戻ります。")
                 .setPositiveButton("削除", (dialog, which) -> {
-                    clefSettingsStore.setEnabled(false);
+                    specialistInferenceSettingsStore.setMode(
+                            SpecialistInferenceSettingsStore.MODE_NORMAL_LLM);
                     if (!ClefLocalDownloadManager.deleteModel(this)) {
                         Toast.makeText(this, "CLEFモデルを削除できませんでした。", Toast.LENGTH_LONG).show();
                     }
@@ -751,12 +761,14 @@ public final class SettingsActivity extends Activity {
 
     private void refreshClef() {
         ClefLocalDownloadManager.Snapshot snapshot = ClefLocalDownloadManager.snapshot(this);
-        if (!snapshot.downloaded && clefSettingsStore.enabled()) {
-            clefSettingsStore.setEnabled(false);
+        if (!snapshot.downloaded && specialistInferenceSettingsStore.usesDecisionModel()) {
+            specialistInferenceSettingsStore.setMode(
+                    SpecialistInferenceSettingsStore.MODE_NORMAL_LLM);
         }
         if (clefModelStatus != null) {
             clefModelStatus.setText(snapshot.displayText()
-                    + (clefSettingsStore.enabled() ? " · Action Selectionで使用中" : ""));
+                    + (specialistInferenceSettingsStore.usesDecisionModel()
+                    ? " · 分割脳9専門で使用中" : ""));
         }
         if (clefModelButton != null) {
             clefModelButton.setEnabled(!snapshot.downloading);
