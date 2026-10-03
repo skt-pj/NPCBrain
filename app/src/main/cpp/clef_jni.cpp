@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <climits>
 #include <cstdint>
 #include <mutex>
 #include <sstream>
