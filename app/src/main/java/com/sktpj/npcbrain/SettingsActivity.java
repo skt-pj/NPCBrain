@@ -838,31 +838,50 @@ public final class SettingsActivity extends Activity {
 
     private View buildClefSettingsCard() {
         LinearLayout card = card();
-        card.addView(text("CLEF-Flash 共通設定", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text("判断モデル管理", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text(
-                "CLEFは一般モデルではなくAction Selection専用です。選択は上のAction Selectionで行います。",
+                "分割脳で「判断モデル」を選んだ場合だけ使用します。通常LLMと同時には実行しません。"
+                        + " 判断モデルは自由文を生成せず、stateとtyped questionから選択肢の確率を返します。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false));
 
-        TextView model = text(
-                "CLEF-Flash 9B · Q4_K_M · 約6.49 GB",
-                12,
-                AppUiTheme.APP_TEXT,
-                true);
-        card.addView(model, matchTop(dp(9)));
+        card.addView(text("ローカル", 13, AppUiTheme.APP_TEXT, true), matchTop(dp(11)));
         card.addView(text(
-                "ggml-org/Clef-Flash-GGUF · architecture=clef / joint head込み",
-                10,
+                "Clef-flash 9B · Q4_K_M · 約6.49 GB"
+                        + "\nggml-org/Clef-Flash-GGUF · architecture=clef / joint head込み",
+                11,
                 AppUiTheme.APP_MUTED,
                 false));
 
         clefModelStatus = text("", 12, AppUiTheme.APP_TEXT, true);
-        card.addView(clefModelStatus, matchTop(dp(8)));
+        card.addView(clefModelStatus, matchTop(dp(7)));
 
         clefModelButton = actionButton("");
         clefModelButton.setOnClickListener(v -> handleClefModelButton());
         card.addView(clefModelButton, matchTop(dp(7)));
+
+        card.addView(text("クラウド", 13, AppUiTheme.APP_TEXT, true), matchTop(dp(14)));
+        card.addView(text(
+                "Provider  Cloudflare Workers AI"
+                        + "\nモデル  Clef-flash 9B / Clef 27B",
+                11,
+                AppUiTheme.APP_MUTED,
+                false));
+        card.addView(text(
+                "Account ID  "
+                        + (decisionModelSettingsStore.cloudflareAccountId().isEmpty()
+                        ? "未設定" : "設定済み")
+                        + "  ·  API token  "
+                        + (hasCloudflareToken() ? "設定済み" : "未設定"),
+                11,
+                AppUiTheme.APP_TEXT,
+                true),
+                matchTop(dp(7)));
+
+        Button cloud = actionButton("Cloudflare認証設定");
+        cloud.setOnClickListener(v -> showCloudflareCredentialsDialog());
+        card.addView(cloud, matchTop(dp(7)));
         return card;
     }
 
@@ -875,12 +894,14 @@ public final class SettingsActivity extends Activity {
             return;
         }
         new AlertDialog.Builder(this)
-                .setTitle("CLEF-Flashモデルを削除")
-                .setMessage("約6.49 GBのCLEF-Flashモデルを端末から削除します。Action SelectionはSpecialist Brainと同じ設定へ戻ります。")
+                .setTitle("ローカル判断モデルを削除")
+                .setMessage(
+                        "約6.49 GBのClef-flashモデルを端末から削除します。"
+                                + "\n\n分割脳の推論方式は変更しません。判断モデルを選択中の場合、"
+                                + "再ダウンロードするまで明示的に実行エラーになります。通常LLMへ自動fallbackしません。")
                 .setPositiveButton("削除", (dialog, which) -> {
-                    clefSettingsStore.setEnabled(false);
                     if (!ClefLocalDownloadManager.deleteModel(this)) {
-                        Toast.makeText(this, "CLEFモデルを削除できませんでした。", Toast.LENGTH_LONG).show();
+                        Toast.makeText(this, "判断モデルを削除できませんでした。", Toast.LENGTH_LONG).show();
                     }
                     rebuildContent();
                 })
@@ -890,9 +911,10 @@ public final class SettingsActivity extends Activity {
 
     private View buildClefPerformanceCard() {
         LinearLayout card = card();
-        card.addView(text("CLEF 実測パフォーマンス", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text("判断モデル 実測パフォーマンス", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text(
-                "端末内CLEFを実際に実行したときの処理時間とprocess memoryを記録します。追加推論は行いません。",
+                "分割脳の判断モデルを実際に実行したときの処理時間とprocess memoryを記録します。"
+                        + "測定用の追加推論は行いません。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false));
@@ -917,18 +939,18 @@ public final class SettingsActivity extends Activity {
 
     private void refreshClef() {
         ClefLocalDownloadManager.Snapshot snapshot = ClefLocalDownloadManager.snapshot(this);
-        if (!snapshot.downloaded && clefSettingsStore.enabled()) {
-            clefSettingsStore.setEnabled(false);
-        }
         if (clefModelStatus != null) {
-            clefModelStatus.setText(snapshot.displayText()
-                    + (clefSettingsStore.enabled() ? " · Action Selectionで使用中" : ""));
+            String use = specialistInferenceSettingsStore.usesDecisionModel()
+                    && DecisionModelCatalog.isLocal(decisionModelSettingsStore.model())
+                    ? " · 分割脳で選択中"
+                    : "";
+            clefModelStatus.setText(snapshot.displayText() + use);
         }
         if (clefModelButton != null) {
             clefModelButton.setEnabled(!snapshot.downloading);
             clefModelButton.setText(snapshot.downloading
                     ? "ダウンロード中…"
-                    : snapshot.downloaded ? "CLEFモデルを削除" : "CLEFモデルをダウンロード");
+                    : snapshot.downloaded ? "ローカル判断モデルを削除" : "ローカル判断モデルをダウンロード");
         }
         if (snapshot.downloading && clefModelStatus != null) {
             clefModelStatus.removeCallbacks(clefDownloadRefresh);
