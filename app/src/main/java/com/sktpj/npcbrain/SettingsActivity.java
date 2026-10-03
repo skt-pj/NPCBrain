@@ -138,7 +138,7 @@ public final class SettingsActivity extends Activity {
             body.addView(buildPromptCacheDebugCard(), cacheParams);
         }
 
-        TextView budgetTitle = text("NPC別 OpenAI Luna費用", 18, AppUiTheme.APP_TEXT, true);
+        TextView budgetTitle = text("通常LLM · NPC別 OpenAI Luna費用", 18, AppUiTheme.APP_TEXT, true);
         LinearLayout.LayoutParams budgetTitleParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -217,7 +217,7 @@ public final class SettingsActivity extends Activity {
         card.addView(text("脳への割り当て", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text(
                 "Global Workspaceは通常LLMで統合します。分割脳の9専門は「通常LLM」か「判断モデル」のどちらか一方だけで動きます。"
-                        + " Action Selectionだけを別モデルにする設定はありません。",
+                        + " 9専門の一部だけを別モデルにする設定はありません。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false));
@@ -735,7 +735,7 @@ public final class SettingsActivity extends Activity {
 
     private View buildLocalModelsCard() {
         LinearLayout card = card();
-        card.addView(text("ローカルモデル管理", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text("通常LLM · ローカルモデル管理", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text(
                 "モデル名を直接選びます。軽量 / 中量 / 高負荷はモデルの補助情報で、選択値ではありません。",
                 11,
@@ -809,7 +809,7 @@ public final class SettingsActivity extends Activity {
 
     private View buildAiSettingsCard() {
         LinearLayout card = card();
-        card.addView(text("クラウド設定", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text("通常LLM · クラウド設定", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text("Provider  OpenAI", 12, AppUiTheme.APP_TEXT, true), matchTop(dp(7)));
         card.addView(text("モデル  GPT-6 Luna / GPT-5.6 Luna", 11, AppUiTheme.APP_MUTED, false));
         card.addView(text(
