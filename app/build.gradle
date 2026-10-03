@@ -10,6 +10,7 @@ rootProject.file('version.properties').withInputStream { versionProps.load(it) }
 android {
     namespace 'com.sktpj.npcbrain'
     compileSdk 36
+    ndkVersion '29.0.14206865'
 
     defaultConfig {
         applicationId 'com.sktpj.npcbrain'
@@ -17,6 +18,16 @@ android {
         targetSdk 36
         versionCode versionProps.getProperty('VERSION_CODE').toInteger()
         versionName versionProps.getProperty('VERSION_NAME')
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_shared'
+            }
+        }
     }
 
     buildTypes {
@@ -28,6 +39,13 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.31.6'
+        }
     }
 
     testOptions {
