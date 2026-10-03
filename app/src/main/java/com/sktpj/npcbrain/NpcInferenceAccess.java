@@ -12,8 +12,11 @@ final class NpcInferenceAccess {
 
     static boolean usesOpenAi(Context context, String npcId) {
         NpcModelStore store = new NpcModelStore(context, npcId);
+        boolean decisionSpecialists =
+                new SpecialistInferenceSettingsStore(context).usesDecisionModel();
         return NpcInferenceModel.usesOpenAi(store.effectiveGlobalModel())
-                || NpcInferenceModel.usesOpenAi(store.effectiveSpecialistModel());
+                || (!decisionSpecialists
+                && NpcInferenceModel.usesOpenAi(store.effectiveSpecialistModel()));
     }
 
     static boolean hasRequiredApiKey(Context context, String npcId, String apiKey) {
