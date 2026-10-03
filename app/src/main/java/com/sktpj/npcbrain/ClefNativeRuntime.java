@@ -13,25 +13,31 @@ final class ClefNativeRuntime {
     static double[] decide(
             File modelFile,
             String state,
-            String[] actionIds,
-            String[] actionDescriptions
+            String questionId,
+            String questionInstruction,
+            String evidenceInstruction,
+            String[] optionIds,
+            String[] optionDescriptions
     ) {
         if (modelFile == null || !modelFile.isFile() || modelFile.length() <= 0L) {
             throw new IllegalStateException("ローカルCLEFモデルがありません");
         }
-        if (actionIds == null
-                || actionDescriptions == null
-                || actionIds.length == 0
-                || actionIds.length != actionDescriptions.length) {
-            throw new IllegalArgumentException("CLEF action criteria are invalid");
+        if (optionIds == null
+                || optionDescriptions == null
+                || optionIds.length == 0
+                || optionIds.length != optionDescriptions.length) {
+            throw new IllegalArgumentException("CLEF decision criteria are invalid");
         }
         synchronized (LOCK) {
             double[] scores = nativeDecide(
                     modelFile.getAbsolutePath(),
                     state == null ? "" : state,
-                    Arrays.copyOf(actionIds, actionIds.length),
-                    Arrays.copyOf(actionDescriptions, actionDescriptions.length));
-            int expected = actionIds.length + 2;
+                    questionId == null ? "decision" : questionId,
+                    questionInstruction == null ? "" : questionInstruction,
+                    evidenceInstruction == null ? "" : evidenceInstruction,
+                    Arrays.copyOf(optionIds, optionIds.length),
+                    Arrays.copyOf(optionDescriptions, optionDescriptions.length));
+            int expected = optionIds.length + 2;
             if (scores == null || scores.length != expected) {
                 throw new IllegalStateException(
                         "CLEF native score countが不正です: "
@@ -51,8 +57,11 @@ final class ClefNativeRuntime {
     private static native double[] nativeDecide(
             String modelPath,
             String state,
-            String[] actionIds,
-            String[] actionDescriptions);
+            String questionId,
+            String questionInstruction,
+            String evidenceInstruction,
+            String[] optionIds,
+            String[] optionDescriptions);
 
     private static native void nativeUnload();
 
