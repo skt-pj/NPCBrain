@@ -72,6 +72,7 @@ public final class WorldShellActivityV212 extends Activity {
     private DemoRuntimeV032 demoRuntime;
     private SecureApiKeyStore apiKeyStore;
     private ModelSettingsStore modelSettingsStore;
+    private RoutingSettingsStore routingSettingsStore;
 
     private LinearLayout root;
     private TextView tabTitle;
@@ -102,6 +103,7 @@ public final class WorldShellActivityV212 extends Activity {
         demoRuntime = new DemoRuntimeV032(this, conversations);
         apiKeyStore = new SecureApiKeyStore(this);
         modelSettingsStore = new ModelSettingsStore(this);
+        routingSettingsStore = new RoutingSettingsStore(this);
         query = NPCBrainApplication.worldQuery();
         if (query == null) {
             WorldKernelV210 kernel = WorldKernelV210.get(getApplicationContext());
