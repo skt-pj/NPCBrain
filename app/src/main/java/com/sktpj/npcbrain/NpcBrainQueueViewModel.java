@@ -46,10 +46,10 @@ final class NpcBrainQueueViewModel {
             return count;
         }
 
-        int activeLlmCount() {
+        int activeInferenceCount() {
             int count = 0;
             for (ProcessingQueueRegistry.Entry entry : active) {
-                if (isLlm(entry)) count++;
+                if (isInference(entry)) count++;
             }
             return count;
         }
@@ -137,8 +137,23 @@ final class NpcBrainQueueViewModel {
         return entry != null && "llm_request".equals(entry.type);
     }
 
+    static boolean isDecisionModel(ProcessingQueueRegistry.Entry entry) {
+        return entry != null && "decision_model".equals(entry.type);
+    }
+
+    static boolean isInference(ProcessingQueueRegistry.Entry entry) {
+        return isLlm(entry) || isDecisionModel(entry);
+    }
+
     static String internalLabel(ProcessingQueueRegistry.Entry entry) {
         if (entry == null) return "処理";
+        if (isDecisionModel(entry)) {
+            String stageId = stageId(entry.detail);
+            if (!stageId.isEmpty()) {
+                return "専門Brain · " + BrainEngine.stageLabel(stageId);
+            }
+            return "専門Brain · 判断モデル";
+        }
         if (isLlm(entry)) {
             String stageId = stageId(entry.detail);
             if ("global_workspace".equals(stageId)) return "Global Workspace";
@@ -157,15 +172,24 @@ final class NpcBrainQueueViewModel {
     }
 
     static String modelLabel(ProcessingQueueRegistry.Entry entry) {
+        if (entry == null) return "";
+        if (isDecisionModel(entry)) {
+            return "判断モデル · ローカル · CLEF-Flash 9B · Q4_K_M";
+        }
         if (!isLlm(entry)) return "";
+
         String detail = safe(entry.detail);
         int delimiter = detail.indexOf(" · ");
         String model = delimiter >= 0 ? detail.substring(0, delimiter) : detail;
-        if (NpcInferenceModel.LOCAL_LIGHT.equals(model)) return "ローカル・軽い";
-        if (NpcInferenceModel.LOCAL_MEDIUM.equals(model)) return "ローカル・中";
-        if (NpcInferenceModel.LOCAL_HEAVY.equals(model)) return "ローカル・重い";
-        if (NpcInferenceModel.OPENAI_LUNA.equals(model)) return "OpenAI Luna";
-        return model;
+        if (NpcInferenceModel.LOCAL_LIGHT.equals(model)
+                || NpcInferenceModel.LOCAL_MEDIUM.equals(model)
+                || NpcInferenceModel.LOCAL_HEAVY.equals(model)) {
+            return "通常LLM · ローカル · " + NpcInferenceModel.displayLabel(model);
+        }
+        if (NpcInferenceModel.usesOpenAi(model)) {
+            return "通常LLM · クラウド · OpenAI / " + NpcInferenceModel.displayLabel(model);
+        }
+        return "推論モデル · " + model;
     }
 
     static String stageId(String detail) {

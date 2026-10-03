@@ -1,6 +1,7 @@
 package com.sktpj.npcbrain;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -85,7 +86,7 @@ public final class ProcessingQueueActivity extends Activity {
         root.addView(title);
 
         TextView description = new TextView(this);
-        description.setText("NPCごとに脳処理を1件へ集約します。NPCをタップすると、9専門Brain・Global Workspace・その他の内部処理と、各処理のキュー投入・デキュー・待機時間・実処理時間を表示します。");
+        description.setText("NPCごとに脳処理を1件へ集約します。NPCをタップすると9専門Brain・Global Workspace・その他の内部処理を表示します。さらに各推論行をタップすると、実行場所・実モデル・入力・質問/選択肢・出力を確認できます。");
         description.setTextSize(12f);
         description.setTextColor(AppUiTheme.APP_MUTED);
         LinearLayout.LayoutParams descriptionParams = new LinearLayout.LayoutParams(
@@ -194,12 +195,12 @@ public final class ProcessingQueueActivity extends Activity {
             long earliest = earliestQueued(group.active);
             int running = group.runningCount();
             int queued = group.queuedCount();
-            int llm = group.activeLlmCount();
+            int inference = group.activeInferenceCount();
             StringBuilder result = new StringBuilder();
             result.append("最初のキュー投入 ").append(formatClock(earliest));
             result.append("\n内部処理  実行中 ").append(running)
                     .append("件 · 待機中 ").append(queued).append("件");
-            if (llm > 0) result.append(" · LLM ").append(llm).append("件");
+            if (inference > 0) result.append(" · 推論 ").append(inference).append("件");
             return result.toString();
         }
         long latest = latestFinished(group.recent);
@@ -310,7 +311,95 @@ public final class ProcessingQueueActivity extends Activity {
             errorParams.topMargin = dp(4);
             row.addView(error, errorParams);
         }
+
+        if (!entry.requestPayload.isEmpty() || !entry.responsePayload.isEmpty()) {
+            TextView inspect = new TextView(this);
+            inspect.setText("▶ タップして入出力を見る");
+            inspect.setTextSize(10f);
+            inspect.setTypeface(Typeface.DEFAULT_BOLD);
+            inspect.setTextColor(AppUiTheme.APP_MUTED);
+            LinearLayout.LayoutParams inspectParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            inspectParams.topMargin = dp(5);
+            row.addView(inspect, inspectParams);
+            row.setClickable(true);
+            row.setFocusable(true);
+            row.setOnClickListener(v -> showEntryDetail(entry));
+        }
         return row;
+    }
+
+    private void showEntryDetail(ProcessingQueueRegistry.Entry entry) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(16), dp(8), dp(16), dp(16));
+        scroll.addView(content);
+
+        addDetailText(content, "実行情報",
+                "queue_id=" + entry.id
+                        + "\nstatus=" + internalStatusLabel(entry.status, 0)
+                        + "\ntype=" + entry.type
+                        + "\n" + NpcBrainQueueViewModel.modelLabel(entry)
+                        + "\nraw=" + entry.detail
+                        + "\n" + queueTimeText(entry),
+                false);
+
+        addDetailText(content, "入力 / 質問",
+                entry.requestPayload.isEmpty()
+                        ? "この処理では診断入力が記録されていません。"
+                        : entry.requestPayload,
+                true);
+
+        addDetailText(content, "出力 / 反応",
+                entry.responsePayload.isEmpty()
+                        ? (entry.status == ProcessingQueueRegistry.Status.RUNNING
+                        || entry.status == ProcessingQueueRegistry.Status.QUEUED
+                        ? "まだ出力されていません。" : "出力診断が記録されていません。")
+                        : entry.responsePayload,
+                true);
+
+        if (!entry.error.isEmpty()) {
+            addDetailText(content, "エラー", entry.error, true);
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle(NpcBrainQueueViewModel.internalLabel(entry))
+                .setView(scroll)
+                .setPositiveButton("閉じる", null)
+                .show();
+    }
+
+    private void addDetailText(
+            LinearLayout parent,
+            String title,
+            String value,
+            boolean monospace
+    ) {
+        TextView heading = new TextView(this);
+        heading.setText(title);
+        heading.setTextSize(12f);
+        heading.setTypeface(Typeface.DEFAULT_BOLD);
+        heading.setTextColor(AppUiTheme.APP_TEXT);
+        LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        headingParams.topMargin = dp(10);
+        parent.addView(heading, headingParams);
+
+        TextView body = new TextView(this);
+        body.setText(value == null ? "" : value);
+        body.setTextSize(10f);
+        body.setTextColor(AppUiTheme.APP_TEXT);
+        body.setTextIsSelectable(true);
+        if (monospace) body.setTypeface(Typeface.MONOSPACE);
+        body.setLineSpacing(0f, 1.15f);
+        LinearLayout.LayoutParams bodyParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        bodyParams.topMargin = dp(4);
+        parent.addView(body, bodyParams);
     }
 
     private String internalStatusLabel(ProcessingQueueRegistry.Status status, int queuedPosition) {

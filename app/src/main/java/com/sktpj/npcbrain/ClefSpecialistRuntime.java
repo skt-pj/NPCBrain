@@ -47,6 +47,9 @@ final class ClefSpecialistRuntime {
                 npcId,
                 model + " · local · brain_stage=" + moduleId,
                 System.currentTimeMillis());
+        ProcessingQueueRegistry.attachRequest(
+                queueId,
+                diagnosticRequest(moduleId, boundedState, fields).toString());
 
         long startedNs = SystemClock.elapsedRealtimeNanos();
         long pssBeforeKb = Debug.getPss();
@@ -61,6 +64,7 @@ final class ClefSpecialistRuntime {
                 return adaptScores(moduleId, fields, scores);
             });
             success = true;
+            ProcessingQueueRegistry.attachResponse(queueId, result.toString());
             ProcessingQueueRegistry.markCompleted(queueId);
             return result;
         } catch (Exception error) {
@@ -81,6 +85,48 @@ final class ClefSpecialistRuntime {
                     success,
                     failure);
         }
+    }
+
+    static JSONObject diagnosticRequest(
+            String moduleId,
+            String boundedState,
+            List<ClefSpecialistSchema.Field> fields
+    ) throws Exception {
+        JSONObject request = new JSONObject();
+        request.put("engine", "decision_model");
+        request.put("execution_location", "local");
+        request.put("model", ClefSettingsStore.MODEL_CLEF_FLASH);
+        request.put("module", moduleId == null ? "" : moduleId);
+
+        String state = boundedState == null ? "" : boundedState.trim();
+        try {
+            request.put("grounded_state", new JSONObject(state));
+        } catch (Exception ignored) {
+            request.put("grounded_state", state);
+        }
+
+        JSONArray schema = new JSONArray();
+        if (fields != null) {
+            for (ClefSpecialistSchema.Field field : fields) {
+                if (field == null) continue;
+                JSONObject item = new JSONObject();
+                item.put("signal", field.id);
+                item.put("question", field.instruction);
+                JSONArray options = new JSONArray();
+                for (int i = 0; i < field.optionIds.length; i++) {
+                    options.put(new JSONObject()
+                            .put("value", field.optionIds[i])
+                            .put("meaning", field.optionDescriptions[i]));
+                }
+                item.put("options", options);
+                schema.put(item);
+            }
+        }
+        request.put("fixed_reaction_schema", schema);
+        request.put("note",
+                "This specialist only returns fixed low-level reaction signals. "
+                        + "Global Workspace performs detailed interpretation and final action selection.");
+        return request;
     }
 
     static JSONObject adaptScores(

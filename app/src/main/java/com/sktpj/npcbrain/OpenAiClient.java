@@ -213,16 +213,17 @@ final class OpenAiClient {
     }
 
     private JSONObject requestJsonInternal(String prompt, int maxOutputTokens) throws Exception {
-    String queueId = beginDiagnosticLlmRequest(prompt);
-    try {
-        JSONObject result = requestJsonInternalUnobserved(prompt, maxOutputTokens);
-        completeDiagnosticLlmRequest(queueId);
-        return result;
-    } catch (Exception error) {
-        failDiagnosticLlmRequest(queueId, error);
-        throw error;
+        String queueId = beginDiagnosticLlmRequest(prompt);
+        try {
+            JSONObject result = requestJsonInternalUnobserved(prompt, maxOutputTokens);
+            ProcessingQueueRegistry.attachResponse(queueId, result.toString());
+            completeDiagnosticLlmRequest(queueId);
+            return result;
+        } catch (Exception error) {
+            failDiagnosticLlmRequest(queueId, error);
+            throw error;
+        }
     }
-}
 
     private JSONObject requestJsonInternalUnobserved(String prompt, int maxOutputTokens) throws Exception {
         FunctionTool tool = isGlobalWorkspacePrompt(prompt) ? FUNCTION_TOOL.get() : null;
@@ -249,6 +250,7 @@ final class OpenAiClient {
         String queueId = beginDiagnosticLlmRequest(fullPrompt);
         try {
             JSONObject result = requestJsonInternalUnobserved(prompt, maxOutputTokens);
+            ProcessingQueueRegistry.attachResponse(queueId, result.toString());
             completeDiagnosticLlmRequest(queueId);
             return result;
         } catch (Exception error) {
@@ -284,11 +286,13 @@ final class OpenAiClient {
             if (npcId.isEmpty()) return "";
             String stage = diagnosticBrainStage(fullPrompt);
             String selectedModel = new NpcModelStore(appContext, npcId).effectiveModelForStage(stage);
-            return ProcessingQueueRegistry.startRunning(
+            String queueId = ProcessingQueueRegistry.startRunning(
                     "llm_request",
                     npcId,
                     selectedModel + " · brain_stage=" + stage,
                     System.currentTimeMillis());
+            ProcessingQueueRegistry.attachRequest(queueId, fullPrompt);
+            return queueId;
         } catch (Exception ignored) {
             return "";
         }

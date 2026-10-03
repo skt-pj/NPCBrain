@@ -47,7 +47,7 @@ public final class NpcBrainQueueViewModelTest {
         assertEquals(2, groups.size());
         assertEquals("npc9", groups.get(0).npcId);
         assertEquals(9, groups.get(0).active.size());
-        assertEquals(9, groups.get(0).activeLlmCount());
+        assertEquals(9, groups.get(0).activeInferenceCount());
         assertEquals("npc10", groups.get(1).npcId);
         assertEquals(1, groups.get(1).active.size());
     }
@@ -101,7 +101,20 @@ public final class NpcBrainQueueViewModelTest {
 
         assertEquals("専門Brain · エピソード記憶", NpcBrainQueueViewModel.internalLabel(specialist));
         assertEquals("Global Workspace", NpcBrainQueueViewModel.internalLabel(workspace));
-        assertEquals("ローカル・軽い", NpcBrainQueueViewModel.modelLabel(specialist));
+        assertEquals("通常LLM · ローカル · Qwen2 0.5B Instruct", NpcBrainQueueViewModel.modelLabel(specialist));
+        ProcessingQueueRegistry.Entry decision = new ProcessingQueueRegistry.Entry(
+                "q4",
+                "decision_model",
+                "npc9",
+                "clef-flash-local-q4_k_m · local · brain_stage=valuation",
+                ProcessingQueueRegistry.Status.RUNNING,
+                1_000L,
+                1_100L,
+                0L,
+                "");
+        assertEquals("専門Brain · 価値判断", NpcBrainQueueViewModel.internalLabel(decision));
+        assertEquals("判断モデル · ローカル · CLEF-Flash 9B · Q4_K_M",
+                NpcBrainQueueViewModel.modelLabel(decision));
         assertFalse(NpcBrainQueueViewModel.belongsToNpcBrain(new ProcessingQueueRegistry.Entry(
                 "q3", "spontaneous_cognition", "", "", ProcessingQueueRegistry.Status.RUNNING,
                 1L, 1L, 0L, "")));
