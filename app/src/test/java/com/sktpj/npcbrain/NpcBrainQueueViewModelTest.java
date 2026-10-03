@@ -113,7 +113,7 @@ public final class NpcBrainQueueViewModelTest {
                 0L,
                 "");
         assertEquals("専門Brain · 価値判断", NpcBrainQueueViewModel.internalLabel(decision));
-        assertEquals("判断モデル · ローカル · CLEF-Flash 9B · Q4_K_M · ローカル",
+        assertEquals("判断モデル · ローカル · CLEF-Flash 9B · Q4_K_M",
                 NpcBrainQueueViewModel.modelLabel(decision));
         assertFalse(NpcBrainQueueViewModel.belongsToNpcBrain(new ProcessingQueueRegistry.Entry(
                 "q3", "spontaneous_cognition", "", "", ProcessingQueueRegistry.Status.RUNNING,
