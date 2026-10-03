@@ -216,22 +216,25 @@ final class BrainEngine {
     private final OpenAiClient client;
     private final MemoryStore memoryStore;
     private final CharacterStateStore characterStore;
-    private final ClefActionSelectionRuntime clefActionSelectionRuntime;
+    private final boolean specialistsUseDecisionModel;
+    private final SpecialistDecisionModelRuntime specialistDecisionRuntime;
 
     BrainEngine(OpenAiClient client, MemoryStore memoryStore, CharacterStateStore characterStore) {
-        this(client, memoryStore, characterStore, null);
+        this(client, memoryStore, characterStore, false, null);
     }
 
     BrainEngine(
             OpenAiClient client,
             MemoryStore memoryStore,
             CharacterStateStore characterStore,
-            ClefActionSelectionRuntime clefActionSelectionRuntime
+            boolean specialistsUseDecisionModel,
+            SpecialistDecisionModelRuntime specialistDecisionRuntime
     ) {
         this.client = client;
         this.memoryStore = memoryStore;
         this.characterStore = characterStore;
-        this.clefActionSelectionRuntime = clefActionSelectionRuntime;
+        this.specialistsUseDecisionModel = specialistsUseDecisionModel;
+        this.specialistDecisionRuntime = specialistDecisionRuntime;
     }
 
     String think(String userInput, ProgressListener listener) throws Exception {
@@ -279,16 +282,24 @@ final class BrainEngine {
                 MODULES.size(),
                 index -> {
                     Module module = MODULES.get(index);
-                    PromptCacheRequest.Prompt prompt = specialistPrompt(
-                            module,
-                            specialistCommonJson,
-                            graphFocusJson[index]);
                     JSONObject result;
-                    if ("action_selection".equals(module.id)
-                            && clefActionSelectionRuntime != null
-                            && clefActionSelectionRuntime.shouldHandle()) {
-                        result = clefActionSelectionRuntime.request(prompt.fullText());
+                    if (specialistsUseDecisionModel) {
+                        if (specialistDecisionRuntime == null) {
+                            throw new IllegalStateException(
+                                    "分割脳の判断モデルruntimeが初期化されていません");
+                        }
+                        result = specialistDecisionRuntime.request(
+                                module.id,
+                                module.label,
+                                module.role,
+                                module.personalityRule,
+                                new JSONObject(specialistCommonJson),
+                                new JSONObject(graphFocusJson[index]));
                     } else {
+                        PromptCacheRequest.Prompt prompt = specialistPrompt(
+                                module,
+                                specialistCommonJson,
+                                graphFocusJson[index]);
                         result = client.requestJson(prompt);
                     }
                     result.put("module", module.id);
