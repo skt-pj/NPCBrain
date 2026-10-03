@@ -40,7 +40,8 @@ public final class ClefPerformanceTest {
         assertTrue(runtime.contains("SystemClock.elapsedRealtimeNanos()"));
         assertTrue(runtime.contains("Debug.getPss()"));
         assertTrue(runtime.contains("new ClefPerformanceStore(appContext).record("));
-        assertEquals(1, occurrences(runtime, ").decide(state)"));
+        assertEquals(1, occurrences(runtime, "ClefNativeRuntime.decide("));
+        assertTrue(runtime.contains("modelRepository.isDownloaded()"));
 
         String settings = read("src/main/java/com/sktpj/npcbrain/SettingsActivity.java");
         assertTrue(settings.contains("CLEF 実測パフォーマンス"));
