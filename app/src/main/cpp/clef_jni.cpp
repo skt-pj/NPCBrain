@@ -127,12 +127,10 @@ struct PromptInput {
     int32_t n_scores = 0;
 };
 
-void append_piece(
+void append_tokens(
         PromptInput & input,
-        const llama_vocab * vocab,
-        const std::string & text,
+        const std::vector<llama_token> & tokens,
         int32_t order) {
-    std::vector<llama_token> tokens = tokenize_piece(vocab, text);
     if (order != LLAMA_DECISION_ORDER_NONE && tokens.empty()) {
         throw std::runtime_error("CLEF question/option token span is empty");
     }
@@ -143,11 +141,50 @@ void append_piece(
     }
 }
 
+void append_piece(
+        PromptInput & input,
+        const llama_vocab * vocab,
+        const std::string & text,
+        int32_t order) {
+    append_tokens(input, tokenize_piece(vocab, text), order);
+}
+
+void append_bounded_state(
+        PromptInput & input,
+        const llama_vocab * vocab,
+        const std::string & state,
+        size_t max_state_tokens) {
+    std::vector<llama_token> tokens = tokenize_piece(vocab, state);
+    if (tokens.size() <= max_state_tokens) {
+        append_tokens(input, tokens, LLAMA_DECISION_ORDER_NONE);
+        return;
+    }
+
+    static const std::string omitted =
+            "\n...[middle of grounded state omitted to fit local CLEF context]...\n";
+    std::vector<llama_token> omitted_tokens = tokenize_piece(vocab, omitted);
+    if (max_state_tokens <= omitted_tokens.size()) {
+        tokens.resize(max_state_tokens);
+        append_tokens(input, tokens, LLAMA_DECISION_ORDER_NONE);
+        return;
+    }
+
+    const size_t payload = max_state_tokens - omitted_tokens.size();
+    const size_t head_count = payload * 3 / 5;
+    const size_t tail_count = payload - head_count;
+    std::vector<llama_token> head(tokens.begin(), tokens.begin() + head_count);
+    std::vector<llama_token> tail(tokens.end() - tail_count, tokens.end());
+    append_tokens(input, head, LLAMA_DECISION_ORDER_NONE);
+    append_tokens(input, omitted_tokens, LLAMA_DECISION_ORDER_NONE);
+    append_tokens(input, tail, LLAMA_DECISION_ORDER_NONE);
+}
+
 PromptInput build_prompt(
         const llama_vocab * vocab,
         const std::string & state,
         const std::vector<std::string> & action_ids,
-        const std::vector<std::string> & action_descriptions) {
+        const std::vector<std::string> & action_descriptions,
+        size_t max_state_tokens) {
     if (action_ids.empty() || action_ids.size() != action_descriptions.size()) {
         throw std::runtime_error("CLEF action criteria are invalid");
     }
@@ -163,7 +200,7 @@ PromptInput build_prompt(
             "<|im_start|>system\n" + system_prompt
                     + "<|im_end|>\n<|im_start|>user\nSTATE:\n",
             LLAMA_DECISION_ORDER_NONE);
-    append_piece(input, vocab, state, LLAMA_DECISION_ORDER_NONE);
+    append_bounded_state(input, vocab, state, max_state_tokens);
     append_piece(input, vocab, "\n\nSCHEMA FIELDS:\n", LLAMA_DECISION_ORDER_NONE);
 
     append_piece(
@@ -301,13 +338,20 @@ std::vector<double> run_decision_locked(
         const std::vector<std::string> & action_descriptions) {
     ensure_loaded_locked(model_path);
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
-    PromptInput prompt = build_prompt(vocab, state, action_ids, action_descriptions);
+    PromptInput fixed = build_prompt(vocab, "", action_ids, action_descriptions, 0);
+    if (fixed.tokens.size() >= CLEF_CONTEXT_TOKENS) {
+        throw std::runtime_error("CLEF schema itself exceeds the local context window");
+    }
+    const size_t state_budget =
+            static_cast<size_t>(CLEF_CONTEXT_TOKENS) - fixed.tokens.size();
+    PromptInput prompt = build_prompt(
+            vocab, state, action_ids, action_descriptions, state_budget);
 
-    if (prompt.tokens.empty() || prompt.tokens.size() > CLEF_BATCH_TOKENS) {
+    if (prompt.tokens.empty() || prompt.tokens.size() > CLEF_CONTEXT_TOKENS) {
         throw std::runtime_error(
                 "CLEF入力がローカルcontext上限を超えました: "
                         + std::to_string(prompt.tokens.size())
-                        + " / " + std::to_string(CLEF_BATCH_TOKENS) + " tokens");
+                        + " / " + std::to_string(CLEF_CONTEXT_TOKENS) + " tokens");
     }
     if (prompt.n_scores != static_cast<int32_t>(action_ids.size() + 2)) {
         throw std::runtime_error("CLEF option score countが不正です");
