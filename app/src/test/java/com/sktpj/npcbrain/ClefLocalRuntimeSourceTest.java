@@ -28,8 +28,8 @@ public final class ClefLocalRuntimeSourceTest {
         assertTrue(nativeSource.contains("LLAMA_DECISION_ORDER_OPTION"));
         assertTrue(cmake.contains("99b95488cac0f00ce3f05af113a8c1e287753f87"));
 
-        assertTrue(settings.contains("ローカル CLEF 行動選択"));
-        assertTrue(settings.contains("ローカルモデルをダウンロード"));
+        assertTrue(settings.contains("CLEF-Flash 共通設定"));
+        assertTrue(settings.contains("CLEFモデルをダウンロード"));
         assertFalse(settings.contains("Cloudflare Account ID"));
         assertFalse(settings.contains("Cloudflare API token"));
     }
