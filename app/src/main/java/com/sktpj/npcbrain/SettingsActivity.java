@@ -72,9 +72,9 @@ public final class SettingsActivity extends Activity {
         TextView eyebrow = text("NPCBRAIN", 10, AppUiTheme.APP_MUTED, true);
         eyebrow.setLetterSpacing(0.16f);
         header.addView(eyebrow);
-        header.addView(text("設定", 26, AppUiTheme.APP_TEXT, true));
+        header.addView(text("AI管理", 26, AppUiTheme.APP_TEXT, true));
         TextView note = text(
-                "アプリ全体のAI設定と、NPCごとの費用上限・使用量を管理します。",
+                "Global WorkspaceとSpecialist Brainの共通モデル割り当て、各Providerの共通設定を管理します。NPC個別の上書きはDEBUGのNPC管理で行います。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false);
@@ -92,7 +92,19 @@ public final class SettingsActivity extends Activity {
         body.setPadding(0, dp(12), 0, dp(18));
         scroll.addView(body);
 
-        body.addView(buildAiSettingsCard());
+        body.addView(buildRoutingCard());
+
+        LinearLayout.LayoutParams openAiParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        openAiParams.topMargin = dp(12);
+        body.addView(buildAiSettingsCard(), openAiParams);
+
+        LinearLayout.LayoutParams localParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        localParams.topMargin = dp(12);
+        body.addView(buildLocalModelsCard(), localParams);
 
         LinearLayout.LayoutParams clefParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -143,7 +155,7 @@ public final class SettingsActivity extends Activity {
 
     private View buildAiSettingsCard() {
         LinearLayout card = card();
-        card.addView(text("OpenAI Luna設定", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text("OpenAI 共通設定", 18, AppUiTheme.APP_TEXT, true));
 
         TextView model = text("モデル  gpt-5.6-luna", 12, AppUiTheme.APP_MUTED, false);
         LinearLayout.LayoutParams modelParams = new LinearLayout.LayoutParams(
