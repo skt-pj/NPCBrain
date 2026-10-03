@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /** Process-local diagnostic state for logical work and LLM execution. */
 final class ProcessingQueueRegistry {
     static final int MAX_TERMINAL_HISTORY = 100;
+    static final int MAX_DIAGNOSTIC_CHARS = 16000;
 
     enum Status {
         QUEUED,
@@ -35,6 +36,8 @@ final class ProcessingQueueRegistry {
         final long startedAtMs;
         final long finishedAtMs;
         final String error;
+        final String requestPayload;
+        final String responsePayload;
 
         Entry(
                 String id,
@@ -47,6 +50,23 @@ final class ProcessingQueueRegistry {
                 long finishedAtMs,
                 String error
         ) {
+            this(id, type, npcId, detail, status, queuedAtMs, startedAtMs,
+                    finishedAtMs, error, "", "");
+        }
+
+        Entry(
+                String id,
+                String type,
+                String npcId,
+                String detail,
+                Status status,
+                long queuedAtMs,
+                long startedAtMs,
+                long finishedAtMs,
+                String error,
+                String requestPayload,
+                String responsePayload
+        ) {
             this.id = safe(id);
             this.type = safe(type);
             this.npcId = safe(npcId);
@@ -56,6 +76,8 @@ final class ProcessingQueueRegistry {
             this.startedAtMs = startedAtMs;
             this.finishedAtMs = finishedAtMs;
             this.error = safe(error);
+            this.requestPayload = boundedDiagnostic(requestPayload);
+            this.responsePayload = boundedDiagnostic(responsePayload);
         }
 
         boolean isActive() {
@@ -202,7 +224,36 @@ final class ProcessingQueueRegistry {
                     old.queuedAtMs,
                     dequeued,
                     0L,
-                    ""));
+                    "",
+                    old.requestPayload,
+                    old.responsePayload));
+        }
+    }
+
+    static void attachRequest(String id, String requestPayload) {
+        updateExchange(id, true, requestPayload);
+    }
+
+    static void attachResponse(String id, String responsePayload) {
+        updateExchange(id, false, responsePayload);
+    }
+
+    private static void updateExchange(String id, boolean request, String payload) {
+        synchronized (LOCK) {
+            Entry old = ACTIVE.get(safe(id));
+            if (old == null || !old.isActive()) return;
+            ACTIVE.put(old.id, new Entry(
+                    old.id,
+                    old.type,
+                    old.npcId,
+                    old.detail,
+                    old.status,
+                    old.queuedAtMs,
+                    old.startedAtMs,
+                    old.finishedAtMs,
+                    old.error,
+                    request ? payload : old.requestPayload,
+                    request ? old.responsePayload : payload));
         }
     }
 
@@ -248,7 +299,9 @@ final class ProcessingQueueRegistry {
                     old.queuedAtMs,
                     old.startedAtMs,
                     finished,
-                    safe(error));
+                    safe(error),
+                    old.requestPayload,
+                    old.responsePayload);
             TERMINAL.addFirst(terminal);
             while (TERMINAL.size() > MAX_TERMINAL_HISTORY) {
                 TERMINAL.removeLast();
@@ -304,6 +357,18 @@ final class ProcessingQueueRegistry {
 
     private static String roomTag(String roomId) {
         return "room=" + safe(roomId);
+    }
+
+    private static String boundedDiagnostic(String value) {
+        String text = value == null ? "" : value.trim();
+        if (text.length() <= MAX_DIAGNOSTIC_CHARS) return text;
+        int markerLength = 64;
+        int payload = Math.max(256, MAX_DIAGNOSTIC_CHARS - markerLength);
+        int head = payload * 2 / 3;
+        int tail = payload - head;
+        return text.substring(0, head)
+                + "\n...[diagnostic payload truncated]...\n"
+                + text.substring(text.length() - tail);
     }
 
     private static String safe(String value) {
