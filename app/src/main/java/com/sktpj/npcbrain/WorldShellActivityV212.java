@@ -573,8 +573,8 @@ public final class WorldShellActivityV212 extends Activity {
         String value = input.getText().toString().trim();
         if (value.isEmpty()) return;
         String apiKey = loadApiKey();
-        if (apiKey.isEmpty()) {
-            Toast.makeText(this, "設定タブでOpenAI APIキーを設定してください", Toast.LENGTH_LONG).show();
+        if (apiKey.isEmpty() && demoRuntime.roomUsesOpenAi(currentRoomId)) {
+            Toast.makeText(this, "この会話のAI設定でOpenAIを使用するため、APIキーが必要です", Toast.LENGTH_LONG).show();
             selectTab(Tab.SETTINGS, true);
             return;
         }
