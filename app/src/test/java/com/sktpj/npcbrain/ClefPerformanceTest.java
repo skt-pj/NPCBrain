@@ -47,6 +47,17 @@ public final class ClefPerformanceTest {
         assertTrue(settings.contains("CLEF 実測パフォーマンス"));
         assertTrue(settings.contains("実測データをリセット"));
         assertTrue(settings.contains("clefPerformanceStore.snapshot().displayText()"));
+        assertTrue(settings.contains("ローカルCLEF 9専門を実測"));
+        assertTrue(settings.contains("APIキー不要"));
+        assertTrue(settings.contains("ClefPerformanceProbe.run(this)"));
+
+        String probe = read("src/main/java/com/sktpj/npcbrain/ClefPerformanceProbe.java");
+        assertTrue(probe.contains("ClefNativeRuntime.evaluate("));
+        assertTrue(probe.contains("ClefLocalExecutionQueue.execute("));
+        assertTrue(probe.contains("BrainEngine.specialistIds()"));
+        assertTrue(probe.contains("ClefPerformanceStore"));
+        assertTrue(!probe.contains("SecureApiKeyStore"));
+        assertTrue(!probe.contains("OpenAiClient"));
     }
 
     private static int occurrences(String source, String target) {
