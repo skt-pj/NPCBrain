@@ -1,6 +1,5 @@
 package com.sktpj.npcbrain;
 
-import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -26,14 +25,17 @@ final class CloudflareDecisionModelClient {
         this.modelId = DecisionModelCatalog.normalize(modelId);
     }
 
-    DecisionModelEvaluation evaluate(
+    DecisionModelEvaluation[] evaluateBatch(
             String state,
-            SpecialistDecisionSchema.Spec spec
+            SpecialistDecisionSchema.Spec[] specs
     ) throws Exception {
         validateConfiguration();
+        if (specs == null || specs.length == 0) {
+            throw new IllegalArgumentException("Decision model questions are required");
+        }
         String endpointModel = DecisionModelCatalog.cloudflareEndpointModel(modelId);
         URL url = new URL(ENDPOINT_PREFIX + accountId + "/ai/run/" + endpointModel);
-        byte[] request = buildRequestBody(modelId, state, spec)
+        byte[] request = buildRequestBody(modelId, state, specs)
                 .toString()
                 .getBytes(StandardCharsets.UTF_8);
 
@@ -69,28 +71,35 @@ final class CloudflareDecisionModelClient {
             if (answers == null) {
                 throw new IllegalStateException("Cloudflare Decision Model response has no answers");
             }
-            JSONObject choiceAnswer = answers.optJSONObject(spec.questionId);
-            if (choiceAnswer == null) {
-                throw new IllegalStateException(
-                        "Cloudflare Decision Model response has no " + spec.questionId);
+
+            DecisionModelEvaluation[] evaluations =
+                    new DecisionModelEvaluation[specs.length];
+            for (int i = 0; i < specs.length; i++) {
+                SpecialistDecisionSchema.Spec spec = specs[i];
+                JSONObject choiceAnswer = answers.optJSONObject(spec.questionId);
+                if (choiceAnswer == null) {
+                    throw new IllegalStateException(
+                            "Cloudflare Decision Model response has no " + spec.questionId);
+                }
+                String choice = choiceAnswer.optString("choice", "").trim();
+                JSONObject probabilities = choiceAnswer.optJSONObject("probabilities");
+                if (choice.isEmpty()) choice = highestProbabilityKey(probabilities);
+                if (choice.isEmpty() || !spec.criteria.containsKey(choice)) {
+                    throw new IllegalStateException(
+                            "Cloudflare Decision Model returned unknown choice: " + choice);
+                }
+                double choiceProbability = probabilityForChoice(
+                        choiceAnswer, probabilities, choice);
+                JSONObject evidence = answers.optJSONObject(spec.questionId + "_evidence");
+                double evidenceProbability = readNoul(evidence);
+                evaluations[i] = new DecisionModelEvaluation(
+                        choice,
+                        choiceProbability,
+                        evidenceProbability,
+                        modelId,
+                        "cloud");
             }
-            String choice = choiceAnswer.optString("choice", "").trim();
-            JSONObject probabilities = choiceAnswer.optJSONObject("probabilities");
-            if (choice.isEmpty()) choice = highestProbabilityKey(probabilities);
-            if (choice.isEmpty() || !spec.criteria.containsKey(choice)) {
-                throw new IllegalStateException(
-                        "Cloudflare Decision Model returned unknown choice: " + choice);
-            }
-            double choiceProbability = probabilityForChoice(
-                    choiceAnswer, probabilities, choice);
-            JSONObject evidence = answers.optJSONObject("evidence_sufficient");
-            double evidenceProbability = readNoul(evidence);
-            return new DecisionModelEvaluation(
-                    choice,
-                    choiceProbability,
-                    evidenceProbability,
-                    modelId,
-                    "cloud");
+            return evaluations;
         } finally {
             connection.disconnect();
         }
@@ -99,20 +108,22 @@ final class CloudflareDecisionModelClient {
     static JSONObject buildRequestBody(
             String modelId,
             String state,
-            SpecialistDecisionSchema.Spec spec
+            SpecialistDecisionSchema.Spec[] specs
     ) {
-        JSONObject criteria = new JSONObject();
-        for (String id : spec.criteria.keySet()) {
-            criteria.put(id, spec.criteria.get(id));
+        JSONObject questions = new JSONObject();
+        for (SpecialistDecisionSchema.Spec spec : specs) {
+            JSONObject criteria = new JSONObject();
+            for (String id : spec.criteria.keySet()) {
+                criteria.put(id, spec.criteria.get(id));
+            }
+            questions.put(spec.questionId, new JSONObject()
+                    .put("type", "choice")
+                    .put("instructions", spec.instruction)
+                    .put("criteria", criteria));
+            questions.put(spec.questionId + "_evidence", new JSONObject()
+                    .put("type", "noul")
+                    .put("instructions", spec.evidenceInstruction));
         }
-        JSONObject questions = new JSONObject()
-                .put(spec.questionId, new JSONObject()
-                        .put("type", "choice")
-                        .put("instructions", spec.instruction)
-                        .put("criteria", criteria))
-                .put("evidence_sufficient", new JSONObject()
-                        .put("type", "noul")
-                        .put("instructions", spec.evidenceInstruction));
         return new JSONObject()
                 .put("model", DecisionModelCatalog.cloudflareModel(modelId))
                 .put("state", state == null ? "" : state)
