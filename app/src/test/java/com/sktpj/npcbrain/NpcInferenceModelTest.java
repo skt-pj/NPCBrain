@@ -23,6 +23,22 @@ public final class NpcInferenceModelTest {
     }
 
     @Test
+    public void modelLabelsExposeRealModelNamesAndExecutionLocation() {
+        assertEquals("Qwen2 0.5B Instruct",
+                NpcInferenceModel.displayLabel(NpcInferenceModel.LOCAL_LIGHT));
+        assertEquals("Qwen2.5 1.5B Instruct",
+                NpcInferenceModel.displayLabel(NpcInferenceModel.LOCAL_MEDIUM));
+        assertEquals("Gemma 4 E2B",
+                NpcInferenceModel.displayLabel(NpcInferenceModel.LOCAL_HEAVY));
+        assertEquals("GPT-5.6 Luna",
+                NpcInferenceModel.displayLabel(NpcInferenceModel.OPENAI_LUNA));
+        assertEquals("ローカル",
+                NpcInferenceModel.executionLocationLabel(NpcInferenceModel.LOCAL_MEDIUM));
+        assertEquals("クラウド",
+                NpcInferenceModel.executionLocationLabel(NpcInferenceModel.OPENAI_LUNA));
+    }
+
+    @Test
     public void localModelSpecsArePinned() {
         LocalModelRepository.ModelSpec light = LocalModelRepository.spec(NpcInferenceModel.LOCAL_LIGHT);
         assertEquals("litert-community/Qwen2-0.5B-Instruct", light.repository);

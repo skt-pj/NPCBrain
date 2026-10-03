@@ -10,6 +10,7 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
@@ -26,6 +27,7 @@ public final class SettingsActivity extends Activity {
     private SecureApiKeyStore apiKeyStore;
     private ModelSettingsStore modelSettingsStore;
     private RoutingSettingsStore routingSettingsStore;
+    private LocalInferenceSettingsStore localInferenceSettingsStore;
     private ClefSettingsStore clefSettingsStore;
     private ClefPerformanceStore clefPerformanceStore;
     private NpcRegistryStore registryStore;
@@ -34,7 +36,6 @@ public final class SettingsActivity extends Activity {
     private TextView clefModelStatus;
     private Button clefModelButton;
     private TextView clefPerformanceStatus;
-    private Button clefToggleButton;
     private LinearLayout localModelsContainer;
     private LinearLayout budgetContainer;
     private Button cacheProbeButton;
@@ -47,6 +48,7 @@ public final class SettingsActivity extends Activity {
         apiKeyStore = new SecureApiKeyStore(this);
         modelSettingsStore = new ModelSettingsStore(this);
         routingSettingsStore = new RoutingSettingsStore(this);
+        localInferenceSettingsStore = new LocalInferenceSettingsStore(this);
         clefSettingsStore = new ClefSettingsStore(this);
         clefPerformanceStore = new ClefPerformanceStore(this);
         registryStore = new NpcRegistryStore(this);
@@ -74,7 +76,7 @@ public final class SettingsActivity extends Activity {
         header.addView(eyebrow);
         header.addView(text("AI管理", 26, AppUiTheme.APP_TEXT, true));
         TextView note = text(
-                "Global WorkspaceとSpecialist Brainの共通モデル割り当て、各Providerの共通設定を管理します。NPC個別の上書きはDEBUGのNPC管理で行います。",
+                "実行場所 → モデル → 詳細の順で共通AI構成を設定します。NPC個別の上書きはDEBUGのNPC管理で行います。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false);
@@ -92,7 +94,13 @@ public final class SettingsActivity extends Activity {
         body.setPadding(0, dp(12), 0, dp(18));
         scroll.addView(body);
 
-        body.addView(buildRoutingCard());
+        body.addView(buildCurrentConfigurationCard());
+
+        LinearLayout.LayoutParams routingParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        routingParams.topMargin = dp(12);
+        body.addView(buildRoutingCard(), routingParams);
 
         LinearLayout.LayoutParams openAiParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -153,59 +161,417 @@ public final class SettingsActivity extends Activity {
         return root;
     }
 
+    private View buildCurrentConfigurationCard() {
+        LinearLayout card = card();
+        card.addView(text("現在の構成", 18, AppUiTheme.APP_TEXT, true));
+        addConfigurationRow(
+                card,
+                "Global Workspace",
+                routeSummary(routingSettingsStore.globalModel()));
+        addConfigurationRow(
+                card,
+                "Specialist Brain",
+                routeSummary(routingSettingsStore.specialistModel()));
+        addConfigurationRow(
+                card,
+                "Action Selection",
+                clefSettingsStore.enabled()
+                        ? "CLEF-Flash 9B Q4_K_M"
+                        : "Specialist Brainと同じ");
+        return card;
+    }
+
+    private void addConfigurationRow(LinearLayout card, String label, String value) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        rowParams.topMargin = dp(9);
+        card.addView(row, rowParams);
+
+        row.addView(text(label, 12, AppUiTheme.APP_TEXT, true),
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.42f));
+        TextView detail = text(value, 11, AppUiTheme.APP_MUTED, false);
+        detail.setGravity(Gravity.END);
+        row.addView(detail,
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.58f));
+    }
+
+    private String routeSummary(String model) {
+        return NpcInferenceModel.executionLocationLabel(model)
+                + " / " + NpcInferenceModel.displayLabel(model);
+    }
+
     private View buildRoutingCard() {
         LinearLayout card = card();
         card.addView(text("脳への割り当て", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text(
-                "アプリ全体のデフォルトです。9つの専門Brainは1つの設定として扱い、Global Workspaceだけ分けます。",
+                "Global Workspaceと9専門Brainは、実行場所 → モデル → 詳細の順で設定します。"
+                        + "詳細は共通設定を別ダイアログで編集します。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false));
-        addRoutingGroup(card, "Global Workspace", routingSettingsStore.globalModel(), true);
-        addRoutingGroup(card, "Specialist Brain", routingSettingsStore.specialistModel(), false);
+
+        addRoutingGroup(card, "Global Workspace", true);
+        addRoutingGroup(card, "Specialist Brain", false);
+        addActionSelectionGroup(card);
         return card;
     }
 
     private void addRoutingGroup(
             LinearLayout card,
             String title,
-            String current,
             boolean global
     ) {
-        TextView heading = text(title, 14, AppUiTheme.APP_TEXT, true);
+        String current = global
+                ? routingSettingsStore.globalModel()
+                : routingSettingsStore.specialistModel();
+
+        TextView heading = text(title, 15, AppUiTheme.APP_TEXT, true);
         LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
-        headingParams.topMargin = dp(14);
+        headingParams.topMargin = dp(16);
         card.addView(heading, headingParams);
 
-        RadioGroup group = new RadioGroup(this);
-        for (String model : NpcInferenceModel.supportedValues()) {
+        TextView locationTitle = text("① 実行場所", 12, AppUiTheme.APP_TEXT, true);
+        LinearLayout.LayoutParams locationTitleParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        locationTitleParams.topMargin = dp(8);
+        card.addView(locationTitle, locationTitleParams);
+
+        RadioGroup location = new RadioGroup(this);
+        location.setOrientation(LinearLayout.HORIZONTAL);
+        RadioButton local = routeRadio("ローカル");
+        RadioButton cloud = routeRadio("クラウド");
+        int localId = View.generateViewId();
+        int cloudId = View.generateViewId();
+        local.setId(localId);
+        cloud.setId(cloudId);
+        location.addView(local, new RadioGroup.LayoutParams(0, dp(44), 1f));
+        location.addView(cloud, new RadioGroup.LayoutParams(0, dp(44), 1f));
+        location.check(NpcInferenceModel.isLocal(current) ? localId : cloudId);
+        location.setOnCheckedChangeListener((group, checkedId) -> {
+            boolean cloudSelected = checkedId == cloudId;
+            boolean alreadyCloud = !NpcInferenceModel.isLocal(
+                    global ? routingSettingsStore.globalModel()
+                            : routingSettingsStore.specialistModel());
+            if (cloudSelected == alreadyCloud) return;
+            if (global) routingSettingsStore.setGlobalCloud(cloudSelected);
+            else routingSettingsStore.setSpecialistCloud(cloudSelected);
+            rebuildContent();
+        });
+        card.addView(location);
+
+        TextView modelTitle = text("② モデル", 12, AppUiTheme.APP_TEXT, true);
+        LinearLayout.LayoutParams modelTitleParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        modelTitleParams.topMargin = dp(8);
+        card.addView(modelTitle, modelTitleParams);
+
+        Button modelButton = actionButton(NpcInferenceModel.displayLabel(current) + "  ▼");
+        modelButton.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        modelButton.setPadding(dp(12), 0, dp(12), 0);
+        modelButton.setOnClickListener(v -> showModelPicker(global));
+        card.addView(modelButton, matchTop(dp(5)));
+
+        TextView detailTitle = text("③ 詳細", 12, AppUiTheme.APP_TEXT, true);
+        LinearLayout.LayoutParams detailTitleParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        detailTitleParams.topMargin = dp(9);
+        card.addView(detailTitle, detailTitleParams);
+
+        LinearLayout detailRow = new LinearLayout(this);
+        detailRow.setOrientation(LinearLayout.HORIZONTAL);
+        detailRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView detailSummary = text(
+                NpcInferenceModel.isLocal(current)
+                        ? localDetailSummary(current)
+                        : cloudDetailSummary(),
+                10,
+                AppUiTheme.APP_MUTED,
+                false);
+        detailRow.addView(detailSummary,
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        Button details = actionButton("詳細を選択");
+        details.setOnClickListener(v -> {
+            if (NpcInferenceModel.isLocal(current)) {
+                showLocalDetailDialog(title, current);
+            } else {
+                showOpenAiDetailDialog(title + " 詳細設定");
+            }
+        });
+        LinearLayout.LayoutParams detailsParams = new LinearLayout.LayoutParams(dp(112), dp(42));
+        detailsParams.leftMargin = dp(7);
+        detailRow.addView(details, detailsParams);
+        card.addView(detailRow, matchTop(dp(5)));
+    }
+
+    private RadioButton routeRadio(String label) {
+        RadioButton option = new RadioButton(this);
+        option.setText(label);
+        option.setTextColor(AppUiTheme.APP_TEXT);
+        option.setTextSize(12);
+        option.setGravity(Gravity.CENTER_VERTICAL);
+        return option;
+    }
+
+    private void showModelPicker(boolean global) {
+        String current = global
+                ? routingSettingsStore.globalModel()
+                : routingSettingsStore.specialistModel();
+        boolean local = NpcInferenceModel.isLocal(current);
+        String[] values = local ? NpcInferenceModel.localValues() : NpcInferenceModel.cloudValues();
+        String[] labels = new String[values.length];
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            labels[i] = NpcInferenceModel.displayLabel(values[i])
+                    + (local ? "  ·  " + NpcInferenceModel.loadLabel(values[i]) : "");
+            if (values[i].equals(current)) checked = i;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(local ? "ローカルモデルを選択" : "クラウドモデルを選択")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    if (which < 0 || which >= values.length) return;
+                    if (global) routingSettingsStore.setGlobalModel(values[which]);
+                    else routingSettingsStore.setSpecialistModel(values[which]);
+                    dialog.dismiss();
+                    rebuildContent();
+                })
+                .setNegativeButton("キャンセル", null)
+                .show();
+    }
+
+    private String localDetailSummary(String modelId) {
+        LocalModelDownloadManager.Snapshot snapshot =
+                LocalModelDownloadManager.snapshot(this, modelId);
+        String state = snapshot.downloaded
+                ? "DL済み"
+                : snapshot.downloading ? "DL中" : "未DL";
+        return "重み: " + localWeightLabel(modelId)
+                + "\n" + localInferenceSettingsStore.summary()
+                + " · " + state;
+    }
+
+    private String cloudDetailSummary() {
+        return "Reasoning: "
+                + ModelSettingsStore.displayLabel(modelSettingsStore.reasoningEffort())
+                + " · APIキー " + (hasApiKey() ? "設定済み" : "未設定");
+    }
+
+    private String localWeightLabel(String modelId) {
+        String normalized = NpcInferenceModel.normalize(modelId);
+        if (NpcInferenceModel.LOCAL_MEDIUM.equals(normalized)) {
+            return "Q8 / EKV4096（配布artifact固定）";
+        }
+        return "LiteRT-LM配布artifact固定";
+    }
+
+    private void showLocalDetailDialog(String routeTitle, String modelId) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(18), dp(8), dp(18), dp(4));
+        scroll.addView(content);
+
+        content.addView(text(
+                NpcInferenceModel.displayLabel(modelId)
+                        + "（ローカル実行）の共通詳細設定",
+                13,
+                AppUiTheme.APP_TEXT,
+                true));
+        content.addView(text(
+                "この設定はGlobal Workspace / Specialist Brainで同じローカルruntimeを共有します。",
+                10,
+                AppUiTheme.APP_MUTED,
+                false),
+                matchTop(dp(4)));
+
+        LocalModelRepository.ModelSpec spec = LocalModelRepository.spec(modelId);
+        LocalModelDownloadManager.Snapshot snapshot =
+                LocalModelDownloadManager.snapshot(this, modelId);
+        content.addView(text(
+                "重み / 量子化  " + localWeightLabel(modelId)
+                        + "\n負荷目安  " + NpcInferenceModel.loadLabel(modelId)
+                        + "\nモデルファイル  " + spec.fileName
+                        + "\n状態  " + snapshot.displayText(),
+                11,
+                AppUiTheme.APP_MUTED,
+                false),
+                matchTop(dp(10)));
+
+        CheckBox preferGpu = detailCheckBox(
+                "GPUを優先する",
+                "GPUで初期化し、失敗時だけCPUへ切り替えます。",
+                localInferenceSettingsStore.preferGpu());
+        content.addView(preferGpu, matchTop(dp(12)));
+
+        CheckBox autoCompact = detailCheckBox(
+                "長い入力を自動圧縮する",
+                "モデルのcontext上限を超える場合、grounded情報を段階的に圧縮します。",
+                localInferenceSettingsStore.autoCompact());
+        content.addView(autoCompact, matchTop(dp(6)));
+
+        CheckBox retryJson = detailCheckBox(
+                "JSON失敗時に1回再試行する",
+                "不完全JSONだった場合だけ、短いJSONを1回再生成します。",
+                localInferenceSettingsStore.retryInvalidJson());
+        content.addView(retryJson, matchTop(dp(6)));
+
+        new AlertDialog.Builder(this)
+                .setTitle(routeTitle + " 詳細設定")
+                .setView(scroll)
+                .setPositiveButton("保存", (dialog, which) -> {
+                    localInferenceSettingsStore.setPreferGpu(preferGpu.isChecked());
+                    localInferenceSettingsStore.setAutoCompact(autoCompact.isChecked());
+                    localInferenceSettingsStore.setRetryInvalidJson(retryJson.isChecked());
+                    LocalLlmRuntime.resetEngines();
+                    rebuildContent();
+                })
+                .setNegativeButton("キャンセル", null)
+                .show();
+    }
+
+    private CheckBox detailCheckBox(
+            String title,
+            String description,
+            boolean checked
+    ) {
+        CheckBox box = new CheckBox(this);
+        box.setChecked(checked);
+        box.setText(title + "\n" + description);
+        box.setTextColor(AppUiTheme.APP_TEXT);
+        box.setTextSize(11);
+        box.setPadding(0, dp(3), 0, dp(3));
+        return box;
+    }
+
+    private void showOpenAiDetailDialog(String title) {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(18), dp(8), dp(18), dp(4));
+        content.addView(text(
+                "OpenAI共通設定 · GPT-5.6 Luna",
+                13,
+                AppUiTheme.APP_TEXT,
+                true));
+        content.addView(text(
+                "このReasoning設定はOpenAIを選択したGlobal Workspace / Specialist Brainで共通利用します。"
+                        + "\nAPIキー  " + (hasApiKey() ? "設定済み" : "未設定"),
+                10,
+                AppUiTheme.APP_MUTED,
+                false),
+                matchTop(dp(4)));
+
+        TextView effortTitle = text("推論モード", 12, AppUiTheme.APP_TEXT, true);
+        content.addView(effortTitle, matchTop(dp(10)));
+
+        RadioGroup efforts = new RadioGroup(this);
+        String current = modelSettingsStore.reasoningEffort();
+        for (String effort : ModelSettingsStore.supportedEfforts()) {
             RadioButton option = new RadioButton(this);
             option.setId(View.generateViewId());
-            option.setTag(model);
-            option.setText(NpcInferenceModel.displayLabel(model));
+            option.setTag(effort);
+            option.setText(ModelSettingsStore.displayLabel(effort)
+                    + " — " + ModelSettingsStore.description(effort));
             option.setTextColor(AppUiTheme.APP_TEXT);
-            option.setTextSize(12);
-            option.setChecked(model.equals(current));
-            group.addView(option);
+            option.setTextSize(11);
+            option.setChecked(effort.equals(current));
+            efforts.addView(option);
         }
+        content.addView(efforts);
+
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(content)
+                .setPositiveButton("保存", (dialog, which) -> {
+                    int checkedId = efforts.getCheckedRadioButtonId();
+                    View selected = efforts.findViewById(checkedId);
+                    if (selected != null && selected.getTag() != null) {
+                        modelSettingsStore.setReasoningEffort(selected.getTag().toString());
+                    }
+                    rebuildContent();
+                })
+                .setNeutralButton("APIキー設定", (dialog, which) -> showApiKeyDialog())
+                .setNegativeButton("キャンセル", null)
+                .show();
+    }
+
+    private void addActionSelectionGroup(LinearLayout card) {
+        TextView heading = text("Action Selection", 15, AppUiTheme.APP_TEXT, true);
+        LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        headingParams.topMargin = dp(18);
+        card.addView(heading, headingParams);
+        card.addView(text(
+                "9専門のうちaction_selectionだけをSpecialist Brainと同じモデルにするか、CLEFへ置換します。",
+                10,
+                AppUiTheme.APP_MUTED,
+                false));
+
+        RadioGroup group = new RadioGroup(this);
+        RadioButton same = routeRadio("Specialist Brainと同じ");
+        RadioButton clef = routeRadio("CLEF-Flash 9B Q4_K_M");
+        int sameId = View.generateViewId();
+        int clefId = View.generateViewId();
+        same.setId(sameId);
+        clef.setId(clefId);
+        group.addView(same);
+        group.addView(clef);
+        group.check(clefSettingsStore.enabled() ? clefId : sameId);
         group.setOnCheckedChangeListener((radioGroup, checkedId) -> {
-            View selected = radioGroup.findViewById(checkedId);
-            if (selected == null || selected.getTag() == null) return;
-            String model = selected.getTag().toString();
-            if (global) routingSettingsStore.setGlobalModel(model);
-            else routingSettingsStore.setSpecialistModel(model);
-            renderBudgetCards();
+            if (checkedId == sameId) {
+                if (clefSettingsStore.enabled()) {
+                    clefSettingsStore.setEnabled(false);
+                    rebuildContent();
+                }
+                return;
+            }
+            ClefLocalDownloadManager.Snapshot snapshot =
+                    ClefLocalDownloadManager.snapshot(this);
+            if (snapshot.downloaded) {
+                if (!clefSettingsStore.enabled()) {
+                    clefSettingsStore.setEnabled(true);
+                    rebuildContent();
+                }
+                return;
+            }
+            clefSettingsStore.setEnabled(false);
+            radioGroup.check(sameId);
+            new AlertDialog.Builder(this)
+                    .setTitle("CLEF-Flashが未ダウンロードです")
+                    .setMessage("Action SelectionでCLEFを使うには、約6.49GBのモデルを先にダウンロードします。")
+                    .setPositiveButton("ダウンロード", (dialog, which) -> {
+                        ClefLocalDownloadManager.startDownload(this);
+                        refreshClef();
+                    })
+                    .setNegativeButton("キャンセル", null)
+                    .show();
         });
-        card.addView(group);
+        card.addView(group, matchTop(dp(7)));
+
+        ClefLocalDownloadManager.Snapshot snapshot =
+                ClefLocalDownloadManager.snapshot(this);
+        card.addView(text(
+                "CLEF状態  " + snapshot.displayText()
+                        + (clefSettingsStore.enabled() ? " · 使用中" : " · 未使用"),
+                10,
+                AppUiTheme.APP_MUTED,
+                false),
+                matchTop(dp(5)));
     }
 
     private View buildLocalModelsCard() {
         LinearLayout card = card();
-        card.addView(text("ローカルモデル 共通管理", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text("ローカルモデル管理", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text(
-                "Light・Medium・HeavyのモデルデータはNPC間で共有します。ここでは共通の取得状態を確認できます。未取得モデルは利用時にapp-private領域へ取得されます。",
+                "モデル名を直接選びます。軽量 / 中量 / 高負荷はモデルの補助情報で、選択値ではありません。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false));
@@ -222,149 +588,115 @@ public final class SettingsActivity extends Activity {
         addLocalModelStatus(NpcInferenceModel.LOCAL_LIGHT);
         addLocalModelStatus(NpcInferenceModel.LOCAL_MEDIUM);
         addLocalModelStatus(NpcInferenceModel.LOCAL_HEAVY);
+        if (LocalModelDownloadManager.anyDownloading()) {
+            LinearLayout target = localModelsContainer;
+            target.postDelayed(() -> {
+                if (target == localModelsContainer) refreshLocalModels();
+            }, 750L);
+        }
     }
 
     private void addLocalModelStatus(String modelId) {
         LocalModelRepository.ModelSpec spec = LocalModelRepository.spec(modelId);
         LocalModelDownloadManager.Snapshot snapshot =
                 LocalModelDownloadManager.snapshot(this, modelId);
+
         TextView title = text(
-                NpcInferenceModel.displayLabel(modelId) + "  ·  " + spec.fileName,
+                NpcInferenceModel.displayLabel(modelId)
+                        + "  ·  " + NpcInferenceModel.loadLabel(modelId),
                 12,
                 AppUiTheme.APP_TEXT,
                 true);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.topMargin = dp(9);
-        localModelsContainer.addView(title, params);
+        localModelsContainer.addView(title, matchTop(dp(10)));
         localModelsContainer.addView(text(
-                spec.repository + "\n" + snapshot.displayText(),
+                "重み  " + localWeightLabel(modelId)
+                        + "\n" + spec.repository
+                        + "\n" + snapshot.displayText(),
                 10,
                 AppUiTheme.APP_MUTED,
                 false));
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+
+        Button detail = actionButton("詳細設定");
+        detail.setOnClickListener(v -> showLocalDetailDialog(
+                NpcInferenceModel.displayLabel(modelId), modelId));
+        actions.addView(detail, new LinearLayout.LayoutParams(0, dp(42), 1f));
+
+        if (!snapshot.downloaded) {
+            Button download = actionButton(snapshot.downloading
+                    ? "ダウンロード中…"
+                    : snapshot.errorMessage.isEmpty() ? "ダウンロード" : "再ダウンロード");
+            download.setEnabled(!snapshot.downloading);
+            download.setOnClickListener(v -> {
+                LocalModelDownloadManager.startDownload(this, modelId);
+                refreshLocalModels();
+            });
+            LinearLayout.LayoutParams downloadParams =
+                    new LinearLayout.LayoutParams(0, dp(42), 1f);
+            downloadParams.leftMargin = dp(6);
+            actions.addView(download, downloadParams);
+        }
+        localModelsContainer.addView(actions, matchTop(dp(6)));
     }
 
     private View buildAiSettingsCard() {
         LinearLayout card = card();
-        card.addView(text("OpenAI 共通設定", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text("クラウド設定", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text("Provider  OpenAI", 12, AppUiTheme.APP_TEXT, true), matchTop(dp(7)));
+        card.addView(text("モデル  GPT-5.6 Luna", 11, AppUiTheme.APP_MUTED, false));
+        card.addView(text(
+                "Reasoning  " + ModelSettingsStore.displayLabel(modelSettingsStore.reasoningEffort()),
+                11,
+                AppUiTheme.APP_MUTED,
+                false));
 
-        TextView model = text("モデル  gpt-5.6-luna", 12, AppUiTheme.APP_MUTED, false);
-        LinearLayout.LayoutParams modelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        modelParams.topMargin = dp(5);
-        card.addView(model, modelParams);
+        apiKeyStatus = text("", 12, AppUiTheme.APP_TEXT, true);
+        card.addView(apiKeyStatus, matchTop(dp(8)));
 
-        apiKeyStatus = text("", 13, AppUiTheme.APP_TEXT, true);
-        LinearLayout.LayoutParams keyStatusParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        keyStatusParams.topMargin = dp(10);
-        card.addView(apiKeyStatus, keyStatusParams);
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        Button details = actionButton("OpenAI共通詳細");
+        details.setOnClickListener(v -> showOpenAiDetailDialog("OpenAI 共通設定"));
+        actions.addView(details, new LinearLayout.LayoutParams(0, dp(44), 1f));
 
-        LinearLayout keyActions = new LinearLayout(this);
-        keyActions.setOrientation(LinearLayout.HORIZONTAL);
-        Button saveKey = actionButton("APIキーを設定 / 変更");
-        saveKey.setOnClickListener(v -> showApiKeyDialog());
-        keyActions.addView(saveKey, new LinearLayout.LayoutParams(0, dp(48), 1f));
-        Button clearKey = actionButton("削除");
+        Button clearKey = actionButton("APIキー削除");
         clearKey.setOnClickListener(v -> confirmClearApiKey());
-        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(dp(82), dp(48));
-        clearParams.leftMargin = dp(7);
-        keyActions.addView(clearKey, clearParams);
-        LinearLayout.LayoutParams keyActionsParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        keyActionsParams.topMargin = dp(7);
-        card.addView(keyActions, keyActionsParams);
-
-        TextView effortTitle = text("推論モード", 13, AppUiTheme.APP_TEXT, true);
-        LinearLayout.LayoutParams effortTitleParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        effortTitleParams.topMargin = dp(14);
-        card.addView(effortTitle, effortTitleParams);
-
-        RadioGroup efforts = new RadioGroup(this);
-        String current = modelSettingsStore.reasoningEffort();
-        for (String effort : ModelSettingsStore.supportedEfforts()) {
-            RadioButton option = new RadioButton(this);
-            option.setId(View.generateViewId());
-            option.setTag(effort);
-            option.setText(ModelSettingsStore.displayLabel(effort) + " — "
-                    + ModelSettingsStore.description(effort));
-            option.setTextColor(AppUiTheme.APP_TEXT);
-            option.setTextSize(12);
-            option.setChecked(effort.equals(current));
-            efforts.addView(option);
-        }
-        efforts.setOnCheckedChangeListener((group, checkedId) -> {
-            View selected = group.findViewById(checkedId);
-            if (selected != null && selected.getTag() != null) {
-                modelSettingsStore.setReasoningEffort(selected.getTag().toString());
-            }
-        });
-        card.addView(efforts);
+        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(dp(104), dp(44));
+        clearParams.leftMargin = dp(6);
+        actions.addView(clearKey, clearParams);
+        card.addView(actions, matchTop(dp(8)));
         return card;
     }
 
     private View buildClefSettingsCard() {
         LinearLayout card = card();
-        card.addView(text("ローカル CLEF 行動選択", 18, AppUiTheme.APP_TEXT, true));
-
-        TextView note = text(
-                "CLEF-Flashを端末内で実行します。モデルの初回ダウンロード後は"
-                        + "action_selection推論にCloudflare APIやAPI tokenを使用しません。",
+        card.addView(text("CLEF-Flash 共通設定", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text(
+                "CLEFは一般モデルではなくAction Selection専用です。選択は上のAction Selectionで行います。",
                 11,
                 AppUiTheme.APP_MUTED,
-                false);
-        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        noteParams.topMargin = dp(5);
-        card.addView(note, noteParams);
+                false));
 
         TextView model = text(
-                ClefSettingsStore.displayLabel() + "  ·  約6.49 GB",
+                "CLEF-Flash 9B · Q4_K_M · 約6.49 GB",
                 12,
                 AppUiTheme.APP_TEXT,
                 true);
-        LinearLayout.LayoutParams modelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        modelParams.topMargin = dp(10);
-        card.addView(model, modelParams);
-
-        TextView source = text(
-                "モデル: ggml-org/Clef-Flash-GGUF（architecture=clef / joint head込み）",
-                11,
+        card.addView(model, matchTop(dp(9)));
+        card.addView(text(
+                "ggml-org/Clef-Flash-GGUF · architecture=clef / joint head込み",
+                10,
                 AppUiTheme.APP_MUTED,
-                false);
-        card.addView(source);
+                false));
 
         clefModelStatus = text("", 12, AppUiTheme.APP_TEXT, true);
-        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        statusParams.topMargin = dp(10);
-        card.addView(clefModelStatus, statusParams);
+        card.addView(clefModelStatus, matchTop(dp(8)));
 
         clefModelButton = actionButton("");
         clefModelButton.setOnClickListener(v -> handleClefModelButton());
-        LinearLayout.LayoutParams modelButtonParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(48));
-        modelButtonParams.topMargin = dp(8);
-        card.addView(clefModelButton, modelButtonParams);
-
-        clefToggleButton = actionButton("");
-        clefToggleButton.setOnClickListener(v -> toggleClef());
-        LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(48));
-        toggleParams.topMargin = dp(8);
-        card.addView(clefToggleButton, toggleParams);
+        card.addView(clefModelButton, matchTop(dp(7)));
         return card;
     }
 
@@ -377,15 +709,14 @@ public final class SettingsActivity extends Activity {
             return;
         }
         new AlertDialog.Builder(this)
-                .setTitle("ローカルCLEFモデルを削除")
-                .setMessage("約6.49 GBのCLEF-Flashモデルを端末から削除します。"
-                        + "CLEF行動選択も無効になります。")
+                .setTitle("CLEF-Flashモデルを削除")
+                .setMessage("約6.49 GBのCLEF-Flashモデルを端末から削除します。Action SelectionはSpecialist Brainと同じ設定へ戻ります。")
                 .setPositiveButton("削除", (dialog, which) -> {
                     clefSettingsStore.setEnabled(false);
                     if (!ClefLocalDownloadManager.deleteModel(this)) {
                         Toast.makeText(this, "CLEFモデルを削除できませんでした。", Toast.LENGTH_LONG).show();
                     }
-                    refreshClef();
+                    rebuildContent();
                 })
                 .setNegativeButton("キャンセル", null)
                 .show();
@@ -394,37 +725,22 @@ public final class SettingsActivity extends Activity {
     private View buildClefPerformanceCard() {
         LinearLayout card = card();
         card.addView(text("CLEF 実測パフォーマンス", 18, AppUiTheme.APP_TEXT, true));
-
-        TextView note = text(
-                "端末内CLEFを実際に実行したときの処理時間とアプリprocessのメモリを自動記録します。"
-                        + "測定のための追加推論は行いません。",
+        card.addView(text(
+                "端末内CLEFを実際に実行したときの処理時間とprocess memoryを記録します。追加推論は行いません。",
                 11,
                 AppUiTheme.APP_MUTED,
-                false);
-        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        noteParams.topMargin = dp(5);
-        card.addView(note, noteParams);
+                false));
 
         clefPerformanceStatus = text("", 11, AppUiTheme.APP_TEXT, false);
         clefPerformanceStatus.setLineSpacing(0f, 1.2f);
-        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        statusParams.topMargin = dp(9);
-        card.addView(clefPerformanceStatus, statusParams);
+        card.addView(clefPerformanceStatus, matchTop(dp(8)));
 
         Button reset = actionButton("実測データをリセット");
         reset.setOnClickListener(v -> {
             clefPerformanceStore.clear();
             refreshClefPerformance();
         });
-        LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(48));
-        resetParams.topMargin = dp(10);
-        card.addView(reset, resetParams);
+        card.addView(reset, matchTop(dp(8)));
         return card;
     }
 
@@ -433,43 +749,20 @@ public final class SettingsActivity extends Activity {
         clefPerformanceStatus.setText(clefPerformanceStore.snapshot().displayText());
     }
 
-    private void toggleClef() {
-        if (clefSettingsStore.enabled()) {
-            clefSettingsStore.setEnabled(false);
-            refreshClef();
-            return;
-        }
-        ClefLocalDownloadManager.Snapshot snapshot = ClefLocalDownloadManager.snapshot(this);
-        if (!snapshot.downloaded) {
-            Toast.makeText(
-                    this,
-                    "先にローカルCLEF-Flashモデルをダウンロードしてください。",
-                    Toast.LENGTH_LONG).show();
-            return;
-        }
-        clefSettingsStore.setEnabled(true);
-        refreshClef();
-    }
-
     private void refreshClef() {
         ClefLocalDownloadManager.Snapshot snapshot = ClefLocalDownloadManager.snapshot(this);
         if (!snapshot.downloaded && clefSettingsStore.enabled()) {
             clefSettingsStore.setEnabled(false);
         }
         if (clefModelStatus != null) {
-            clefModelStatus.setText(snapshot.displayText());
+            clefModelStatus.setText(snapshot.displayText()
+                    + (clefSettingsStore.enabled() ? " · Action Selectionで使用中" : ""));
         }
         if (clefModelButton != null) {
             clefModelButton.setEnabled(!snapshot.downloading);
             clefModelButton.setText(snapshot.downloading
                     ? "ダウンロード中…"
-                    : snapshot.downloaded ? "ローカルモデルを削除" : "ローカルモデルをダウンロード");
-        }
-        if (clefToggleButton != null) {
-            clefToggleButton.setEnabled(snapshot.downloaded);
-            clefToggleButton.setText(clefSettingsStore.enabled()
-                    ? "ローカル CLEF action_selection を無効化"
-                    : "ローカル CLEF action_selection を有効化");
+                    : snapshot.downloaded ? "CLEFモデルを削除" : "CLEFモデルをダウンロード");
         }
         if (snapshot.downloading && clefModelStatus != null) {
             clefModelStatus.removeCallbacks(clefDownloadRefresh);
@@ -483,6 +776,20 @@ public final class SettingsActivity extends Activity {
             refreshClef();
         }
     };
+
+    private void rebuildContent() {
+        if (isFinishing() || isDestroyed()) return;
+        setContentView(buildContent());
+        refresh();
+    }
+
+    private LinearLayout.LayoutParams matchTop(int topMargin) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.topMargin = topMargin;
+        return params;
+    }
 
     private View buildPromptCacheDebugCard() {
         LinearLayout card = card();
@@ -729,7 +1036,7 @@ public final class SettingsActivity extends Activity {
                     if (value.isEmpty()) return;
                     try {
                         apiKeyStore.save(value);
-                        refresh();
+                        rebuildContent();
                     } catch (Exception error) {
                         Toast.makeText(this, "APIキー保存失敗", Toast.LENGTH_LONG).show();
                     }
@@ -744,7 +1051,7 @@ public final class SettingsActivity extends Activity {
                 .setMessage("保存済みのOpenAI APIキーを削除します。")
                 .setPositiveButton("削除", (dialog, which) -> {
                     apiKeyStore.clear();
-                    refresh();
+                    rebuildContent();
                 })
                 .setNegativeButton("キャンセル", null)
                 .show();
