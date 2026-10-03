@@ -232,6 +232,7 @@ final class DemoRuntimeV032 {
     ) throws Exception {
         String sourceEventId = source.eventId();
         String npcId = source.actorId();
+        if (!NpcInferenceAccess.hasRequiredApiKey(appContext, npcId, apiKey)) return;
         List<String> activeNpcIds = npcRegistry.activeNpcIds();
         if (!SpontaneousMessagePolicy.isTriggerEvent(source.eventType(), npcId)
                 || !activeNpcIds.contains(npcId)) {
@@ -646,6 +647,13 @@ final class DemoRuntimeV032 {
                 + "This is only an opportunity, not an obligation to talk. Do not invent events. "
                 + "Choose send only for a concrete character-grounded reason; defer only for a grounded future time; "
                 + "otherwise skip. NPC targets are private peer conversations; the user is not implicitly included.";
+    }
+
+    boolean roomUsesOpenAi(String roomId) {
+        for (String npcId : npcParticipants(roomId)) {
+            if (NpcInferenceAccess.usesOpenAi(appContext, npcId)) return true;
+        }
+        return false;
     }
 
     String[] npcParticipants(String roomId) {
