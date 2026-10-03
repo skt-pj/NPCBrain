@@ -25,36 +25,58 @@ final class SpecialistDecisionModelRuntime {
         localRepository = new ClefLocalModelRepository(appContext);
     }
 
-    JSONObject request(
-            String moduleId,
-            String moduleLabel,
-            String role,
-            String personalityRule,
+    JSONObject[] requestAll(
+            String[] moduleIds,
+            String[] moduleLabels,
+            String[] roles,
+            String[] personalityRules,
             JSONObject commonContext,
-            JSONObject graphFocus
+            JSONObject[] graphFocus
     ) throws Exception {
+        int count = moduleIds == null ? 0 : moduleIds.length;
+        if (count == 0
+                || moduleLabels == null || moduleLabels.length != count
+                || roles == null || roles.length != count
+                || personalityRules == null || personalityRules.length != count
+                || graphFocus == null || graphFocus.length != count) {
+            throw new IllegalArgumentException("分割脳の判断モデル入力が不正です");
+        }
+
+        JSONArray modules = new JSONArray();
+        for (int i = 0; i < count; i++) {
+            modules.put(new JSONObject()
+                    .put("module", moduleIds[i])
+                    .put("module_label", moduleLabels[i])
+                    .put("role", roles[i])
+                    .put("personality_rule", personalityRules[i])
+                    .put("cognitive_graph_focus",
+                            graphFocus[i] == null ? new JSONObject() : graphFocus[i]));
+        }
+
         JSONObject state = new JSONObject()
-                .put("module", moduleId)
-                .put("module_label", moduleLabel)
-                .put("role", role)
-                .put("personality_rule", personalityRule)
                 .put("common_context", commonContext == null ? new JSONObject() : commonContext)
-                .put("cognitive_graph_focus", graphFocus == null ? new JSONObject() : graphFocus)
+                .put("specialists", modules)
                 .put("runtime_contract", new JSONObject()
                         .put("engine", "decision_model")
                         .put("free_form_generation", false)
-                        .put("same_cycle_peer_outputs_available", false));
+                        .put("specialist_count", count)
+                        .put("same_cycle_peer_outputs_available", false)
+                        .put("all_questions_evaluated_in_one_joint_request", true));
         String stateText = state.toString();
-        SpecialistDecisionSchema.Spec spec =
-                SpecialistDecisionSchema.forModule(moduleId, stateText);
-        String model = settings.model();
 
+        SpecialistDecisionSchema.Spec[] specs =
+                new SpecialistDecisionSchema.Spec[count];
+        for (int i = 0; i < count; i++) {
+            specs[i] = SpecialistDecisionSchema.forModule(moduleIds[i], stateText);
+        }
+
+        String model = settings.model();
         String queueId = ProcessingQueueRegistry.startRunning(
-                "decision_model_request",
+                "decision_model_batch",
                 npcId,
                 DecisionModelCatalog.displayLabel(model)
                         + " · " + DecisionModelCatalog.executionLocationLabel(model)
-                        + " · brain_stage=" + moduleId,
+                        + " · specialists=" + count,
                 System.currentTimeMillis());
 
         long startedNs = SystemClock.elapsedRealtimeNanos();
@@ -63,13 +85,24 @@ final class SpecialistDecisionModelRuntime {
         boolean success = false;
         Throwable failure = null;
         try {
-            DecisionModelEvaluation evaluation = DecisionModelCatalog.isLocal(model)
-                    ? evaluateLocal(stateText, spec, model)
-                    : evaluateCloud(stateText, spec, model);
-            JSONObject result = adapt(moduleId, moduleLabel, spec, evaluation);
+            DecisionModelEvaluation[] evaluations = DecisionModelCatalog.isLocal(model)
+                    ? evaluateLocalBatch(stateText, specs, model)
+                    : evaluateCloudBatch(stateText, specs, model);
+            if (evaluations.length != count) {
+                throw new IllegalStateException(
+                        "判断モデルの結果件数が不正です: " + evaluations.length + " / " + count);
+            }
+            JSONObject[] results = new JSONObject[count];
+            for (int i = 0; i < count; i++) {
+                results[i] = adapt(
+                        moduleIds[i],
+                        moduleLabels[i],
+                        specs[i],
+                        evaluations[i]);
+            }
             success = true;
             ProcessingQueueRegistry.markCompleted(queueId);
-            return result;
+            return results;
         } catch (Exception error) {
             failure = error;
             ProcessingQueueRegistry.markFailed(queueId, error);
@@ -80,7 +113,8 @@ final class SpecialistDecisionModelRuntime {
                     (SystemClock.elapsedRealtimeNanos() - startedNs) / 1_000_000L);
             new ClefPerformanceStore(appContext).record(
                     DecisionModelCatalog.displayLabel(model)
-                            + " · " + DecisionModelCatalog.executionLocationLabel(model),
+                            + " · " + DecisionModelCatalog.executionLocationLabel(model)
+                            + " · 9専門joint",
                     durationMs,
                     pssBeforeKb,
                     Debug.getPss(),
@@ -91,9 +125,9 @@ final class SpecialistDecisionModelRuntime {
         }
     }
 
-    private DecisionModelEvaluation evaluateLocal(
+    private DecisionModelEvaluation[] evaluateLocalBatch(
             String state,
-            SpecialistDecisionSchema.Spec spec,
+            SpecialistDecisionSchema.Spec[] specs,
             String model
     ) {
         if (!DecisionModelCatalog.LOCAL_CLEF_FLASH_Q4_K_M.equals(model)) {
@@ -104,45 +138,50 @@ final class SpecialistDecisionModelRuntime {
                     "ローカル判断モデル Clef-flash が未ダウンロードです。AI管理からダウンロードしてください。");
         }
         File modelFile = localRepository.modelFile();
-        double[] scores = ClefNativeRuntime.decide(
-                modelFile,
-                state,
-                spec.questionId,
-                spec.instruction,
-                spec.evidenceInstruction,
-                spec.optionIds(),
-                spec.optionDescriptions());
+        double[] scores = ClefNativeRuntime.decideBatch(modelFile, state, specs);
 
-        int optionCount = spec.criteria.size();
-        double[] optionScores = new double[optionCount];
-        System.arraycopy(scores, 0, optionScores, 0, optionCount);
-        double[] optionProbabilities = softmax(optionScores);
-        int best = 0;
-        for (int i = 1; i < optionProbabilities.length; i++) {
-            if (optionProbabilities[i] > optionProbabilities[best]) best = i;
+        DecisionModelEvaluation[] result = new DecisionModelEvaluation[specs.length];
+        int cursor = 0;
+        for (int i = 0; i < specs.length; i++) {
+            SpecialistDecisionSchema.Spec spec = specs[i];
+            int optionCount = spec.criteria.size();
+            double[] optionScores = new double[optionCount];
+            System.arraycopy(scores, cursor, optionScores, 0, optionCount);
+            cursor += optionCount;
+            double[] optionProbabilities = softmax(optionScores);
+            int best = 0;
+            for (int j = 1; j < optionProbabilities.length; j++) {
+                if (optionProbabilities[j] > optionProbabilities[best]) best = j;
+            }
+            double[] evidenceProbabilities = softmax(new double[]{
+                    scores[cursor],
+                    scores[cursor + 1]
+            });
+            cursor += 2;
+            result[i] = new DecisionModelEvaluation(
+                    spec.optionIds()[best],
+                    optionProbabilities[best],
+                    evidenceProbabilities[0],
+                    model,
+                    "local");
         }
-        double[] evidenceProbabilities = softmax(new double[]{
-                scores[optionCount],
-                scores[optionCount + 1]
-        });
-        return new DecisionModelEvaluation(
-                spec.optionIds()[best],
-                optionProbabilities[best],
-                evidenceProbabilities[0],
-                model,
-                "local");
+        if (cursor != scores.length) {
+            throw new IllegalStateException(
+                    "判断モデルscoreの読み取り位置が不正です: " + cursor + " / " + scores.length);
+        }
+        return result;
     }
 
-    private DecisionModelEvaluation evaluateCloud(
+    private DecisionModelEvaluation[] evaluateCloudBatch(
             String state,
-            SpecialistDecisionSchema.Spec spec,
+            SpecialistDecisionSchema.Spec[] specs,
             String model
     ) throws Exception {
         String token = tokenStore.load();
         return new CloudflareDecisionModelClient(
                 settings.cloudflareAccountId(),
                 token,
-                model).evaluate(state, spec);
+                model).evaluateBatch(state, specs);
     }
 
     static JSONObject adapt(
