@@ -3,6 +3,7 @@ package com.sktpj.npcbrain;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -278,53 +279,51 @@ final class BrainEngine {
                 .put("specialist_count", MODULES.size()));
         final String specialistCommonJson = specialistCommonContext.toString();
 
-        List<ModuleResult> specialistResults = ParallelCognitionScheduler.run(
-                MODULES.size(),
-                index -> {
-                    Module module = MODULES.get(index);
-                    JSONObject result;
-                    if (specialistsUseDecisionModel) {
-                        if (specialistDecisionRuntime == null) {
-                            throw new IllegalStateException(
-                                    "分割脳の判断モデルruntimeが初期化されていません");
-                        }
-                        result = specialistDecisionRuntime.request(
-                                module.id,
-                                module.label,
-                                module.role,
-                                module.personalityRule,
-                                new JSONObject(specialistCommonJson),
-                                new JSONObject(graphFocusJson[index]));
-                    } else {
-                        PromptCacheRequest.Prompt prompt = specialistPrompt(
-                                module,
-                                specialistCommonJson,
-                                graphFocusJson[index]);
-                        result = client.requestJson(prompt);
-                    }
-                    result.put("module", module.id);
-                    JSONArray rawFacts = result.optJSONArray("salient_facts");
-                    JSONArray facts = rawFacts == null
-                            ? new JSONArray()
-                            : new JSONArray(rawFacts.toString());
-                    String content = result.optString("content", "").trim();
-                    double confidence = clamp01(result.optDouble("confidence", 0.0));
-                    String personalityEffect = result.optString("personality_effect", "").trim();
-                    return new ModuleResult(
-                            index,
-                            result,
-                            content,
-                            confidence,
-                            facts,
-                            personalityEffect);
-                },
-                (index, completed) -> {
-                    if (listener == null) return;
-                    Module module = MODULES.get(index);
+        List<ModuleResult> specialistResults;
+        if (specialistsUseDecisionModel) {
+            if (specialistDecisionRuntime == null) {
+                throw new IllegalStateException(
+                        "分割脳の判断モデルruntimeが初期化されていません");
+            }
+
+            String[] moduleIds = new String[MODULES.size()];
+            String[] moduleLabels = new String[MODULES.size()];
+            String[] moduleRoles = new String[MODULES.size()];
+            String[] personalityRules = new String[MODULES.size()];
+            JSONObject[] graphFocus = new JSONObject[MODULES.size()];
+            for (int i = 0; i < MODULES.size(); i++) {
+                Module module = MODULES.get(i);
+                moduleIds[i] = module.id;
+                moduleLabels[i] = module.label;
+                moduleRoles[i] = module.role;
+                personalityRules[i] = module.personalityRule;
+                graphFocus[i] = new JSONObject(graphFocusJson[i]);
+            }
+
+            JSONObject[] rawResults = specialistDecisionRuntime.requestAll(
+                    moduleIds,
+                    moduleLabels,
+                    moduleRoles,
+                    personalityRules,
+                    new JSONObject(specialistCommonJson),
+                    graphFocus);
+            if (rawResults == null || rawResults.length != MODULES.size()) {
+                throw new IllegalStateException(
+                        "分割脳の判断モデル結果件数が不正です: "
+                                + (rawResults == null ? 0 : rawResults.length)
+                                + " / " + MODULES.size());
+            }
+
+            specialistResults = new ArrayList<>(MODULES.size());
+            for (int i = 0; i < MODULES.size(); i++) {
+                Module module = MODULES.get(i);
+                ModuleResult completed = moduleResult(i, module, rawResults[i]);
+                specialistResults.add(completed);
+                if (listener != null) {
                     listener.onStageCompleted(
                             module.id,
                             module.label,
-                            index + 1,
+                            i + 1,
                             total,
                             completed.content,
                             completed.confidence,
@@ -332,7 +331,35 @@ final class BrainEngine {
                             completed.personalityEffect
                     );
                 }
-        );
+            }
+        } else {
+            specialistResults = ParallelCognitionScheduler.run(
+                    MODULES.size(),
+                    index -> {
+                        Module module = MODULES.get(index);
+                        PromptCacheRequest.Prompt prompt = specialistPrompt(
+                                module,
+                                specialistCommonJson,
+                                graphFocusJson[index]);
+                        JSONObject result = client.requestJson(prompt);
+                        return moduleResult(index, module, result);
+                    },
+                    (index, completed) -> {
+                        if (listener == null) return;
+                        Module module = MODULES.get(index);
+                        listener.onStageCompleted(
+                                module.id,
+                                module.label,
+                                index + 1,
+                                total,
+                                completed.content,
+                                completed.confidence,
+                                completed.facts,
+                                completed.personalityEffect
+                        );
+                    }
+            );
+        }
 
         JSONArray workingMemory = new JSONArray();
         for (int i = 0; i < specialistResults.size(); i++) {
@@ -364,6 +391,9 @@ final class BrainEngine {
         finalContext.put("specialist_execution", new JSONObject()
                 .put("mode", EXECUTION_MODE)
                 .put("parallel_specialists", MODULES.size())
+                .put("transport", specialistsUseDecisionModel
+                        ? "single_system_one_joint_request"
+                        : "parallel_llm_requests")
                 .put("result_order", "canonical_module_identity_not_temporal_completion"));
         finalContext.put("cognitive_graph_focus", safeGraphFocus(cognitiveGraph, GLOBAL_ID));
 
@@ -506,6 +536,29 @@ final class BrainEngine {
 
     static PromptCacheRequest.Prompt globalWorkspacePromptForTest(JSONObject context) {
         return globalWorkspacePrompt(context == null ? new JSONObject() : context);
+    }
+
+    private static ModuleResult moduleResult(
+            int index,
+            Module module,
+            JSONObject rawResult
+    ) {
+        JSONObject result = rawResult == null ? new JSONObject() : rawResult;
+        result.put("module", module.id);
+        JSONArray rawFacts = result.optJSONArray("salient_facts");
+        JSONArray facts = rawFacts == null
+                ? new JSONArray()
+                : new JSONArray(rawFacts.toString());
+        String content = result.optString("content", "").trim();
+        double confidence = clamp01(result.optDouble("confidence", 0.0));
+        String personalityEffect = result.optString("personality_effect", "").trim();
+        return new ModuleResult(
+                index,
+                result,
+                content,
+                confidence,
+                facts,
+                personalityEffect);
     }
 
     private static JSONObject safeGraphFocus(CognitiveWorkingGraph graph, String moduleId) {
