@@ -25,11 +25,14 @@ final class NpcBrainSessionFactory {
     BrainEngine create(String npcId, OpenAiClient client) {
         String id = NpcId.of(npcId).value();
         Context storage = NpcContexts.storage(appContext, id);
+        boolean decisionModel = new SpecialistInferenceSettingsStore(appContext)
+                .usesDecisionModel();
         return new BrainEngine(
                 client,
                 new MemoryStore(storage),
                 new CharacterStateStore(storage),
-                new ClefActionSelectionRuntime(appContext, id));
+                decisionModel,
+                decisionModel ? new SpecialistDecisionModelRuntime(appContext, id) : null);
     }
 
     JSONObject worldSnapshot(String npcId) {
