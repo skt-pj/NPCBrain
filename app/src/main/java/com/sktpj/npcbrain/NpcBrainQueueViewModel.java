@@ -174,7 +174,7 @@ final class NpcBrainQueueViewModel {
     static String modelLabel(ProcessingQueueRegistry.Entry entry) {
         if (entry == null) return "";
         if (isDecisionModel(entry)) {
-            return "判断モデル · ローカル · " + ClefSettingsStore.displayLabel();
+            return "判断モデル · ローカル · CLEF-Flash 9B · Q4_K_M";
         }
         if (!isLlm(entry)) return "";
 
