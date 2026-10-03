@@ -45,6 +45,25 @@ public final class ProcessingQueueRegistryTest {
     }
 
     @Test
+    public void inferenceExchangeSurvivesRunningAndCompletion() {
+        String id = ProcessingQueueRegistry.enqueue(
+                "decision_model",
+                "npc9",
+                "clef-flash-local-q4_k_m · local · brain_stage=valuation",
+                100L);
+        ProcessingQueueRegistry.attachRequest(id, "{\"input\":\"grounded\"}");
+        ProcessingQueueRegistry.markRunning(id, 125L);
+        ProcessingQueueRegistry.attachResponse(id, "{\"signals\":{\"danger\":\"high\"}}");
+        ProcessingQueueRegistry.markCompleted(id, 200L, "");
+
+        ProcessingQueueRegistry.Entry entry =
+                ProcessingQueueRegistry.snapshot().recent.get(0);
+        assertTrue(entry.requestPayload.contains("grounded"));
+        assertTrue(entry.responsePayload.contains("danger"));
+        assertEquals(125L, entry.startedAtMs);
+    }
+
+    @Test
     public void claimConversationReusesQueuedEntryForSameRoom() {
         String queued = ProcessingQueueRegistry.enqueueConversationWait("direct_npc10", "npc10", 100L);
         String claimed = ProcessingQueueRegistry.claimConversation("direct_npc10", "npc10", 200L);
