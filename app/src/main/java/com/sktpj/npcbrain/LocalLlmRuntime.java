@@ -32,16 +32,17 @@ final class LocalLlmRuntime {
 
     private static final Map<String, EngineHolder> ENGINES = new ConcurrentHashMap<>();
     private static final Object ENGINE_INIT_LOCK = new Object();
-    private static final int JSON_GENERATION_ATTEMPTS = 2;
     private static final SamplerConfig JSON_SAMPLER =
             new SamplerConfig(20, 0.90d, 0.10d, 0);
 
     private final Context appContext;
     private final LocalModelRepository modelRepository;
+    private final LocalInferenceSettingsStore localSettings;
 
     LocalLlmRuntime(Context context) {
         appContext = context.getApplicationContext();
         modelRepository = new LocalModelRepository(appContext);
+        localSettings = new LocalInferenceSettingsStore(appContext);
     }
 
     JSONObject requestJson(
@@ -119,7 +120,8 @@ final class LocalLlmRuntime {
     ) {
         IllegalStateException lastParseFailure = null;
         String source = originalPrompt == null ? "" : originalPrompt;
-        for (int attempt = 0; attempt < JSON_GENERATION_ATTEMPTS; attempt++) {
+        int attempts = localSettings.retryInvalidJson() ? 2 : 1;
+        for (int attempt = 0; attempt < attempts; attempt++) {
             String candidate = attempt == 0 ? source : jsonRetryPrompt(source);
             String raw = sendWithBackendFallback(
                     modelId, modelFile, npcId, candidate, maxOutputTokens, tool);
@@ -195,8 +197,11 @@ final class LocalLlmRuntime {
         String source = originalPrompt == null ? "" : originalPrompt;
         RuntimeException lastOverflow = null;
         String previous = null;
+        int maxLevel = localSettings.autoCompact()
+                ? LocalPromptCompactor.MAX_COMPACTION_LEVEL
+                : -1;
 
-        for (int attempt = -1; attempt <= LocalPromptCompactor.MAX_COMPACTION_LEVEL; attempt++) {
+        for (int attempt = -1; attempt <= maxLevel; attempt++) {
             String candidate = attempt < 0 ? source : LocalPromptCompactor.compact(source, attempt);
             if (previous != null && previous.equals(candidate)) continue;
             previous = candidate;
@@ -221,6 +226,16 @@ final class LocalLlmRuntime {
         synchronized (ENGINE_INIT_LOCK) {
             cached = ENGINES.get(modelId);
             if (cached != null) return cached;
+
+            if (!localSettings.preferGpu()) {
+                try {
+                    cached = createEngine(modelFile, false);
+                } catch (RuntimeException cpuFailure) {
+                    throw localExecutionFailure(modelId, "CPU初期化", cpuFailure);
+                }
+                ENGINES.put(modelId, cached);
+                return cached;
+            }
 
             RuntimeException gpuFailure = null;
             try {
@@ -330,6 +345,15 @@ final class LocalLlmRuntime {
                 } catch (RuntimeException ignored) {
                 }
             }
+        }
+    }
+
+    static void resetEngines() {
+        synchronized (ENGINE_INIT_LOCK) {
+            for (EngineHolder holder : ENGINES.values()) {
+                closeQuietly(holder.engine);
+            }
+            ENGINES.clear();
         }
     }
 
