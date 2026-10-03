@@ -280,8 +280,8 @@ final class OpenAiClient {
         try {
             String npcId = attributedNpcId(fullPrompt);
             if (npcId.isEmpty()) return "";
-            String selectedModel = new NpcModelStore(appContext, npcId).selectedModel();
             String stage = diagnosticBrainStage(fullPrompt);
+            String selectedModel = new NpcModelStore(appContext, npcId).effectiveModelForStage(stage);
             return ProcessingQueueRegistry.startRunning(
                     "llm_request",
                     npcId,
