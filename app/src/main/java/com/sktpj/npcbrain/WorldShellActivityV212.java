@@ -629,7 +629,6 @@ public final class WorldShellActivityV212 extends Activity {
     private void maybeRunSpontaneousConversation() {
         if (processing || !demoRuntime.hasDueSpontaneousEvents()) return;
         String apiKey = loadApiKey();
-        if (apiKey.isEmpty()) return;
         processing = true;
         new Thread(() -> {
             try {
