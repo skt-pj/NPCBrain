@@ -36,6 +36,9 @@ public final class SettingsActivity extends Activity {
     private TextView clefModelStatus;
     private Button clefModelButton;
     private TextView clefPerformanceStatus;
+    private Button clefProbeButton;
+    private TextView clefProbeStatus;
+    private volatile boolean clefProbeRunning;
     private LinearLayout localModelsContainer;
     private LinearLayout budgetContainer;
     private Button cacheProbeButton;
@@ -126,7 +129,7 @@ public final class SettingsActivity extends Activity {
         clefPerformanceParams.topMargin = dp(12);
         body.addView(buildClefPerformanceCard(), clefPerformanceParams);
 
-        if (isDebuggableBuild()) {
+        if (isDebuggableBuild() && shouldShowOpenAiPromptCacheProbe()) {
             LinearLayout.LayoutParams cacheParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -734,7 +737,7 @@ public final class SettingsActivity extends Activity {
         LinearLayout card = card();
         card.addView(text("CLEF 実測パフォーマンス", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text(
-                "端末内CLEFを実際に実行したときの処理時間とprocess memoryを記録します。追加推論は行いません。",
+                "通常の分割脳実行は自動記録します。下の実測ボタンはOpenAIを一切使わず、端末内CLEFで固定9専門を1回ずつ実推論して処理時間とprocess memoryを測ります。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false));
@@ -742,6 +745,18 @@ public final class SettingsActivity extends Activity {
         clefPerformanceStatus = text("", 11, AppUiTheme.APP_TEXT, false);
         clefPerformanceStatus.setLineSpacing(0f, 1.2f);
         card.addView(clefPerformanceStatus, matchTop(dp(8)));
+
+        clefProbeButton = actionButton("ローカルCLEF 9専門を実測");
+        clefProbeButton.setOnClickListener(v -> startClefPerformanceProbe());
+        card.addView(clefProbeButton, matchTop(dp(8)));
+
+        clefProbeStatus = text(
+                "未実行。APIキー不要・外部通信なし。",
+                10,
+                AppUiTheme.APP_MUTED,
+                false);
+        clefProbeStatus.setLineSpacing(0f, 1.15f);
+        card.addView(clefProbeStatus, matchTop(dp(5)));
 
         Button reset = actionButton("実測データをリセット");
         reset.setOnClickListener(v -> {
@@ -753,8 +768,54 @@ public final class SettingsActivity extends Activity {
     }
 
     private void refreshClefPerformance() {
-        if (clefPerformanceStatus == null) return;
-        clefPerformanceStatus.setText(clefPerformanceStore.snapshot().displayText());
+        if (clefPerformanceStatus != null) {
+            clefPerformanceStatus.setText(clefPerformanceStore.snapshot().displayText());
+        }
+        if (clefProbeButton != null) {
+            ClefLocalDownloadManager.Snapshot snapshot =
+                    ClefLocalDownloadManager.snapshot(this);
+            clefProbeButton.setEnabled(snapshot.downloaded && !clefProbeRunning);
+            if (!snapshot.downloaded && clefProbeStatus != null && !clefProbeRunning) {
+                clefProbeStatus.setText("CLEF-Flashをダウンロードすると実測できます。APIキーは不要です。");
+            }
+        }
+    }
+
+    private void startClefPerformanceProbe() {
+        if (clefProbeRunning) return;
+        ClefLocalDownloadManager.Snapshot snapshot =
+                ClefLocalDownloadManager.snapshot(this);
+        if (!snapshot.downloaded) {
+            if (clefProbeStatus != null) {
+                clefProbeStatus.setText("CLEF-Flashが未ダウンロードです。APIキーは不要です。");
+            }
+            return;
+        }
+
+        clefProbeRunning = true;
+        if (clefProbeButton != null) clefProbeButton.setEnabled(false);
+        if (clefProbeStatus != null) {
+            clefProbeStatus.setText("実測中… 端末内CLEFで9専門を順番に実推論しています。");
+        }
+
+        new Thread(() -> {
+            try {
+                ClefPerformanceProbe.Result result = ClefPerformanceProbe.run(this);
+                runOnUiThread(() -> finishClefPerformanceProbe(result.displayText()));
+            } catch (Exception error) {
+                String detail = ProcessingQueueRegistry.rootMessage(error);
+                runOnUiThread(() -> finishClefPerformanceProbe("ERROR: " + detail));
+            }
+        }, "clef-local-performance-probe").start();
+    }
+
+    private void finishClefPerformanceProbe(String result) {
+        clefProbeRunning = false;
+        if (isFinishing() || isDestroyed()) return;
+        if (clefProbeStatus != null) {
+            clefProbeStatus.setText(result == null ? "" : result);
+        }
+        refreshClefPerformance();
     }
 
     private void refreshClef() {
@@ -801,12 +862,24 @@ public final class SettingsActivity extends Activity {
         return params;
     }
 
+    private boolean shouldShowOpenAiPromptCacheProbe() {
+        if (specialistInferenceSettingsStore.usesDecisionModel()) return false;
+        if (NpcInferenceModel.usesOpenAi(routingSettingsStore.specialistModel())) return true;
+        for (String npcId : registryStore.npcIds()) {
+            if (NpcInferenceModel.usesOpenAi(
+                    new NpcModelStore(this, npcId).effectiveSpecialistModel())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private View buildPromptCacheDebugCard() {
         LinearLayout card = card();
-        card.addView(text("Brain Prompt Cache Test", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text("OpenAI Prompt Cache Test", 18, AppUiTheme.APP_TEXT, true));
 
         TextView note = text(
-                "Debug専用。本番Brainと同じ9専門役割・Prompt Cache構造を使います。1専門をwarm-up後、残り8専門を並列実API実行し、cached tokensを測定します。実API費用は発生しますがNPC別AI費用台帳には加算しません。",
+                "Debug専用・通常LLMの分割脳がOpenAIを使う場合だけ表示します。1専門をwarm-up後、残り8専門を実API実行してPrompt Cacheを測定します。CLEFの性能測定ではありません。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false);
