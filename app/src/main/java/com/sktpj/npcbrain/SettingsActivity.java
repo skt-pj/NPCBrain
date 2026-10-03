@@ -171,17 +171,11 @@ public final class SettingsActivity extends Activity {
         addConfigurationRow(
                 card,
                 "Global Workspace",
-                routeSummary(routingSettingsStore.globalModel()));
+                "通常LLM / " + routeSummary(routingSettingsStore.globalModel()));
         addConfigurationRow(
                 card,
-                "Specialist Brain",
-                routeSummary(routingSettingsStore.specialistModel()));
-        addConfigurationRow(
-                card,
-                "Action Selection",
-                clefSettingsStore.enabled()
-                        ? "CLEF-Flash 9B Q4_K_M"
-                        : "Specialist Brainと同じ");
+                "分割脳（9専門）",
+                specialistSummary());
         return card;
     }
 
@@ -196,11 +190,11 @@ public final class SettingsActivity extends Activity {
         card.addView(row, rowParams);
 
         row.addView(text(label, 12, AppUiTheme.APP_TEXT, true),
-                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.42f));
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.40f));
         TextView detail = text(value, 11, AppUiTheme.APP_MUTED, false);
         detail.setGravity(Gravity.END);
         row.addView(detail,
-                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.58f));
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.60f));
     }
 
     private String routeSummary(String model) {
@@ -208,44 +202,99 @@ public final class SettingsActivity extends Activity {
                 + " / " + NpcInferenceModel.displayLabel(model);
     }
 
+    private String specialistSummary() {
+        if (!specialistInferenceSettingsStore.usesDecisionModel()) {
+            return "通常LLM / " + routeSummary(routingSettingsStore.specialistModel());
+        }
+        String model = decisionModelSettingsStore.model();
+        return "判断モデル / "
+                + DecisionModelCatalog.executionLocationLabel(model)
+                + " / " + DecisionModelCatalog.displayLabel(model);
+    }
+
     private View buildRoutingCard() {
         LinearLayout card = card();
         card.addView(text("脳への割り当て", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text(
-                "Global Workspaceと9専門Brainは、実行場所 → モデル → 詳細の順で設定します。"
-                        + "詳細は共通設定を別ダイアログで編集します。",
+                "Global Workspaceは通常LLMで統合します。分割脳の9専門は「通常LLM」か「判断モデル」のどちらか一方だけで動きます。"
+                        + " Action Selectionだけを別モデルにする設定はありません。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false));
 
-        addRoutingGroup(card, "Global Workspace", true);
-        addRoutingGroup(card, "Specialist Brain", false);
-        addActionSelectionGroup(card);
+        addGlobalRoutingGroup(card);
+        addSpecialistRoutingGroup(card);
         return card;
     }
 
-    private void addRoutingGroup(
+    private void addGlobalRoutingGroup(LinearLayout card) {
+        TextView heading = text("Global Workspace", 15, AppUiTheme.APP_TEXT, true);
+        card.addView(heading, matchTop(dp(16)));
+        card.addView(text(
+                "最終統合・発話・行動決定を行う通常LLMです。",
+                10,
+                AppUiTheme.APP_MUTED,
+                false));
+        addLlmRouteControls(card, true, 1);
+    }
+
+    private void addSpecialistRoutingGroup(LinearLayout card) {
+        TextView heading = text("分割脳（9専門）", 15, AppUiTheme.APP_TEXT, true);
+        card.addView(heading, matchTop(dp(18)));
+        card.addView(text(
+                "知覚・注意・記憶・世界モデル・実行制御・価値判断・誤り監視・行動選択など9専門を同じ推論方式で並列実行します。",
+                10,
+                AppUiTheme.APP_MUTED,
+                false));
+
+        TextView typeTitle = text("① 推論方式", 12, AppUiTheme.APP_TEXT, true);
+        card.addView(typeTitle, matchTop(dp(9)));
+
+        RadioGroup type = new RadioGroup(this);
+        type.setOrientation(LinearLayout.HORIZONTAL);
+        RadioButton llm = routeRadio("通常LLM");
+        RadioButton decision = routeRadio("判断モデル");
+        int llmId = View.generateViewId();
+        int decisionId = View.generateViewId();
+        llm.setId(llmId);
+        decision.setId(decisionId);
+        type.addView(llm, new RadioGroup.LayoutParams(0, dp(44), 1f));
+        type.addView(decision, new RadioGroup.LayoutParams(0, dp(44), 1f));
+        type.check(specialistInferenceSettingsStore.usesDecisionModel()
+                ? decisionId
+                : llmId);
+        type.setOnCheckedChangeListener((group, checkedId) -> {
+            boolean nextDecision = checkedId == decisionId;
+            if (nextDecision == specialistInferenceSettingsStore.usesDecisionModel()) return;
+            specialistInferenceSettingsStore.setMode(nextDecision
+                    ? SpecialistInferenceSettingsStore.MODE_DECISION_MODEL
+                    : SpecialistInferenceSettingsStore.MODE_LLM);
+            rebuildContent();
+        });
+        card.addView(type);
+
+        if (specialistInferenceSettingsStore.usesDecisionModel()) {
+            addDecisionModelControls(card);
+        } else {
+            addLlmRouteControls(card, false, 2);
+        }
+    }
+
+    private void addLlmRouteControls(
             LinearLayout card,
-            String title,
-            boolean global
+            boolean global,
+            int firstStep
     ) {
         String current = global
                 ? routingSettingsStore.globalModel()
                 : routingSettingsStore.specialistModel();
 
-        TextView heading = text(title, 15, AppUiTheme.APP_TEXT, true);
-        LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        headingParams.topMargin = dp(16);
-        card.addView(heading, headingParams);
-
-        TextView locationTitle = text("① 実行場所", 12, AppUiTheme.APP_TEXT, true);
-        LinearLayout.LayoutParams locationTitleParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        locationTitleParams.topMargin = dp(8);
-        card.addView(locationTitle, locationTitleParams);
+        TextView locationTitle = text(
+                "①②③④".substring(firstStep - 1, firstStep) + " 実行場所",
+                12,
+                AppUiTheme.APP_TEXT,
+                true);
+        card.addView(locationTitle, matchTop(dp(8)));
 
         RadioGroup location = new RadioGroup(this);
         location.setOrientation(LinearLayout.HORIZONTAL);
@@ -270,12 +319,12 @@ public final class SettingsActivity extends Activity {
         });
         card.addView(location);
 
-        TextView modelTitle = text("② モデル", 12, AppUiTheme.APP_TEXT, true);
-        LinearLayout.LayoutParams modelTitleParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        modelTitleParams.topMargin = dp(8);
-        card.addView(modelTitle, modelTitleParams);
+        TextView modelTitle = text(
+                "①②③④".substring(firstStep, firstStep + 1) + " モデル",
+                12,
+                AppUiTheme.APP_TEXT,
+                true);
+        card.addView(modelTitle, matchTop(dp(8)));
 
         Button modelButton = actionButton(NpcInferenceModel.displayLabel(current) + "  ▼");
         modelButton.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
@@ -283,12 +332,12 @@ public final class SettingsActivity extends Activity {
         modelButton.setOnClickListener(v -> showModelPicker(global));
         card.addView(modelButton, matchTop(dp(5)));
 
-        TextView detailTitle = text("③ 詳細", 12, AppUiTheme.APP_TEXT, true);
-        LinearLayout.LayoutParams detailTitleParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        detailTitleParams.topMargin = dp(9);
-        card.addView(detailTitle, detailTitleParams);
+        TextView detailTitle = text(
+                "①②③④".substring(firstStep + 1, firstStep + 2) + " 詳細",
+                12,
+                AppUiTheme.APP_TEXT,
+                true);
+        card.addView(detailTitle, matchTop(dp(9)));
 
         LinearLayout detailRow = new LinearLayout(this);
         detailRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -304,12 +353,64 @@ public final class SettingsActivity extends Activity {
                 new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         Button details = actionButton("詳細を選択");
         details.setOnClickListener(v -> {
+            String label = global ? "Global Workspace" : "分割脳（通常LLM）";
             if (NpcInferenceModel.isLocal(current)) {
-                showLocalDetailDialog(title, current);
+                showLocalDetailDialog(label, current);
             } else {
-                showOpenAiDetailDialog(title + " 詳細設定");
+                showOpenAiDetailDialog(label + " 詳細設定");
             }
         });
+        LinearLayout.LayoutParams detailsParams = new LinearLayout.LayoutParams(dp(112), dp(42));
+        detailsParams.leftMargin = dp(7);
+        detailRow.addView(details, detailsParams);
+        card.addView(detailRow, matchTop(dp(5)));
+    }
+
+    private void addDecisionModelControls(LinearLayout card) {
+        String current = decisionModelSettingsStore.model();
+
+        card.addView(text("② 実行場所", 12, AppUiTheme.APP_TEXT, true), matchTop(dp(8)));
+        RadioGroup location = new RadioGroup(this);
+        location.setOrientation(LinearLayout.HORIZONTAL);
+        RadioButton local = routeRadio("ローカル");
+        RadioButton cloud = routeRadio("クラウド");
+        int localId = View.generateViewId();
+        int cloudId = View.generateViewId();
+        local.setId(localId);
+        cloud.setId(cloudId);
+        location.addView(local, new RadioGroup.LayoutParams(0, dp(44), 1f));
+        location.addView(cloud, new RadioGroup.LayoutParams(0, dp(44), 1f));
+        location.check(DecisionModelCatalog.isLocal(current) ? localId : cloudId);
+        location.setOnCheckedChangeListener((group, checkedId) -> {
+            boolean nextCloud = checkedId == cloudId;
+            if (nextCloud == DecisionModelCatalog.isCloud(decisionModelSettingsStore.model())) {
+                return;
+            }
+            decisionModelSettingsStore.setCloud(nextCloud);
+            rebuildContent();
+        });
+        card.addView(location);
+
+        card.addView(text("③ 判断モデル", 12, AppUiTheme.APP_TEXT, true), matchTop(dp(8)));
+        Button model = actionButton(DecisionModelCatalog.displayLabel(current) + "  ▼");
+        model.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        model.setPadding(dp(12), 0, dp(12), 0);
+        model.setOnClickListener(v -> showDecisionModelPicker());
+        card.addView(model, matchTop(dp(5)));
+
+        card.addView(text("④ 詳細", 12, AppUiTheme.APP_TEXT, true), matchTop(dp(9)));
+        LinearLayout detailRow = new LinearLayout(this);
+        detailRow.setOrientation(LinearLayout.HORIZONTAL);
+        detailRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView summary = text(
+                decisionModelDetailSummary(current),
+                10,
+                AppUiTheme.APP_MUTED,
+                false);
+        detailRow.addView(summary,
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        Button details = actionButton("詳細を選択");
+        details.setOnClickListener(v -> showDecisionModelDetailDialog());
         LinearLayout.LayoutParams detailsParams = new LinearLayout.LayoutParams(dp(112), dp(42));
         detailsParams.leftMargin = dp(7);
         detailRow.addView(details, detailsParams);
@@ -339,11 +440,35 @@ public final class SettingsActivity extends Activity {
             if (values[i].equals(current)) checked = i;
         }
         new AlertDialog.Builder(this)
-                .setTitle(local ? "ローカルモデルを選択" : "クラウドモデルを選択")
+                .setTitle(local ? "ローカルLLMを選択" : "クラウドLLMを選択")
                 .setSingleChoiceItems(labels, checked, (dialog, which) -> {
                     if (which < 0 || which >= values.length) return;
                     if (global) routingSettingsStore.setGlobalModel(values[which]);
                     else routingSettingsStore.setSpecialistModel(values[which]);
+                    dialog.dismiss();
+                    rebuildContent();
+                })
+                .setNegativeButton("キャンセル", null)
+                .show();
+    }
+
+    private void showDecisionModelPicker() {
+        String current = decisionModelSettingsStore.model();
+        boolean local = DecisionModelCatalog.isLocal(current);
+        String[] values = local
+                ? DecisionModelCatalog.localValues()
+                : DecisionModelCatalog.cloudValues();
+        String[] labels = new String[values.length];
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            labels[i] = DecisionModelCatalog.displayLabel(values[i]);
+            if (values[i].equals(current)) checked = i;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(local ? "ローカル判断モデルを選択" : "クラウド判断モデルを選択")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    if (which < 0 || which >= values.length) return;
+                    decisionModelSettingsStore.setModel(values[which]);
                     dialog.dismiss();
                     rebuildContent();
                 })
@@ -368,6 +493,20 @@ public final class SettingsActivity extends Activity {
                 + " · APIキー " + (hasApiKey() ? "設定済み" : "未設定");
     }
 
+    private String decisionModelDetailSummary(String modelId) {
+        if (DecisionModelCatalog.isLocal(modelId)) {
+            ClefLocalDownloadManager.Snapshot snapshot =
+                    ClefLocalDownloadManager.snapshot(this);
+            return "System One / typed decision"
+                    + "\nQ4_K_M · " + snapshot.displayText();
+        }
+        return "System One / typed decision"
+                + "\nCloudflare認証 "
+                + (decisionModelSettingsStore.cloudflareAccountId().isEmpty()
+                ? "未設定" : "Account設定済み")
+                + " · token " + (hasCloudflareToken() ? "設定済み" : "未設定");
+    }
+
     private String localWeightLabel(String modelId) {
         String normalized = NpcInferenceModel.normalize(modelId);
         if (NpcInferenceModel.LOCAL_MEDIUM.equals(normalized)) {
@@ -390,7 +529,7 @@ public final class SettingsActivity extends Activity {
                 AppUiTheme.APP_TEXT,
                 true));
         content.addView(text(
-                "この設定はGlobal Workspace / Specialist Brainで同じローカルruntimeを共有します。",
+                "この設定は通常LLMのローカルruntimeで共通利用します。",
                 10,
                 AppUiTheme.APP_MUTED,
                 false),
@@ -465,7 +604,7 @@ public final class SettingsActivity extends Activity {
                 AppUiTheme.APP_TEXT,
                 true));
         content.addView(text(
-                "このReasoning設定はOpenAIを選択したGlobal Workspace / Specialist Brainで共通利用します。"
+                "このReasoning設定はOpenAIの通常LLMで共通利用します。"
                         + "\nAPIキー  " + (hasApiKey() ? "設定済み" : "未設定"),
                 10,
                 AppUiTheme.APP_MUTED,
@@ -506,69 +645,92 @@ public final class SettingsActivity extends Activity {
                 .show();
     }
 
-    private void addActionSelectionGroup(LinearLayout card) {
-        TextView heading = text("Action Selection", 15, AppUiTheme.APP_TEXT, true);
-        LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        headingParams.topMargin = dp(18);
-        card.addView(heading, headingParams);
-        card.addView(text(
-                "9専門のうちaction_selectionだけをSpecialist Brainと同じモデルにするか、CLEFへ置換します。",
-                10,
-                AppUiTheme.APP_MUTED,
-                false));
-
-        RadioGroup group = new RadioGroup(this);
-        RadioButton same = routeRadio("Specialist Brainと同じ");
-        RadioButton clef = routeRadio("CLEF-Flash 9B Q4_K_M");
-        int sameId = View.generateViewId();
-        int clefId = View.generateViewId();
-        same.setId(sameId);
-        clef.setId(clefId);
-        group.addView(same);
-        group.addView(clef);
-        group.check(clefSettingsStore.enabled() ? clefId : sameId);
-        group.setOnCheckedChangeListener((radioGroup, checkedId) -> {
-            if (checkedId == sameId) {
-                if (clefSettingsStore.enabled()) {
-                    clefSettingsStore.setEnabled(false);
-                    rebuildContent();
-                }
-                return;
-            }
-            ClefLocalDownloadManager.Snapshot snapshot =
-                    ClefLocalDownloadManager.snapshot(this);
-            if (snapshot.downloaded) {
-                if (!clefSettingsStore.enabled()) {
-                    clefSettingsStore.setEnabled(true);
-                    rebuildContent();
-                }
-                return;
-            }
-            clefSettingsStore.setEnabled(false);
-            radioGroup.check(sameId);
-            new AlertDialog.Builder(this)
-                    .setTitle("CLEF-Flashが未ダウンロードです")
-                    .setMessage("Action SelectionでCLEFを使うには、約6.49GBのモデルを先にダウンロードします。")
-                    .setPositiveButton("ダウンロード", (dialog, which) -> {
-                        ClefLocalDownloadManager.startDownload(this);
-                        refreshClef();
-                    })
-                    .setNegativeButton("キャンセル", null)
-                    .show();
-        });
-        card.addView(group, matchTop(dp(7)));
-
+    private void showDecisionModelDetailDialog() {
+        String model = decisionModelSettingsStore.model();
+        if (DecisionModelCatalog.isCloud(model)) {
+            showCloudflareCredentialsDialog();
+            return;
+        }
         ClefLocalDownloadManager.Snapshot snapshot =
                 ClefLocalDownloadManager.snapshot(this);
-        card.addView(text(
-                "CLEF状態  " + snapshot.displayText()
-                        + (clefSettingsStore.enabled() ? " · 使用中" : " · 未使用"),
-                10,
-                AppUiTheme.APP_MUTED,
-                false),
-                matchTop(dp(5)));
+        AlertDialog.Builder dialog = new AlertDialog.Builder(this)
+                .setTitle("判断モデル 詳細")
+                .setMessage(
+                        "モデル: " + DecisionModelCatalog.displayLabel(model)
+                                + "\n実行: ローカル"
+                                + "\n方式: System One typed decision"
+                                + "\n自由文生成: なし"
+                                + "\n対象: 分割脳9専門すべて"
+                                + "\n状態: " + snapshot.displayText())
+                .setPositiveButton("閉じる", null);
+        if (snapshot.downloading) {
+            dialog.setNeutralButton("ダウンロード中", null);
+        } else if (snapshot.downloaded) {
+            dialog.setNeutralButton("モデル削除", (d, which) -> {
+                ClefLocalDownloadManager.deleteModel(this);
+                rebuildContent();
+            });
+        } else {
+            dialog.setNeutralButton("ダウンロード", (d, which) -> {
+                ClefLocalDownloadManager.startDownload(this);
+                refreshClef();
+            });
+        }
+        dialog.show();
+    }
+
+    private void showCloudflareCredentialsDialog() {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(18), dp(8), dp(18), dp(4));
+
+        EditText account = new EditText(this);
+        account.setSingleLine(true);
+        account.setHint("Cloudflare Account ID");
+        account.setText(decisionModelSettingsStore.cloudflareAccountId());
+        account.setSelectAllOnFocus(true);
+        content.addView(account);
+
+        EditText token = new EditText(this);
+        token.setSingleLine(true);
+        token.setHint(hasCloudflareToken()
+                ? "API token（変更する場合だけ入力）"
+                : "Cloudflare API token");
+        token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        content.addView(token, matchTop(dp(8)));
+
+        new AlertDialog.Builder(this)
+                .setTitle("クラウド判断モデル認証")
+                .setMessage("Cloudflare Workers AIの判断モデル用です。tokenはAndroid Keystoreで暗号化し、保存後は再表示しません。")
+                .setView(content)
+                .setPositiveButton("保存", (dialog, which) -> {
+                    try {
+                        decisionModelSettingsStore.setCloudflareAccountId(
+                                account.getText() == null ? "" : account.getText().toString());
+                        String value = token.getText() == null
+                                ? ""
+                                : token.getText().toString().trim();
+                        if (!value.isEmpty()) cloudflareTokenStore.save(value);
+                        rebuildContent();
+                    } catch (Exception error) {
+                        Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNeutralButton("認証情報削除", (dialog, which) -> {
+                    decisionModelSettingsStore.clearCloudflareAccountId();
+                    cloudflareTokenStore.clear();
+                    rebuildContent();
+                })
+                .setNegativeButton("キャンセル", null)
+                .show();
+    }
+
+    private boolean hasCloudflareToken() {
+        try {
+            return !cloudflareTokenStore.load().trim().isEmpty();
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private View buildLocalModelsCard() {
