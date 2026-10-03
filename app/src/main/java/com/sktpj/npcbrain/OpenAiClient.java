@@ -335,7 +335,8 @@ final class OpenAiClient {
     ) throws Exception {
         String npcId = attributedNpcId(fullPrompt);
         if (npcId.isEmpty()) return null;
-        String selectedModel = new NpcModelStore(appContext, npcId).selectedModel();
+        String stage = diagnosticBrainStage(fullPrompt);
+        String selectedModel = new NpcModelStore(appContext, npcId).effectiveModelForStage(stage);
         if (NpcInferenceModel.usesOpenAi(selectedModel)) return null;
         return new LocalLlmRuntime(appContext).requestJson(
                 npcId, selectedModel, fullPrompt, maxOutputTokens, tool);
