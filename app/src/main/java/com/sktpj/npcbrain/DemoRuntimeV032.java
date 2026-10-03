@@ -232,6 +232,7 @@ final class DemoRuntimeV032 {
     ) throws Exception {
         String sourceEventId = source.eventId();
         String npcId = source.actorId();
+        if (!NpcInferenceAccess.hasRequiredApiKey(appContext, npcId, apiKey)) return;
         List<String> activeNpcIds = npcRegistry.activeNpcIds();
         if (!SpontaneousMessagePolicy.isTriggerEvent(source.eventType(), npcId)
                 || !activeNpcIds.contains(npcId)) {
