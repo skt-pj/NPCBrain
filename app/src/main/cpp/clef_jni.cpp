@@ -33,9 +33,7 @@ void log_error(const std::string & message) {
 
 void throw_java(JNIEnv * env, const std::string & message) {
     jclass cls = env->FindClass("java/lang/IllegalStateException");
-    if (cls != nullptr) {
-        env->ThrowNew(cls, message.c_str());
-    }
+    if (cls != nullptr) env->ThrowNew(cls, message.c_str());
 }
 
 std::string jstring_to_utf8(JNIEnv * env, jstring value) {
@@ -56,6 +54,19 @@ std::vector<std::string> jobject_array_to_strings(JNIEnv * env, jobjectArray arr
         auto value = static_cast<jstring>(env->GetObjectArrayElement(array, i));
         result.push_back(jstring_to_utf8(env, value));
         env->DeleteLocalRef(value);
+    }
+    return result;
+}
+
+std::vector<int32_t> jint_array_to_ints(JNIEnv * env, jintArray array) {
+    std::vector<int32_t> result;
+    if (array == nullptr) return result;
+    const jsize n = env->GetArrayLength(array);
+    result.resize(static_cast<size_t>(n));
+    if (n > 0) {
+        std::vector<jint> values(static_cast<size_t>(n));
+        env->GetIntArrayRegion(array, 0, n, values.data());
+        for (jsize i = 0; i < n; ++i) result[static_cast<size_t>(i)] = values[static_cast<size_t>(i)];
     }
     return result;
 }
@@ -101,9 +112,7 @@ std::vector<llama_token> tokenize_piece(const llama_vocab * vocab, const std::st
             false,
             true);
     if (n < 0) {
-        if (n == INT32_MIN) {
-            throw std::runtime_error("CLEF tokenizer failed");
-        }
+        if (n == INT32_MIN) throw std::runtime_error("CLEF tokenizer failed");
         tokens.resize(static_cast<size_t>(-n));
         n = llama_tokenize(
                 vocab,
@@ -114,9 +123,7 @@ std::vector<llama_token> tokenize_piece(const llama_vocab * vocab, const std::st
                 false,
                 true);
     }
-    if (n < 0) {
-        throw std::runtime_error("CLEF tokenizer capacity retry failed");
-    }
+    if (n < 0) throw std::runtime_error("CLEF tokenizer capacity retry failed");
     tokens.resize(static_cast<size_t>(n));
     return tokens;
 }
@@ -125,6 +132,13 @@ struct PromptInput {
     std::vector<llama_token> tokens;
     std::vector<int32_t> orders;
     int32_t n_scores = 0;
+};
+
+struct FieldSpec {
+    std::string id;
+    std::string instruction;
+    std::vector<std::string> option_ids;
+    std::vector<std::string> option_descriptions;
 };
 
 void append_tokens(
@@ -136,9 +150,7 @@ void append_tokens(
     }
     input.tokens.insert(input.tokens.end(), tokens.begin(), tokens.end());
     input.orders.resize(input.tokens.size(), order);
-    if (order == LLAMA_DECISION_ORDER_OPTION) {
-        input.n_scores++;
-    }
+    if (order == LLAMA_DECISION_ORDER_OPTION) input.n_scores++;
 }
 
 void append_piece(
@@ -170,7 +182,7 @@ void append_bounded_state(
     }
 
     const size_t payload = max_state_tokens - omitted_tokens.size();
-    const size_t head_count = payload * 3 / 5;
+    const size_t head_count = payload * 2 / 3;
     const size_t tail_count = payload - head_count;
     std::vector<llama_token> head(tokens.begin(), tokens.begin() + head_count);
     std::vector<llama_token> tail(tokens.end() - tail_count, tokens.end());
@@ -182,87 +194,71 @@ void append_bounded_state(
 PromptInput build_prompt(
         const llama_vocab * vocab,
         const std::string & state,
-        const std::vector<std::string> & action_ids,
-        const std::vector<std::string> & action_descriptions,
+        const std::vector<FieldSpec> & fields,
         size_t max_state_tokens) {
-    if (action_ids.empty() || action_ids.size() != action_descriptions.size()) {
-        throw std::runtime_error("CLEF action criteria are invalid");
-    }
+    if (fields.empty()) throw std::runtime_error("CLEF specialist fields are empty");
 
     static const std::string system_prompt =
-            "Read the complete state and schema. Decide every field jointly. Each answer "
-            "must be exactly one of that field's allowed options.";
+            "You are one fixed specialist reaction function inside an NPC brain. "
+            "Read only the grounded state. For every field choose exactly one allowed reaction. "
+            "Do not invent events, plans, actions, memories, or explanations.";
 
     PromptInput input;
     append_piece(
             input,
             vocab,
             "<|im_start|>system\n" + system_prompt
-                    + "<|im_end|>\n<|im_start|>user\nSTATE:\n",
+                    + "<|im_end|>\n<|im_start|>user\nGROUNDED STATE:\n",
             LLAMA_DECISION_ORDER_NONE);
     append_bounded_state(input, vocab, state, max_state_tokens);
-    append_piece(input, vocab, "\n\nSCHEMA FIELDS:\n", LLAMA_DECISION_ORDER_NONE);
+    append_piece(input, vocab, "\n\nFIXED REACTION FIELDS:\n", LLAMA_DECISION_ORDER_NONE);
 
-    append_piece(
-            input,
-            vocab,
-            "\nFIELD 1\nID: action\nTYPE: choice\nINSTRUCTION: ",
-            LLAMA_DECISION_ORDER_NONE);
-    append_piece(
-            input,
-            vocab,
-            "Choose the single action class this NPC should take now. "
-                    "Use only the grounded state, goals, memory, personality, and constraints.",
-            LLAMA_DECISION_ORDER_QUESTION_CHOICE);
-    append_piece(input, vocab, "\nALLOWED OPTIONS:\n", LLAMA_DECISION_ORDER_NONE);
-    for (size_t i = 0; i < action_ids.size(); ++i) {
+    for (size_t field_index = 0; field_index < fields.size(); ++field_index) {
+        const FieldSpec & field = fields[field_index];
+        if (field.id.empty() || field.instruction.empty()
+                || field.option_ids.size() < 2
+                || field.option_ids.size() != field.option_descriptions.size()) {
+            throw std::runtime_error("CLEF specialist field is invalid");
+        }
+
         append_piece(
                 input,
                 vocab,
-                "OPTION " + std::to_string(i + 1) + ": ",
+                "\nFIELD " + std::to_string(field_index + 1)
+                        + "\nID: " + field.id
+                        + "\nTYPE: choice\nINSTRUCTION: ",
                 LLAMA_DECISION_ORDER_NONE);
         append_piece(
                 input,
                 vocab,
-                option_json(action_ids[i], action_descriptions[i]),
-                LLAMA_DECISION_ORDER_OPTION);
-        append_piece(input, vocab, "\n", LLAMA_DECISION_ORDER_NONE);
-    }
-    append_piece(input, vocab, "END FIELD\n", LLAMA_DECISION_ORDER_NONE);
+                field.instruction,
+                LLAMA_DECISION_ORDER_QUESTION_CHOICE);
+        append_piece(input, vocab, "\nALLOWED OPTIONS:\n", LLAMA_DECISION_ORDER_NONE);
 
-    append_piece(
-            input,
-            vocab,
-            "\nFIELD 2\nID: commit_now\nTYPE: noul\nINSTRUCTION: ",
-            LLAMA_DECISION_ORDER_NONE);
-    append_piece(
-            input,
-            vocab,
-            "Should this NPC commit to the chosen action class now rather than remain undecided?",
-            LLAMA_DECISION_ORDER_QUESTION_NOUL);
-    append_piece(input, vocab, "\nALLOWED OPTIONS:\n", LLAMA_DECISION_ORDER_NONE);
-    append_piece(input, vocab, "OPTION 1: ", LLAMA_DECISION_ORDER_NONE);
-    append_piece(
-            input,
-            vocab,
-            option_json("true", "The proposition is true or the answer is yes."),
-            LLAMA_DECISION_ORDER_OPTION);
-    append_piece(input, vocab, "\n", LLAMA_DECISION_ORDER_NONE);
-    append_piece(input, vocab, "OPTION 2: ", LLAMA_DECISION_ORDER_NONE);
-    append_piece(
-            input,
-            vocab,
-            option_json("false", "The proposition is false or the answer is no."),
-            LLAMA_DECISION_ORDER_OPTION);
-    append_piece(input, vocab, "\nEND FIELD\n", LLAMA_DECISION_ORDER_NONE);
+        for (size_t option_index = 0; option_index < field.option_ids.size(); ++option_index) {
+            append_piece(
+                    input,
+                    vocab,
+                    "OPTION " + std::to_string(option_index + 1) + ": ",
+                    LLAMA_DECISION_ORDER_NONE);
+            append_piece(
+                    input,
+                    vocab,
+                    option_json(
+                            field.option_ids[option_index],
+                            field.option_descriptions[option_index]),
+                    LLAMA_DECISION_ORDER_OPTION);
+            append_piece(input, vocab, "\n", LLAMA_DECISION_ORDER_NONE);
+        }
+        append_piece(input, vocab, "END FIELD\n", LLAMA_DECISION_ORDER_NONE);
+    }
 
     append_piece(
             input,
             vocab,
             "\n<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
-                    "JOINT SCHEMA DECISIONS:",
+                    "FIXED REACTION DECISIONS:",
             LLAMA_DECISION_ORDER_NONE);
-
     return input;
 }
 
@@ -279,9 +275,7 @@ void unload_locked() {
 }
 
 void ensure_loaded_locked(const std::string & path) {
-    if (g_model != nullptr && g_context != nullptr && g_model_path == path) {
-        return;
-    }
+    if (g_model != nullptr && g_context != nullptr && g_model_path == path) return;
     unload_locked();
 
     if (!g_backend_initialized) {
@@ -292,9 +286,7 @@ void ensure_loaded_locked(const std::string & path) {
     llama_model_params model_params = llama_model_default_params();
     model_params.n_gpu_layers = 0;
     g_model = llama_model_load_from_file(path.c_str(), model_params);
-    if (g_model == nullptr) {
-        throw std::runtime_error("CLEF GGUFの読み込みに失敗しました");
-    }
+    if (g_model == nullptr) throw std::runtime_error("CLEF GGUFの読み込みに失敗しました");
 
     char architecture[64] = {};
     if (llama_model_meta_val_str(
@@ -334,41 +326,44 @@ void ensure_loaded_locked(const std::string & path) {
 std::vector<double> run_decision_locked(
         const std::string & model_path,
         const std::string & state,
-        const std::vector<std::string> & action_ids,
-        const std::vector<std::string> & action_descriptions) {
+        const std::vector<FieldSpec> & fields) {
     ensure_loaded_locked(model_path);
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
-    PromptInput fixed = build_prompt(vocab, "", action_ids, action_descriptions, 0);
+
+    PromptInput fixed = build_prompt(vocab, "", fields, 0);
     if (fixed.tokens.size() >= CLEF_CONTEXT_TOKENS) {
-        throw std::runtime_error("CLEF schema itself exceeds the local context window");
+        throw std::runtime_error(
+                "CLEF固定schemaがローカルcontext上限を超えました: "
+                        + std::to_string(fixed.tokens.size())
+                        + " / " + std::to_string(CLEF_CONTEXT_TOKENS) + " tokens");
     }
+
     const size_t state_budget =
             static_cast<size_t>(CLEF_CONTEXT_TOKENS) - fixed.tokens.size();
-    PromptInput prompt = build_prompt(
-            vocab, state, action_ids, action_descriptions, state_budget);
+    PromptInput prompt = build_prompt(vocab, state, fields, state_budget);
 
+    int32_t expected_scores = 0;
+    for (const FieldSpec & field : fields) {
+        expected_scores += static_cast<int32_t>(field.option_ids.size());
+    }
     if (prompt.tokens.empty() || prompt.tokens.size() > CLEF_CONTEXT_TOKENS) {
         throw std::runtime_error(
                 "CLEF入力がローカルcontext上限を超えました: "
                         + std::to_string(prompt.tokens.size())
                         + " / " + std::to_string(CLEF_CONTEXT_TOKENS) + " tokens");
     }
-    if (prompt.n_scores != static_cast<int32_t>(action_ids.size() + 2)) {
+    if (prompt.n_scores != expected_scores) {
         throw std::runtime_error("CLEF option score countが不正です");
     }
 
     llama_memory_clear(llama_get_memory(g_context), false);
     llama_batch_ext * batch = llama_batch_ext_init(g_context);
-    if (batch == nullptr) {
-        throw std::runtime_error("CLEF batch初期化に失敗しました");
-    }
+    if (batch == nullptr) throw std::runtime_error("CLEF batch初期化に失敗しました");
 
     try {
         for (size_t i = 0; i < prompt.tokens.size(); ++i) {
             const int32_t idx = llama_batch_ext_add_token(batch, 0, prompt.tokens[i]);
-            if (idx < 0) {
-                throw std::runtime_error("CLEF batchへtokenを追加できません");
-            }
+            if (idx < 0) throw std::runtime_error("CLEF batchへtokenを追加できません");
             const llama_pos pos = static_cast<llama_pos>(i);
             if (!llama_batch_ext_set_pos(batch, idx, &pos)
                     || !llama_batch_ext_set_output_embd(batch, idx, true)) {
@@ -405,26 +400,72 @@ std::vector<double> run_decision_locked(
     }
 }
 
+std::vector<FieldSpec> make_fields(
+        const std::vector<std::string> & field_ids,
+        const std::vector<std::string> & instructions,
+        const std::vector<std::string> & flat_option_ids,
+        const std::vector<std::string> & flat_option_descriptions,
+        const std::vector<int32_t> & option_counts) {
+    if (field_ids.empty()
+            || field_ids.size() != instructions.size()
+            || field_ids.size() != option_counts.size()
+            || flat_option_ids.size() != flat_option_descriptions.size()) {
+        throw std::runtime_error("CLEF JNI schema shape is invalid");
+    }
+
+    std::vector<FieldSpec> fields;
+    fields.reserve(field_ids.size());
+    size_t offset = 0;
+    for (size_t i = 0; i < field_ids.size(); ++i) {
+        const int32_t count = option_counts[i];
+        if (count < 2 || offset + static_cast<size_t>(count) > flat_option_ids.size()) {
+            throw std::runtime_error("CLEF JNI option count is invalid");
+        }
+        FieldSpec field;
+        field.id = field_ids[i];
+        field.instruction = instructions[i];
+        field.option_ids.assign(
+                flat_option_ids.begin() + static_cast<std::ptrdiff_t>(offset),
+                flat_option_ids.begin() + static_cast<std::ptrdiff_t>(offset + count));
+        field.option_descriptions.assign(
+                flat_option_descriptions.begin() + static_cast<std::ptrdiff_t>(offset),
+                flat_option_descriptions.begin() + static_cast<std::ptrdiff_t>(offset + count));
+        fields.push_back(std::move(field));
+        offset += static_cast<size_t>(count);
+    }
+    if (offset != flat_option_ids.size()) {
+        throw std::runtime_error("CLEF JNI flattened options contain unused entries");
+    }
+    return fields;
+}
+
 } // namespace
 
 extern "C"
 JNIEXPORT jdoubleArray JNICALL
-Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeDecide(
+Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeEvaluate(
         JNIEnv * env,
         jclass,
         jstring model_path,
         jstring state,
-        jobjectArray action_ids,
-        jobjectArray action_descriptions) {
+        jobjectArray field_ids,
+        jobjectArray instructions,
+        jobjectArray option_ids,
+        jobjectArray option_descriptions,
+        jintArray option_counts) {
     try {
         const std::string model = jstring_to_utf8(env, model_path);
         const std::string state_text = jstring_to_utf8(env, state);
-        const std::vector<std::string> ids = jobject_array_to_strings(env, action_ids);
-        const std::vector<std::string> descriptions =
-                jobject_array_to_strings(env, action_descriptions);
+        const std::vector<FieldSpec> fields = make_fields(
+                jobject_array_to_strings(env, field_ids),
+                jobject_array_to_strings(env, instructions),
+                jobject_array_to_strings(env, option_ids),
+                jobject_array_to_strings(env, option_descriptions),
+                jint_array_to_ints(env, option_counts));
+
         std::lock_guard<std::mutex> guard(g_mutex);
         const std::vector<double> scores =
-                run_decision_locked(model, state_text, ids, descriptions);
+                run_decision_locked(model, state_text, fields);
         jdoubleArray result = env->NewDoubleArray(static_cast<jsize>(scores.size()));
         if (result != nullptr && !scores.empty()) {
             env->SetDoubleArrayRegion(
