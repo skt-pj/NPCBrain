@@ -456,7 +456,7 @@ public final class SettingsActivity extends Activity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(18), dp(8), dp(18), dp(4));
         content.addView(text(
-                "OpenAI共通設定 · GPT-5.6 Luna",
+                "OpenAI共通設定 · GPT-6 Luna / GPT-5.6 Luna",
                 13,
                 AppUiTheme.APP_TEXT,
                 true));
@@ -645,7 +645,7 @@ public final class SettingsActivity extends Activity {
         LinearLayout card = card();
         card.addView(text("クラウド設定", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text("Provider  OpenAI", 12, AppUiTheme.APP_TEXT, true), matchTop(dp(7)));
-        card.addView(text("モデル  GPT-5.6 Luna", 11, AppUiTheme.APP_MUTED, false));
+        card.addView(text("モデル  GPT-6 Luna / GPT-5.6 Luna", 11, AppUiTheme.APP_MUTED, false));
         card.addView(text(
                 "Reasoning  " + ModelSettingsStore.displayLabel(modelSettingsStore.reasoningEffort()),
                 11,
