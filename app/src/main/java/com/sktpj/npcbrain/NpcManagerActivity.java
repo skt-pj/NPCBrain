@@ -241,25 +241,47 @@ public final class NpcManagerActivity extends Activity {
         });
     }
 
-    private void showModelDialog(String npcId) {
-        NpcModelStore store = new NpcModelStore(this, npcId);
-        String current = store.selectedModel();
-        String[] values = NpcInferenceModel.supportedValues();
-        String[] labels = new String[values.length];
-        int checked = 0;
-        for (int i = 0; i < values.length; i++) {
-            labels[i] = NpcInferenceModel.displayLabel(values[i]);
-            if (values[i].equals(current)) checked = i;
+    private static String routeDisplay(
+            boolean overridden,
+            String effectiveModel,
+            String defaultModel
+    ) {
+        if (overridden) {
+            return "上書き · " + NpcInferenceModel.displayLabel(effectiveModel);
         }
+        return "共通設定 · " + NpcInferenceModel.displayLabel(defaultModel);
+    }
+
+    private void showModelDialog(String npcId, boolean global) {
+        NpcModelStore store = new NpcModelStore(this, npcId);
+        RoutingSettingsStore defaults = new RoutingSettingsStore(this);
+        String defaultModel = global ? defaults.globalModel() : defaults.specialistModel();
+        boolean overridden = global ? store.hasGlobalOverride() : store.hasSpecialistOverride();
+        String current = global ? store.effectiveGlobalModel() : store.effectiveSpecialistModel();
+
+        String[] values = NpcInferenceModel.supportedValues();
+        String[] labels = new String[values.length + 1];
+        labels[0] = "共通設定を使用（" + NpcInferenceModel.displayLabel(defaultModel) + "）";
+        int checked = overridden ? 1 : 0;
+        for (int i = 0; i < values.length; i++) {
+            labels[i + 1] = NpcInferenceModel.displayLabel(values[i]);
+            if (overridden && values[i].equals(current)) checked = i + 1;
+        }
+
+        String title = global ? "Global Workspace 上書き" : "Specialist Brain 上書き";
         new AlertDialog.Builder(this)
-                .setTitle("推論モデル")
+                .setTitle(title)
                 .setSingleChoiceItems(labels, checked, (dialog, which) -> {
-                    if (which >= 0 && which < values.length) {
-                        store.setSelectedModel(values[which]);
-                        dialog.dismiss();
-                        renderList();
-                        Toast.makeText(this, "推論モデルを保存しました。", Toast.LENGTH_SHORT).show();
+                    if (which == 0) {
+                        if (global) store.clearGlobalOverride();
+                        else store.clearSpecialistOverride();
+                    } else if (which > 0 && which <= values.length) {
+                        if (global) store.setGlobalOverride(values[which - 1]);
+                        else store.setSpecialistOverride(values[which - 1]);
                     }
+                    dialog.dismiss();
+                    renderList();
+                    Toast.makeText(this, "AI上書き設定を保存しました。", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("キャンセル", null)
                 .show();
