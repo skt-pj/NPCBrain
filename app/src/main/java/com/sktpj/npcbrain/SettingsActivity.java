@@ -153,6 +153,54 @@ public final class SettingsActivity extends Activity {
         return root;
     }
 
+    private View buildRoutingCard() {
+        LinearLayout card = card();
+        card.addView(text("脳への割り当て", 18, AppUiTheme.APP_TEXT, true));
+        card.addView(text(
+                "アプリ全体のデフォルトです。9つの専門Brainは1つの設定として扱い、Global Workspaceだけ分けます。",
+                11,
+                AppUiTheme.APP_MUTED,
+                false));
+        addRoutingGroup(card, "Global Workspace", routingSettingsStore.globalModel(), true);
+        addRoutingGroup(card, "Specialist Brain", routingSettingsStore.specialistModel(), false);
+        return card;
+    }
+
+    private void addRoutingGroup(
+            LinearLayout card,
+            String title,
+            String current,
+            boolean global
+    ) {
+        TextView heading = text(title, 14, AppUiTheme.APP_TEXT, true);
+        LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        headingParams.topMargin = dp(14);
+        card.addView(heading, headingParams);
+
+        RadioGroup group = new RadioGroup(this);
+        for (String model : NpcInferenceModel.supportedValues()) {
+            RadioButton option = new RadioButton(this);
+            option.setId(View.generateViewId());
+            option.setTag(model);
+            option.setText(NpcInferenceModel.displayLabel(model));
+            option.setTextColor(AppUiTheme.APP_TEXT);
+            option.setTextSize(12);
+            option.setChecked(model.equals(current));
+            group.addView(option);
+        }
+        group.setOnCheckedChangeListener((radioGroup, checkedId) -> {
+            View selected = radioGroup.findViewById(checkedId);
+            if (selected == null || selected.getTag() == null) return;
+            String model = selected.getTag().toString();
+            if (global) routingSettingsStore.setGlobalModel(model);
+            else routingSettingsStore.setSpecialistModel(model);
+            renderBudgetCards();
+        });
+        card.addView(group);
+    }
+
     private View buildAiSettingsCard() {
         LinearLayout card = card();
         card.addView(text("OpenAI 共通設定", 18, AppUiTheme.APP_TEXT, true));
