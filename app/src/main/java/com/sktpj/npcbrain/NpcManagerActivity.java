@@ -163,9 +163,18 @@ public final class NpcManagerActivity extends Activity {
         card.addView(meta, mp);
 
         NpcModelStore modelStore = new NpcModelStore(this, npcId);
-        String selectedModel = modelStore.selectedModel();
+        RoutingSettingsStore defaults = new RoutingSettingsStore(this);
+
         TextView inference = new TextView(this);
-        inference.setText("推論モデル  " + NpcInferenceModel.displayLabel(selectedModel));
+        inference.setText(
+                "Global Workspace  "
+                        + routeDisplay(modelStore.hasGlobalOverride(),
+                        modelStore.effectiveGlobalModel(),
+                        defaults.globalModel())
+                        + "\nSpecialist Brain  "
+                        + routeDisplay(modelStore.hasSpecialistOverride(),
+                        modelStore.effectiveSpecialistModel(),
+                        defaults.specialistModel()));
         inference.setTextColor(Color.rgb(52, 67, 101));
         inference.setTextSize(13);
         inference.setTypeface(Typeface.DEFAULT_BOLD);
@@ -174,55 +183,25 @@ public final class NpcManagerActivity extends Activity {
         ip.topMargin = dp(9);
         card.addView(inference, ip);
 
-        if (NpcInferenceModel.isLocal(selectedModel)) {
-            LocalModelDownloadManager.Snapshot snapshot =
-                    LocalModelDownloadManager.snapshot(this, selectedModel);
-            TextView modelState = new TextView(this);
-            modelState.setText(snapshot.displayText());
-            modelState.setTextColor(snapshot.errorMessage.isEmpty()
-                    ? Color.rgb(78, 92, 111)
-                    : Color.rgb(170, 46, 46));
-            modelState.setTextSize(12);
-            LinearLayout.LayoutParams stateParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT);
-            stateParams.topMargin = dp(5);
-            card.addView(modelState, stateParams);
-
-            Button download = new Button(this);
-            download.setAllCaps(false);
-            if (snapshot.downloaded) {
-                download.setText("モデルデータ · ダウンロード済み");
-                download.setEnabled(false);
-            } else if (snapshot.downloading) {
-                download.setText("モデルをダウンロード中…");
-                download.setEnabled(false);
-            } else {
-                download.setText(snapshot.errorMessage.isEmpty()
-                        ? "モデルをダウンロード"
-                        : "モデルを再ダウンロード");
-                download.setEnabled(true);
-                download.setOnClickListener(v -> {
-                    LocalModelDownloadManager.startDownload(this, selectedModel);
-                    Toast.makeText(this, "ローカルモデルのダウンロードを開始しました。", Toast.LENGTH_SHORT).show();
-                    renderList();
-                });
-            }
-            LinearLayout.LayoutParams downloadParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
-            downloadParams.topMargin = dp(7);
-            card.addView(download, downloadParams);
-        }
-
         if (!store.isDead()) {
-            Button model = new Button(this);
-            model.setText("モデルを変更");
-            model.setAllCaps(false);
-            model.setOnClickListener(v -> showModelDialog(npcId));
-            LinearLayout.LayoutParams modelParams = new LinearLayout.LayoutParams(
+            Button globalModel = new Button(this);
+            globalModel.setText("Global Workspace 上書き");
+            globalModel.setAllCaps(false);
+            globalModel.setOnClickListener(v -> showModelDialog(npcId, true));
+            LinearLayout.LayoutParams globalParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
-            modelParams.topMargin = dp(8);
-            card.addView(model, modelParams);
+            globalParams.topMargin = dp(8);
+            card.addView(globalModel, globalParams);
+
+            Button specialistModel = new Button(this);
+            specialistModel.setText("Specialist Brain 上書き");
+            specialistModel.setAllCaps(false);
+            specialistModel.setOnClickListener(v -> showModelDialog(npcId, false));
+            LinearLayout.LayoutParams specialistParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
+            specialistParams.topMargin = dp(6);
+            card.addView(specialistModel, specialistParams);
+
             Button edit = new Button(this);
             edit.setText("設定を編集");
             edit.setAllCaps(false);
