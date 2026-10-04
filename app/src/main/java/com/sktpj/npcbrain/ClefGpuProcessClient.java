@@ -4,7 +4,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
-import android.os.Binder;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Parcel;
@@ -20,11 +19,12 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-/** Synchronous worker-thread client for the crash-contained CLEF Vulkan service. */
+/** Worker-thread Binder client for crash-contained CLEF native execution. */
 final class ClefGpuProcessClient {
     static final String DESCRIPTOR = "com.sktpj.npcbrain.ClefGpuService";
-    static final int TRANSACTION_GET_PID = Binder.FIRST_CALL_TRANSACTION;
-    static final int TRANSACTION_EVALUATE = Binder.FIRST_CALL_TRANSACTION + 1;
+    static final int TRANSACTION_GET_PID = IBinder.FIRST_CALL_TRANSACTION;
+    static final int TRANSACTION_EVALUATE_GPU = IBinder.FIRST_CALL_TRANSACTION + 1;
+    static final int TRANSACTION_EVALUATE_CPU = IBinder.FIRST_CALL_TRANSACTION + 2;
 
     private static final long BIND_TIMEOUT_MS = 5_000L;
     private static final long EVALUATION_TIMEOUT_MS = 120_000L;
@@ -34,7 +34,7 @@ final class ClefGpuProcessClient {
             new ThreadFactory() {
                 @Override
                 public Thread newThread(Runnable runnable) {
-                    Thread thread = new Thread(runnable, "npcbrain-clef-gpu-ipc");
+                    Thread thread = new Thread(runnable, "npcbrain-clef-native-ipc");
                     thread.setDaemon(true);
                     return thread;
                 }
@@ -47,7 +47,7 @@ final class ClefGpuProcessClient {
     private ClefGpuProcessClient() {
     }
 
-    static double[] evaluate(
+    static double[] evaluateGpu(
             Context context,
             String modelPath,
             String state,
@@ -57,23 +57,94 @@ final class ClefGpuProcessClient {
             String[] optionDescriptions,
             int[] optionCounts
     ) throws Exception {
-        Context appContext = context.getApplicationContext();
+        Context appContext = checkedContext(context);
         ClefGpuHealthStore health = new ClefGpuHealthStore(appContext);
         if (health.isQuarantined()) {
             throw new IllegalStateException("CLEF GPU is quarantined for this build");
         }
+
+        int pid = -1;
+        try {
+            IBinder remote = ensureBound(appContext);
+            pid = queryServicePid(remote);
+            rememberServicePid(pid);
+            return transactWithTimeout(
+                    remote,
+                    TRANSACTION_EVALUATE_GPU,
+                    modelPath,
+                    state,
+                    fieldIds,
+                    instructions,
+                    optionIds,
+                    optionDescriptions,
+                    optionCounts);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw interrupted;
+        } catch (Exception failure) {
+            quarantineAndReset(appContext, health, pid);
+            throw failure;
+        }
+    }
+
+    static double[] evaluateCpu(
+            Context context,
+            String modelPath,
+            String state,
+            String[] fieldIds,
+            String[] instructions,
+            String[] optionIds,
+            String[] optionDescriptions,
+            int[] optionCounts
+    ) throws Exception {
+        Context appContext = checkedContext(context);
+        int pid = -1;
+        try {
+            IBinder remote = ensureBound(appContext);
+            pid = queryServicePid(remote);
+            rememberServicePid(pid);
+            return transactWithTimeout(
+                    remote,
+                    TRANSACTION_EVALUATE_CPU,
+                    modelPath,
+                    state,
+                    fieldIds,
+                    instructions,
+                    optionIds,
+                    optionDescriptions,
+                    optionCounts);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw interrupted;
+        } catch (Exception failure) {
+            killServiceProcess(pid);
+            resetConnection(appContext);
+            throw failure;
+        }
+    }
+
+    private static Context checkedContext(Context context) {
+        if (context == null) throw new IllegalArgumentException("context is required");
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            throw new IllegalStateException("CLEF GPU IPC cannot block the main thread");
+            throw new IllegalStateException("CLEF native IPC cannot block the main thread");
         }
+        return context.getApplicationContext();
+    }
 
-        IBinder remote = ensureBound(appContext);
-        int pid = queryServicePid(remote);
-        synchronized (LOCK) {
-            servicePid = pid;
-        }
-
+    private static double[] transactWithTimeout(
+            IBinder remote,
+            int transaction,
+            String modelPath,
+            String state,
+            String[] fieldIds,
+            String[] instructions,
+            String[] optionIds,
+            String[] optionDescriptions,
+            int[] optionCounts
+    ) throws Exception {
         Future<double[]> future = IPC_EXECUTOR.submit(() -> transactEvaluate(
                 remote,
+                transaction,
                 modelPath,
                 state,
                 fieldIds,
@@ -83,22 +154,17 @@ final class ClefGpuProcessClient {
                 optionCounts));
         try {
             double[] scores = future.get(EVALUATION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-            if (scores == null) {
-                throw new IllegalStateException("CLEF GPU returned no scores");
-            }
+            if (scores == null) throw new IllegalStateException("CLEF native worker returned no scores");
             return scores;
         } catch (TimeoutException timeout) {
             future.cancel(true);
-            quarantineAndReset(appContext, health, pid);
-            throw new IllegalStateException("CLEF GPU timed out", timeout);
+            throw new IllegalStateException("CLEF native worker timed out", timeout);
         } catch (ExecutionException failure) {
-            quarantineAndReset(appContext, health, pid);
             Throwable cause = failure.getCause();
             if (cause instanceof Exception) throw (Exception) cause;
-            throw new IllegalStateException("CLEF GPU process failed", cause);
+            throw new IllegalStateException("CLEF native worker failed", cause);
         } catch (InterruptedException interrupted) {
             future.cancel(true);
-            Thread.currentThread().interrupt();
             throw interrupted;
         }
     }
@@ -150,13 +216,13 @@ final class ClefGpuProcessClient {
                 Context.BIND_AUTO_CREATE);
         if (!requested || !connected.await(BIND_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
             resetConnection(appContext);
-            throw new IllegalStateException("CLEF GPU service bind failed");
+            throw new IllegalStateException("CLEF native service bind failed");
         }
 
         synchronized (LOCK) {
             if (binder == null || !binder.isBinderAlive()) {
                 resetConnection(appContext);
-                throw new IllegalStateException("CLEF GPU service is unavailable");
+                throw new IllegalStateException("CLEF native service is unavailable");
             }
             return binder;
         }
@@ -168,7 +234,7 @@ final class ClefGpuProcessClient {
         try {
             data.writeInterfaceToken(DESCRIPTOR);
             if (!remote.transact(TRANSACTION_GET_PID, data, reply, 0)) {
-                throw new RemoteException("CLEF GPU PID transact failed");
+                throw new RemoteException("CLEF native PID transact failed");
             }
             reply.readException();
             return reply.readInt();
@@ -180,6 +246,7 @@ final class ClefGpuProcessClient {
 
     private static double[] transactEvaluate(
             IBinder remote,
+            int transaction,
             String modelPath,
             String state,
             String[] fieldIds,
@@ -199,14 +266,20 @@ final class ClefGpuProcessClient {
             data.writeStringArray(optionIds);
             data.writeStringArray(optionDescriptions);
             data.writeIntArray(optionCounts);
-            if (!remote.transact(TRANSACTION_EVALUATE, data, reply, 0)) {
-                throw new RemoteException("CLEF GPU evaluation transact failed");
+            if (!remote.transact(transaction, data, reply, 0)) {
+                throw new RemoteException("CLEF native evaluation transact failed");
             }
             reply.readException();
             return reply.createDoubleArray();
         } finally {
             reply.recycle();
             data.recycle();
+        }
+    }
+
+    private static void rememberServicePid(int pid) {
+        synchronized (LOCK) {
+            servicePid = pid;
         }
     }
 
