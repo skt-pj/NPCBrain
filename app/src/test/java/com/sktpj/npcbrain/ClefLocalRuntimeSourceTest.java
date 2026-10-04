@@ -48,6 +48,7 @@ public final class ClefLocalRuntimeSourceTest {
         String gpuClient = read("src/main/java/com/sktpj/npcbrain/ClefGpuProcessClient.java");
         String gpuService = read("src/main/java/com/sktpj/npcbrain/ClefGpuService.java");
         String gpuHealth = read("src/main/java/com/sktpj/npcbrain/ClefGpuHealthStore.java");
+        String application = read("src/main/java/com/sktpj/npcbrain/NPCBrainApplication.java");
 
         assertTrue(cmake.contains("set(GGML_VULKAN ON CACHE BOOL \"\" FORCE)"));
         assertTrue(cmake.contains("Vulkan_GLSLC_EXECUTABLE"));
@@ -67,6 +68,8 @@ public final class ClefLocalRuntimeSourceTest {
         assertTrue(gpuClient.contains("Process.killProcess(servicePid)"));
         assertTrue(gpuClient.contains("ClefGpuHealthStore"));
         assertTrue(gpuHealth.contains("versionCode"));
+        assertTrue(application.contains("isClefGpuProcess()"));
+        assertTrue(application.contains("if (isClefGpuProcess()) return;"));
 
         assertTrue(nativeRuntime.contains("ClefGpuProcessClient.evaluate("));
         assertTrue(nativeRuntime.contains("evaluateCpuOnly("));
