@@ -123,6 +123,13 @@ final class ClefGpuProcessClient {
         }
     }
 
+    static void shutdown(Context context) {
+        if (context == null) return;
+        Context appContext = context.getApplicationContext();
+        killServiceProcess(-1);
+        resetConnection(appContext);
+    }
+
     private static Context checkedContext(Context context) {
         if (context == null) throw new IllegalArgumentException("context is required");
         if (Looper.myLooper() == Looper.getMainLooper()) {
