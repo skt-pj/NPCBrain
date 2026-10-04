@@ -22,9 +22,11 @@ public final class ProcessingQueueUiSourceTest {
         assertTrue(source.contains("internalRow"));
         assertTrue(source.contains("9専門Brain・Global Workspace"));
         assertTrue(source.contains("タップして入出力を見る"));
+        assertTrue(source.contains("タップして実行情報を見る"));
         assertTrue(source.contains("showEntryDetail"));
         assertTrue(source.contains("入力 / 質問"));
         assertTrue(source.contains("出力 / 反応"));
+        assertTrue(source.contains("非推論処理 / モデルなし"));
 
         // LLM invocation details are retained in the expanded NPC detail view, not erased.
         assertTrue(viewModel.contains("\"llm_request\".equals(entry.type)"));
