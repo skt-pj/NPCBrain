@@ -37,6 +37,20 @@ if (ANDROID AND DEFINED ANDROID_NDK AND NOT Vulkan_GLSLC_EXECUTABLE)
 endif()
 
 include(FetchContent)
+
+FetchContent_Declare(
+        SPIRV-Headers
+        GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers.git
+        GIT_TAG 86f980c731e62ae4eaf383d320449d71687936bf
+        GIT_SHALLOW FALSE
+        OVERRIDE_FIND_PACKAGE
+)
+set(SPIRV_HEADERS_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(SPIRV_HEADERS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(SPIRV-Headers)
+FetchContent_GetProperties(SPIRV-Headers SOURCE_DIR spirv_headers_source_dir)
+include_directories("${spirv_headers_source_dir}/include")
+
 FetchContent_Declare(
         llama_cpp
         GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
