@@ -52,6 +52,16 @@ FetchContent_GetProperties(SPIRV-Headers SOURCE_DIR spirv_headers_source_dir)
 include_directories("${spirv_headers_source_dir}/include")
 
 FetchContent_Declare(
+        Vulkan-Headers
+        GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+        GIT_TAG v1.3.275
+        GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(Vulkan-Headers)
+FetchContent_GetProperties(Vulkan-Headers SOURCE_DIR vulkan_headers_source_dir)
+include_directories("${vulkan_headers_source_dir}/include")
+
+FetchContent_Declare(
         llama_cpp
         GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
         GIT_TAG 99b95488cac0f00ce3f05af113a8c1e287753f87
