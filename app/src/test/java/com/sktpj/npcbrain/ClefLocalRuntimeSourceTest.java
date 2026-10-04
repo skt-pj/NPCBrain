@@ -69,6 +69,11 @@ public final class ClefLocalRuntimeSourceTest {
         assertTrue(gpuClient.contains("future.get("));
         assertTrue(gpuClient.contains("Process.killProcess(servicePid)"));
         assertTrue(gpuClient.contains("ClefGpuHealthStore"));
+        assertTrue(gpuClient.contains("connectionGeneration"));
+        assertTrue(gpuClient.contains("isCurrentConnection("));
+        assertTrue(gpuClient.contains("waitForBinderDeath("));
+        assertTrue(gpuClient.contains("resetConnection(appContext)"));
+        assertTrue(gpuClient.indexOf("resetConnection(appContext)") < gpuClient.indexOf("killServiceProcess(pid)"));
         assertTrue(gpuHealth.contains("versionCode"));
         assertTrue(application.contains("isClefGpuProcess()"));
         assertTrue(application.contains("if (isClefGpuProcess()) return;"));
