@@ -17,6 +17,7 @@ final class ClefSpecialistRuntime {
     private final String npcId;
     private final SpecialistInferenceSettingsStore inferenceSettings;
     private final ClefSettingsStore clefSettings;
+    private final ClefRuntimeSettingsStore runtimeSettings;
     private final ClefLocalModelRepository modelRepository;
 
     ClefSpecialistRuntime(Context context, String npcId) {
@@ -24,6 +25,7 @@ final class ClefSpecialistRuntime {
         this.npcId = NpcId.of(npcId).value();
         inferenceSettings = new SpecialistInferenceSettingsStore(appContext);
         clefSettings = new ClefSettingsStore(appContext);
+        runtimeSettings = new ClefRuntimeSettingsStore(appContext);
         modelRepository = new ClefLocalModelRepository(appContext);
     }
 
@@ -42,14 +44,17 @@ final class ClefSpecialistRuntime {
         }
 
         String model = clefSettings.model();
+        boolean preferGpu = runtimeSettings.preferGpu();
         String queueId = ProcessingQueueRegistry.enqueue(
                 "decision_model",
                 npcId,
-                model + " · local · brain_stage=" + moduleId,
+                model + " · local · backend="
+                        + (preferGpu ? "Vulkan GPU preferred" : "CPU fixed")
+                        + " · brain_stage=" + moduleId,
                 System.currentTimeMillis());
-        ProcessingQueueRegistry.attachRequest(
-                queueId,
-                diagnosticRequest(moduleId, boundedState, fields).toString());
+        JSONObject diagnostic = diagnosticRequest(moduleId, boundedState, fields);
+        diagnostic.put("runtime_preference", runtimeSettings.summary());
+        ProcessingQueueRegistry.attachRequest(queueId, diagnostic.toString());
 
         long startedNs = SystemClock.elapsedRealtimeNanos();
         long pssBeforeKb = Debug.getPss();
@@ -60,12 +65,22 @@ final class ClefSpecialistRuntime {
         try {
             JSONObject result = ClefLocalExecutionQueue.execute(queueId, () -> {
                 File modelFile = modelRepository.modelFile();
-                double[] scores = ClefNativeRuntime.evaluate(modelFile, boundedState, fields);
-                return adaptScores(moduleId, fields, scores);
+                double[] scores = ClefNativeRuntime.evaluate(
+                        modelFile, boundedState, fields, preferGpu);
+                JSONObject adapted = adaptScores(moduleId, fields, scores);
+                adapted.put("execution_location", "local");
+                adapted.put("runtime_backend", ClefNativeRuntime.backendInfo());
+                adapted.put("gpu_preferred", preferGpu);
+                adapted.put("gpu_fallback_reason", ClefNativeRuntime.gpuFallbackReason());
+                return adapted;
             });
             success = true;
+            String backend = result.optString("runtime_backend", ClefNativeRuntime.backendInfo());
             ProcessingQueueRegistry.attachResponse(queueId, result.toString());
-            ProcessingQueueRegistry.markCompleted(queueId);
+            ProcessingQueueRegistry.markCompleted(
+                    queueId,
+                    System.currentTimeMillis(),
+                    model + " · local · backend=" + backend + " · brain_stage=" + moduleId);
             return result;
         } catch (Exception error) {
             failure = error;
@@ -77,6 +92,7 @@ final class ClefSpecialistRuntime {
                     (SystemClock.elapsedRealtimeNanos() - startedNs) / 1_000_000L);
             new ClefPerformanceStore(appContext).record(
                     model,
+                    ClefNativeRuntime.backendInfo(),
                     durationMs,
                     pssBeforeKb,
                     Debug.getPss(),
