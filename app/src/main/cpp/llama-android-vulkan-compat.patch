@@ -1,8 +1,7 @@
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 0000000..0000000 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -7,6 +7,23 @@ inline std::ostream & operator<<(std::ostream & os, vk::Buffer buffer) {
+@@ -7,6 +7,24 @@ inline std::ostream & operator<<(std::ostream & os, vk::Buffer buffer) {
      return os << static_cast<VkBuffer>(buffer);
  }
  }
@@ -27,7 +26,7 @@ index 0000000..0000000 100644
  static vk_device_architecture get_device_architecture(const vk::PhysicalDevice& device) {
      vk::PhysicalDeviceProperties props = device.getProperties();
  
-@@ -4478,7 +4495,7 @@ static vk_device ggml_vk_get_device_internal(size_t idx) {
+@@ -4478,7 +4496,7 @@ static vk_device ggml_vk_get_device_internal(size_t idx) {
              device_extensions.push_back("VK_EXT_device_fault");
          }
  
@@ -36,7 +35,7 @@ index 0000000..0000000 100644
  
          device->device_fault = device->device_fault && fault_features.deviceFault;
  
-@@ -5112,7 +5129,7 @@ static void ggml_vk_check_capabilities(vk::PhysicalDevice physical_device, int i
+@@ -5112,7 +5130,7 @@ static void ggml_vk_check_capabilities(vk::PhysicalDevice physical_device, int i
      }
  #endif
  
@@ -45,7 +44,7 @@ index 0000000..0000000 100644
  
      fp16 = fp16 && vk12_features.shaderFloat16;
  
-@@ -16238,7 +16255,7 @@ static bool ggml_vk_supports_op(const ggml_backend_dev_t dev, const ggml_tensor 
+@@ -16238,7 +16256,7 @@ static bool ggml_vk_supports_op(const ggml_backend_dev_t dev, const ggml_tensor
      device_features2.pNext = &storage_16bit_features;
  #endif
  
