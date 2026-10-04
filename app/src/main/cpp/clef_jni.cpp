@@ -290,7 +290,7 @@ ggml_backend_dev_t first_gpu_device() {
     for (size_t i = 0; i < count; ++i) {
         ggml_backend_dev_t device = ggml_backend_dev_get(i);
         if (device == nullptr) continue;
-        const ggml_backend_dev_type type = ggml_backend_dev_type(device);
+        const enum ggml_backend_dev_type type = ggml_backend_dev_type(device);
         if (type == GGML_BACKEND_DEVICE_TYPE_GPU
                 || type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
             return device;
