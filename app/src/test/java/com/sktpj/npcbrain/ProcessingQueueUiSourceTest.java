@@ -50,6 +50,16 @@ public final class ProcessingQueueUiSourceTest {
         assertTrue(source.contains("実処理時間"));
     }
 
+    @Test
+    public void detailDialogHasExplicitReadableDarkSurface() throws Exception {
+        String source = read("src/main/java/com/sktpj/npcbrain/ProcessingQueueActivity.java");
+        assertTrue(source.contains("scroll.setBackgroundColor(AppUiTheme.APP_SURFACE)"));
+        assertTrue(source.contains("content.setBackgroundColor(AppUiTheme.APP_SURFACE)"));
+        assertTrue(source.contains("heading.setTextColor(AppUiTheme.APP_TEXT)"));
+        assertTrue(source.contains("body.setTextColor(AppUiTheme.APP_TEXT)"));
+        assertTrue(source.contains("\"エラー\""));
+    }
+
     private static String read(String path) throws Exception {
         return new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8);
     }
