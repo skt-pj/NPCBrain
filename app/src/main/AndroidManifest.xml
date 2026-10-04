@@ -16,6 +16,10 @@
         <uses-native-library android:name="libvndksupport.so" android:required="false" />
         <uses-native-library android:name="libOpenCL.so" android:required="false" />
         <service
+            android:name=".ClefGpuService"
+            android:exported="false"
+            android:process=":clef_gpu" />
+        <service
             android:name=".ReplyTimerJobService"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
