@@ -3,6 +3,7 @@ package com.sktpj.npcbrain;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.Application;
+import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.os.Bundle;
 import android.os.Process;
@@ -108,6 +109,11 @@ public final class NPCBrainApplication extends Application {
 
     static boolean isDebugBuild() {
         return debugBuild;
+    }
+
+    static Context applicationContextForRuntime() {
+        NPCBrainApplication app = applicationRef.get();
+        return app == null ? null : app.getApplicationContext();
     }
 
     static DemoActivityV032 currentDemoActivity() {
