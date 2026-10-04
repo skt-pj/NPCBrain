@@ -66,6 +66,7 @@ FetchContent_Declare(
         GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
         GIT_TAG 99b95488cac0f00ce3f05af113a8c1e287753f87
         GIT_SHALLOW FALSE
+        PATCH_COMMAND git apply --whitespace=nowarn "${CMAKE_CURRENT_SOURCE_DIR}/llama-android-vulkan-compat.patch"
 )
 FetchContent_MakeAvailable(llama_cpp)
 
