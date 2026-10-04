@@ -312,21 +312,21 @@ public final class ProcessingQueueActivity extends Activity {
             row.addView(error, errorParams);
         }
 
-        if (!entry.requestPayload.isEmpty() || !entry.responsePayload.isEmpty()) {
-            TextView inspect = new TextView(this);
-            inspect.setText("▶ タップして入出力を見る");
-            inspect.setTextSize(10f);
-            inspect.setTypeface(Typeface.DEFAULT_BOLD);
-            inspect.setTextColor(AppUiTheme.APP_MUTED);
-            LinearLayout.LayoutParams inspectParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT);
-            inspectParams.topMargin = dp(5);
-            row.addView(inspect, inspectParams);
-            row.setClickable(true);
-            row.setFocusable(true);
-            row.setOnClickListener(v -> showEntryDetail(entry));
-        }
+        TextView inspect = new TextView(this);
+        inspect.setText(!entry.requestPayload.isEmpty() || !entry.responsePayload.isEmpty()
+                ? "▶ タップして入出力を見る"
+                : "▶ タップして実行情報を見る");
+        inspect.setTextSize(10f);
+        inspect.setTypeface(Typeface.DEFAULT_BOLD);
+        inspect.setTextColor(AppUiTheme.APP_MUTED);
+        LinearLayout.LayoutParams inspectParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        inspectParams.topMargin = dp(5);
+        row.addView(inspect, inspectParams);
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setOnClickListener(v -> showEntryDetail(entry));
         return row;
     }
 
@@ -341,7 +341,9 @@ public final class ProcessingQueueActivity extends Activity {
                 "queue_id=" + entry.id
                         + "\nstatus=" + internalStatusLabel(entry.status, 0)
                         + "\ntype=" + entry.type
-                        + "\n" + NpcBrainQueueViewModel.modelLabel(entry)
+                        + "\nroute=" + (NpcBrainQueueViewModel.modelLabel(entry).isEmpty()
+                        ? "非推論処理 / モデルなし"
+                        : NpcBrainQueueViewModel.modelLabel(entry))
                         + "\nraw=" + entry.detail
                         + "\n" + queueTimeText(entry),
                 false);
