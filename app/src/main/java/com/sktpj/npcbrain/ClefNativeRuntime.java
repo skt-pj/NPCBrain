@@ -8,12 +8,6 @@ import java.util.Arrays;
 import java.util.List;
 
 final class ClefNativeRuntime {
-    private static final Object LOCK = new Object();
-
-    static {
-        System.loadLibrary("npcbrain_clef");
-    }
-
     static double[] evaluate(
             Context context,
             File modelFile,
@@ -24,7 +18,7 @@ final class ClefNativeRuntime {
         Payload payload = buildPayload(modelFile, state, fields);
 
         try {
-            double[] scores = ClefGpuProcessClient.evaluate(
+            double[] scores = ClefGpuProcessClient.evaluateGpu(
                     context,
                     payload.modelPath,
                     payload.state,
@@ -36,14 +30,32 @@ final class ClefNativeRuntime {
             verifyScoreCount(scores, payload.expectedScores);
             return scores;
         } catch (Exception gpuFailure) {
-            return evaluateCpuOnly(payload);
+            try {
+                double[] scores = ClefGpuProcessClient.evaluateCpu(
+                        context,
+                        payload.modelPath,
+                        payload.state,
+                        payload.fieldIds,
+                        payload.instructions,
+                        payload.optionIds,
+                        payload.optionDescriptions,
+                        payload.optionCounts);
+                verifyScoreCount(scores, payload.expectedScores);
+                return scores;
+            } catch (Exception cpuFailure) {
+                throw new IllegalStateException(
+                        "CLEF isolated GPU/CPU execution failed. GPU: "
+                                + rootMessage(gpuFailure)
+                                + "; CPU: "
+                                + rootMessage(cpuFailure),
+                        cpuFailure);
+            }
         }
     }
 
     /**
-     * Backward-compatible path for any legacy local action-selection caller.
-     * It is deliberately CPU-only because it has no Context with which to use the crash-contained
-     * GPU service. Current split-brain production calls evaluate(Context, ...).
+     * Backward-compatible action-selection entry. Native execution remains isolated in the
+     * secondary CLEF process instead of running inside the caller process.
      */
     static double[] decide(
             File modelFile,
@@ -51,6 +63,10 @@ final class ClefNativeRuntime {
             String[] actionIds,
             String[] actionDescriptions
     ) {
+        Context context = NPCBrainApplication.applicationContextForRuntime();
+        if (context == null) {
+            throw new IllegalStateException("NPCBrain application context is unavailable");
+        }
         if (actionIds == null
                 || actionDescriptions == null
                 || actionIds.length == 0
@@ -67,62 +83,11 @@ final class ClefNativeRuntime {
                 "Should this NPC commit to the chosen action class now?",
                 new String[]{"true", "false"},
                 new String[]{"Yes.", "No."});
-        Payload payload = buildPayload(
-                modelFile,
-                state,
-                Arrays.asList(action, commit));
-        return evaluateCpuOnly(payload);
-    }
-
-    static double[] evaluateGpuOnly(
-            String modelPath,
-            String state,
-            String[] fieldIds,
-            String[] instructions,
-            String[] optionIds,
-            String[] optionDescriptions,
-            int[] optionCounts
-    ) {
-        int expectedScores = validateRawPayload(
-                modelPath,
-                fieldIds,
-                instructions,
-                optionIds,
-                optionDescriptions,
-                optionCounts);
-        synchronized (LOCK) {
-            double[] scores = nativeEvaluateGpuOnly(
-                    modelPath,
-                    state == null ? "" : state,
-                    fieldIds,
-                    instructions,
-                    optionIds,
-                    optionDescriptions,
-                    optionCounts);
-            verifyScoreCount(scores, expectedScores);
-            return scores;
-        }
+        return evaluate(context, modelFile, state, Arrays.asList(action, commit));
     }
 
     static void unload() {
-        synchronized (LOCK) {
-            nativeUnload();
-        }
-    }
-
-    private static double[] evaluateCpuOnly(Payload payload) {
-        synchronized (LOCK) {
-            double[] scores = nativeEvaluateCpuOnly(
-                    payload.modelPath,
-                    payload.state,
-                    payload.fieldIds,
-                    payload.instructions,
-                    payload.optionIds,
-                    payload.optionDescriptions,
-                    payload.optionCounts);
-            verifyScoreCount(scores, payload.expectedScores);
-            return scores;
-        }
+        // Native model state lives in the isolated worker process and is reclaimed with that process.
     }
 
     private static Payload buildPayload(
@@ -175,39 +140,6 @@ final class ClefNativeRuntime {
                 expectedScores);
     }
 
-    private static int validateRawPayload(
-            String modelPath,
-            String[] fieldIds,
-            String[] instructions,
-            String[] optionIds,
-            String[] optionDescriptions,
-            int[] optionCounts
-    ) {
-        if (modelPath == null || modelPath.trim().isEmpty()) {
-            throw new IllegalArgumentException("CLEF model path is required");
-        }
-        if (fieldIds == null
-                || instructions == null
-                || optionIds == null
-                || optionDescriptions == null
-                || optionCounts == null
-                || fieldIds.length == 0
-                || fieldIds.length != instructions.length
-                || fieldIds.length != optionCounts.length
-                || optionIds.length != optionDescriptions.length) {
-            throw new IllegalArgumentException("CLEF JNI schema shape is invalid");
-        }
-        int expectedScores = 0;
-        for (int count : optionCounts) {
-            if (count < 2) throw new IllegalArgumentException("CLEF JNI option count is invalid");
-            expectedScores += count;
-        }
-        if (expectedScores != optionIds.length) {
-            throw new IllegalArgumentException("CLEF JNI flattened options are invalid");
-        }
-        return expectedScores;
-    }
-
     private static void verifyScoreCount(double[] scores, int expectedScores) {
         if (scores == null || scores.length != expectedScores) {
             throw new IllegalStateException(
@@ -217,25 +149,17 @@ final class ClefNativeRuntime {
         }
     }
 
-    private static native double[] nativeEvaluateGpuOnly(
-            String modelPath,
-            String state,
-            String[] fieldIds,
-            String[] instructions,
-            String[] optionIds,
-            String[] optionDescriptions,
-            int[] optionCounts);
-
-    private static native double[] nativeEvaluateCpuOnly(
-            String modelPath,
-            String state,
-            String[] fieldIds,
-            String[] instructions,
-            String[] optionIds,
-            String[] optionDescriptions,
-            int[] optionCounts);
-
-    private static native void nativeUnload();
+    private static String rootMessage(Throwable error) {
+        Throwable current = error;
+        while (current != null && current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        if (current == null) return "unknown";
+        String message = current.getMessage();
+        return message == null || message.trim().isEmpty()
+                ? current.getClass().getSimpleName()
+                : message.trim();
+    }
 
     private static final class Payload {
         final String modelPath;
