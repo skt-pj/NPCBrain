@@ -49,6 +49,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spirv_headers)
 
+# The Android NDK exposes the Vulkan C API but does not ship vulkan.hpp,
+# while llama.cpp's Vulkan backend uses the Khronos C++ bindings.
+FetchContent_Declare(
+        vulkan_headers
+        GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+        GIT_TAG vulkan-sdk-1.3.275.0
+        GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(vulkan_headers)
+
 set(NPCBRAIN_SPIRV_CONFIG_DIR "${CMAKE_CURRENT_BINARY_DIR}/spirv-headers-config")
 file(MAKE_DIRECTORY "${NPCBRAIN_SPIRV_CONFIG_DIR}")
 file(WRITE
@@ -67,7 +77,9 @@ FetchContent_MakeAvailable(llama_cpp)
 if(TARGET ggml-vulkan)
     target_include_directories(
             ggml-vulkan
-            PRIVATE "${spirv_headers_SOURCE_DIR}/include")
+            PRIVATE
+            "${spirv_headers_SOURCE_DIR}/include"
+            "${vulkan_headers_SOURCE_DIR}/include")
 endif()
 
 add_library(npcbrain_clef SHARED clef_jni.cpp)
