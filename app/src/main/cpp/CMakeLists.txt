@@ -13,13 +13,62 @@ set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
 set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
 set(GGML_BACKEND_DL OFF CACHE BOOL "" FORCE)
+set(GGML_VULKAN ON CACHE BOOL "" FORCE)
+
+if (ANDROID AND DEFINED ANDROID_NDK AND NOT Vulkan_GLSLC_EXECUTABLE)
+    if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+        set(_npcbrain_shader_host "linux-x86_64")
+        set(_npcbrain_glslc_name "glslc")
+    elseif (CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+        set(_npcbrain_shader_host "darwin-x86_64")
+        set(_npcbrain_glslc_name "glslc")
+    elseif (CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
+        set(_npcbrain_shader_host "windows-x86_64")
+        set(_npcbrain_glslc_name "glslc.exe")
+    endif()
+
+    if (DEFINED _npcbrain_shader_host)
+        set(_npcbrain_glslc
+                "${ANDROID_NDK}/shader-tools/${_npcbrain_shader_host}/${_npcbrain_glslc_name}")
+        if (EXISTS "${_npcbrain_glslc}")
+            set(Vulkan_GLSLC_EXECUTABLE "${_npcbrain_glslc}" CACHE FILEPATH "" FORCE)
+        endif()
+    endif()
+endif()
 
 include(FetchContent)
+
+FetchContent_Declare(
+        SPIRV-Headers
+        GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers.git
+        GIT_TAG 86f980c731e62ae4eaf383d320449d71687936bf
+        GIT_SHALLOW FALSE
+        OVERRIDE_FIND_PACKAGE
+)
+set(SPIRV_HEADERS_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(SPIRV_HEADERS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(SPIRV-Headers)
+FetchContent_GetProperties(SPIRV-Headers SOURCE_DIR spirv_headers_source_dir)
+include_directories("${spirv_headers_source_dir}/include")
+
+FetchContent_Declare(
+        Vulkan-Headers
+        GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+        GIT_TAG v1.3.275
+        GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(Vulkan-Headers)
+FetchContent_GetProperties(Vulkan-Headers SOURCE_DIR vulkan_headers_source_dir)
+include_directories("${vulkan_headers_source_dir}/include")
+
 FetchContent_Declare(
         llama_cpp
         GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
         GIT_TAG 99b95488cac0f00ce3f05af113a8c1e287753f87
         GIT_SHALLOW FALSE
+        PATCH_COMMAND ${CMAKE_COMMAND}
+                -DLLAMA_SOURCE_DIR=<SOURCE_DIR>
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/PatchLlamaAndroidVulkan.cmake"
 )
 FetchContent_MakeAvailable(llama_cpp)
 

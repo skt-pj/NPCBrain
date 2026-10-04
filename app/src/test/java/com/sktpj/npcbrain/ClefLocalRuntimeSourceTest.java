@@ -39,6 +39,32 @@ public final class ClefLocalRuntimeSourceTest {
     }
 
     @Test
+    public void localClefBuildAndRuntimeSupportGpuWithCpuFallback() throws Exception {
+        String nativeSource = read("src/main/cpp/clef_jni.cpp");
+        String cmake = read("src/main/cpp/CMakeLists.txt");
+        String vulkanPatch = read("src/main/cpp/PatchLlamaAndroidVulkan.cmake");
+
+        assertTrue(cmake.contains("set(GGML_VULKAN ON CACHE BOOL \"\" FORCE)"));
+        assertTrue(cmake.contains("Vulkan_GLSLC_EXECUTABLE"));
+        assertTrue(cmake.contains("SPIRV-Headers"));
+        assertTrue(cmake.contains("OVERRIDE_FIND_PACKAGE"));
+        assertTrue(cmake.contains("Vulkan-Headers"));
+        assertTrue(cmake.contains("PatchLlamaAndroidVulkan.cmake"));
+        assertTrue(vulkanPatch.contains("vkGetInstanceProcAddr"));
+        assertTrue(vulkanPatch.contains("vkGetPhysicalDeviceFeatures2KHR"));
+        assertTrue(nativeSource.contains("enum class ClefBackendMode"));
+        assertTrue(nativeSource.contains("model_params.n_gpu_layers = gpu ? -1 : 0"));
+        assertTrue(nativeSource.contains("context_params.offload_kqv = gpu"));
+        assertTrue(nativeSource.contains("context_params.op_offload = gpu"));
+        assertTrue(nativeSource.contains("run_decision_once_locked("));
+        assertTrue(nativeSource.contains("ClefBackendMode::GPU"));
+        assertTrue(nativeSource.contains("ClefBackendMode::CPU"));
+        assertTrue(nativeSource.contains("GPU failed; retrying CPU"));
+        assertFalse(nativeSource.contains("OpenAiClient"));
+        assertFalse(nativeSource.contains("LocalLlmRuntime"));
+    }
+
+    @Test
     public void remoteClefCredentialAndHttpClientSourcesAreRemoved() {
         assertFalse(Files.exists(Paths.get(
                 "src/main/java/com/sktpj/npcbrain/ClefDecisionClient.java")));
