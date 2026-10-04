@@ -21,10 +21,17 @@ constexpr char LOG_TAG[] = "NPCBrainCLEF";
 constexpr uint32_t CLEF_CONTEXT_TOKENS = 2048;
 constexpr uint32_t CLEF_BATCH_TOKENS = 2048;
 
+enum class ClefBackendMode {
+    GPU,
+    CPU,
+};
+
 std::mutex g_mutex;
 llama_model * g_model = nullptr;
 llama_context * g_context = nullptr;
 std::string g_model_path;
+ClefBackendMode g_backend_mode = ClefBackendMode::CPU;
+bool g_backend_mode_set = false;
 bool g_backend_initialized = false;
 
 void log_error(const std::string & message) {
@@ -272,10 +279,17 @@ void unload_locked() {
         g_model = nullptr;
     }
     g_model_path.clear();
+    g_backend_mode_set = false;
 }
 
-void ensure_loaded_locked(const std::string & path) {
-    if (g_model != nullptr && g_context != nullptr && g_model_path == path) return;
+void ensure_loaded_locked(const std::string & path, ClefBackendMode mode) {
+    if (g_model != nullptr
+            && g_context != nullptr
+            && g_model_path == path
+            && g_backend_mode_set
+            && g_backend_mode == mode) {
+        return;
+    }
     unload_locked();
 
     if (!g_backend_initialized) {
@@ -283,8 +297,13 @@ void ensure_loaded_locked(const std::string & path) {
         g_backend_initialized = true;
     }
 
+    const bool gpu = mode == ClefBackendMode::GPU;
+    if (gpu && !llama_supports_gpu_offload()) {
+        throw std::runtime_error("CLEF GPU backend is unavailable");
+    }
+
     llama_model_params model_params = llama_model_default_params();
-    model_params.n_gpu_layers = 0;
+    model_params.n_gpu_layers = gpu ? -1 : 0;
     g_model = llama_model_load_from_file(path.c_str(), model_params);
     if (g_model == nullptr) throw std::runtime_error("CLEF GGUFの読み込みに失敗しました");
 
@@ -311,8 +330,8 @@ void ensure_loaded_locked(const std::string & path) {
     context_params.n_threads_batch = threads;
     context_params.embeddings = true;
     context_params.pooling_type = LLAMA_POOLING_TYPE_NONE;
-    context_params.offload_kqv = false;
-    context_params.op_offload = false;
+    context_params.offload_kqv = gpu;
+    context_params.op_offload = gpu;
     context_params.no_perf = false;
 
     g_context = llama_init_from_model(g_model, context_params);
@@ -321,13 +340,16 @@ void ensure_loaded_locked(const std::string & path) {
         throw std::runtime_error("CLEF contextの初期化に失敗しました");
     }
     g_model_path = path;
+    g_backend_mode = mode;
+    g_backend_mode_set = true;
 }
 
-std::vector<double> run_decision_locked(
+std::vector<double> run_decision_once_locked(
         const std::string & model_path,
         const std::string & state,
-        const std::vector<FieldSpec> & fields) {
-    ensure_loaded_locked(model_path);
+        const std::vector<FieldSpec> & fields,
+        ClefBackendMode mode) {
+    ensure_loaded_locked(model_path, mode);
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
 
     PromptInput fixed = build_prompt(vocab, "", fields, 0);
@@ -397,6 +419,29 @@ std::vector<double> run_decision_locked(
     } catch (...) {
         llama_batch_ext_free(batch);
         throw;
+    }
+}
+
+std::vector<double> run_decision_locked(
+        const std::string & model_path,
+        const std::string & state,
+        const std::vector<FieldSpec> & fields) {
+    try {
+        return run_decision_once_locked(
+                model_path, state, fields, ClefBackendMode::GPU);
+    } catch (const std::exception & gpu_error) {
+        log_error(std::string("CLEF GPU failed; retrying CPU: ") + gpu_error.what());
+        unload_locked();
+        try {
+            return run_decision_once_locked(
+                    model_path, state, fields, ClefBackendMode::CPU);
+        } catch (const std::exception & cpu_error) {
+            throw std::runtime_error(
+                    std::string("CLEF GPU/CPU execution failed. GPU: ")
+                    + gpu_error.what()
+                    + "; CPU: "
+                    + cpu_error.what());
+        }
     }
 }
 
