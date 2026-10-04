@@ -73,7 +73,7 @@ public final class ClefLocalRuntimeSourceTest {
         assertTrue(application.contains("isClefGpuProcess()"));
         assertTrue(application.contains("if (isClefGpuProcess()) return;"));
 
-        assertTrue(nativeRuntime.contains("ClefGpuProcessClient.evaluate("));
+        assertTrue(nativeRuntime.contains("ClefGpuProcessClient.evaluateGpu("));
         assertTrue(nativeRuntime.contains("ClefGpuProcessClient.evaluateCpu("));
         assertFalse(nativeRuntime.contains("System.loadLibrary"));
         assertTrue(nativeBridge.contains("System.loadLibrary(\"npcbrain_clef\")"));
