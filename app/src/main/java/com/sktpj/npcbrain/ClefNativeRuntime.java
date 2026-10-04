@@ -87,7 +87,8 @@ final class ClefNativeRuntime {
     }
 
     static void unload() {
-        // Native model state lives in the isolated worker process and is reclaimed with that process.
+        Context context = NPCBrainApplication.applicationContextForRuntime();
+        if (context != null) ClefGpuProcessClient.shutdown(context);
     }
 
     private static Payload buildPayload(
