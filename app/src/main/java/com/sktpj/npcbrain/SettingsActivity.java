@@ -661,6 +661,14 @@ public final class SettingsActivity extends Activity {
                 11,
                 AppUiTheme.APP_MUTED,
                 false));
+        card.addView(text(
+                usesAnyOpenAiRoute()
+                        ? "現在の選択中ルートでOpenAIを使用します。"
+                        : "現在の選択中ルートではOpenAIを使用しないため、APIキーは不要です。",
+                10,
+                AppUiTheme.APP_MUTED,
+                false),
+                matchTop(dp(5)));
 
         apiKeyStatus = text("", 12, AppUiTheme.APP_TEXT, true);
         card.addView(apiKeyStatus, matchTop(dp(8)));
@@ -800,7 +808,18 @@ public final class SettingsActivity extends Activity {
 
         new Thread(() -> {
             try {
-                ClefPerformanceProbe.Result result = ClefPerformanceProbe.run(this);
+                ClefPerformanceProbe.Result result = ClefPerformanceProbe.run(
+                        this,
+                        (moduleId, completed, total, durationMs) -> runOnUiThread(() -> {
+                            if (isFinishing() || isDestroyed() || clefProbeStatus == null) return;
+                            clefProbeStatus.setText(
+                                    "実測中… " + completed + "/" + total
+                                            + "  " + BrainEngine.stageLabel(moduleId)
+                                            + "  " + durationMs + " ms"
+                                            + "\n実行場所  ローカル · モデル  "
+                                            + ClefSettingsStore.displayLabel()
+                                            + "\nAPIキー不要・外部通信なし。");
+                        }));
                 runOnUiThread(() -> finishClefPerformanceProbe(result.displayText()));
             } catch (Exception error) {
                 String detail = ProcessingQueueRegistry.rootMessage(error);
@@ -860,6 +879,18 @@ public final class SettingsActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT);
         params.topMargin = topMargin;
         return params;
+    }
+
+    private boolean usesAnyOpenAiRoute() {
+        if (NpcInferenceModel.usesOpenAi(routingSettingsStore.globalModel())) return true;
+        if (!specialistInferenceSettingsStore.usesDecisionModel()
+                && NpcInferenceModel.usesOpenAi(routingSettingsStore.specialistModel())) {
+            return true;
+        }
+        for (String npcId : registryStore.npcIds()) {
+            if (NpcInferenceAccess.usesOpenAi(this, npcId)) return true;
+        }
+        return false;
     }
 
     private boolean shouldShowOpenAiPromptCacheProbe() {
@@ -966,9 +997,13 @@ public final class SettingsActivity extends Activity {
         refreshClef();
         refreshClefPerformance();
         if (apiKeyStatus != null) {
-            apiKeyStatus.setText(hasApiKey()
-                    ? "OpenAI APIキー  設定済み（値は非表示）"
-                    : "OpenAI APIキー  未設定");
+            if (!usesAnyOpenAiRoute()) {
+                apiKeyStatus.setText("OpenAI APIキー  現在の選択中ルートでは不要");
+            } else {
+                apiKeyStatus.setText(hasApiKey()
+                        ? "OpenAI APIキー  設定済み（値は非表示）"
+                        : "OpenAI APIキー  必要・未設定");
+            }
         }
         renderBudgetCards();
     }
