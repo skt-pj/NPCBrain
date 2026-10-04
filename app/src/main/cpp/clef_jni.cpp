@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <android/log.h>
+#include <sys/sysinfo.h>
 
 #include <algorithm>
 #include <cmath>
@@ -282,6 +283,18 @@ void unload_locked() {
     g_backend_mode_set = false;
 }
 
+int32_t gpu_layer_limit_for_ram() {
+    struct sysinfo info {};
+    if (sysinfo(&info) != 0) return 2;
+
+    const uint64_t total_bytes =
+            static_cast<uint64_t>(info.totalram) * static_cast<uint64_t>(info.mem_unit);
+    constexpr uint64_t GIB = 1024ULL * 1024ULL * 1024ULL;
+    if (total_bytes <= 9ULL * GIB) return 2;
+    if (total_bytes <= 13ULL * GIB) return 4;
+    return 8;
+}
+
 void ensure_loaded_locked(const std::string & path, ClefBackendMode mode) {
     if (g_model != nullptr
             && g_context != nullptr
@@ -303,7 +316,7 @@ void ensure_loaded_locked(const std::string & path, ClefBackendMode mode) {
     }
 
     llama_model_params model_params = llama_model_default_params();
-    model_params.n_gpu_layers = gpu ? -1 : 0;
+    model_params.n_gpu_layers = gpu ? gpu_layer_limit_for_ram() : 0;
     g_model = llama_model_load_from_file(path.c_str(), model_params);
     if (g_model == nullptr) throw std::runtime_error("CLEF GGUFの読み込みに失敗しました");
 
@@ -330,8 +343,8 @@ void ensure_loaded_locked(const std::string & path, ClefBackendMode mode) {
     context_params.n_threads_batch = threads;
     context_params.embeddings = true;
     context_params.pooling_type = LLAMA_POOLING_TYPE_NONE;
-    context_params.offload_kqv = gpu;
-    context_params.op_offload = gpu;
+    context_params.offload_kqv = false;
+    context_params.op_offload = false;
     context_params.no_perf = false;
 
     g_context = llama_init_from_model(g_model, context_params);
@@ -425,24 +438,9 @@ std::vector<double> run_decision_once_locked(
 std::vector<double> run_decision_locked(
         const std::string & model_path,
         const std::string & state,
-        const std::vector<FieldSpec> & fields) {
-    try {
-        return run_decision_once_locked(
-                model_path, state, fields, ClefBackendMode::GPU);
-    } catch (const std::exception & gpu_error) {
-        log_error(std::string("CLEF GPU failed; retrying CPU: ") + gpu_error.what());
-        unload_locked();
-        try {
-            return run_decision_once_locked(
-                    model_path, state, fields, ClefBackendMode::CPU);
-        } catch (const std::exception & cpu_error) {
-            throw std::runtime_error(
-                    std::string("CLEF GPU/CPU execution failed. GPU: ")
-                    + gpu_error.what()
-                    + "; CPU: "
-                    + cpu_error.what());
-        }
-    }
+        const std::vector<FieldSpec> & fields,
+        ClefBackendMode mode) {
+    return run_decision_once_locked(model_path, state, fields, mode);
 }
 
 std::vector<FieldSpec> make_fields(
@@ -486,18 +484,16 @@ std::vector<FieldSpec> make_fields(
 
 } // namespace
 
-extern "C"
-JNIEXPORT jdoubleArray JNICALL
-Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeEvaluate(
+jdoubleArray evaluate_jni(
         JNIEnv * env,
-        jclass,
         jstring model_path,
         jstring state,
         jobjectArray field_ids,
         jobjectArray instructions,
         jobjectArray option_ids,
         jobjectArray option_descriptions,
-        jintArray option_counts) {
+        jintArray option_counts,
+        ClefBackendMode mode) {
     try {
         const std::string model = jstring_to_utf8(env, model_path);
         const std::string state_text = jstring_to_utf8(env, state);
@@ -510,7 +506,7 @@ Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeEvaluate(
 
         std::lock_guard<std::mutex> guard(g_mutex);
         const std::vector<double> scores =
-                run_decision_locked(model, state_text, fields);
+                run_decision_locked(model, state_text, fields, mode);
         jdoubleArray result = env->NewDoubleArray(static_cast<jsize>(scores.size()));
         if (result != nullptr && !scores.empty()) {
             env->SetDoubleArrayRegion(
@@ -528,8 +524,56 @@ Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeEvaluate(
 }
 
 extern "C"
+JNIEXPORT jdoubleArray JNICALL
+Java_com_sktpj_npcbrain_ClefNativeBridge_nativeEvaluateGpuOnly(
+        JNIEnv * env,
+        jclass,
+        jstring model_path,
+        jstring state,
+        jobjectArray field_ids,
+        jobjectArray instructions,
+        jobjectArray option_ids,
+        jobjectArray option_descriptions,
+        jintArray option_counts) {
+    return evaluate_jni(
+            env,
+            model_path,
+            state,
+            field_ids,
+            instructions,
+            option_ids,
+            option_descriptions,
+            option_counts,
+            ClefBackendMode::GPU);
+}
+
+extern "C"
+JNIEXPORT jdoubleArray JNICALL
+Java_com_sktpj_npcbrain_ClefNativeBridge_nativeEvaluateCpuOnly(
+        JNIEnv * env,
+        jclass,
+        jstring model_path,
+        jstring state,
+        jobjectArray field_ids,
+        jobjectArray instructions,
+        jobjectArray option_ids,
+        jobjectArray option_descriptions,
+        jintArray option_counts) {
+    return evaluate_jni(
+            env,
+            model_path,
+            state,
+            field_ids,
+            instructions,
+            option_ids,
+            option_descriptions,
+            option_counts,
+            ClefBackendMode::CPU);
+}
+
+extern "C"
 JNIEXPORT void JNICALL
-Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeUnload(JNIEnv *, jclass) {
+Java_com_sktpj_npcbrain_ClefNativeBridge_nativeUnload(JNIEnv *, jclass) {
     std::lock_guard<std::mutex> guard(g_mutex);
     unload_locked();
 }

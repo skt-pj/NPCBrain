@@ -69,7 +69,7 @@ final class ClefPerformanceProbe {
             try {
                 double[] scores = ClefLocalExecutionQueue.execute(
                         "",
-                        () -> ClefNativeRuntime.evaluate(modelFile, state, fields));
+                        () -> ClefNativeRuntime.evaluate(appContext, modelFile, state, fields));
                 ClefSpecialistRuntime.adaptScores(moduleId, fields, scores);
                 success = true;
                 completed++;

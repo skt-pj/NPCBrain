@@ -39,10 +39,17 @@ public final class ClefLocalRuntimeSourceTest {
     }
 
     @Test
-    public void localClefBuildAndRuntimeSupportGpuWithCpuFallback() throws Exception {
+    public void localClefGpuRunsOutOfProcessAndFallsBackToCpuSafely() throws Exception {
         String nativeSource = read("src/main/cpp/clef_jni.cpp");
         String cmake = read("src/main/cpp/CMakeLists.txt");
         String vulkanPatch = read("src/main/cpp/PatchLlamaAndroidVulkan.cmake");
+        String manifest = read("src/main/AndroidManifest.xml");
+        String nativeRuntime = read("src/main/java/com/sktpj/npcbrain/ClefNativeRuntime.java");
+        String nativeBridge = read("src/main/java/com/sktpj/npcbrain/ClefNativeBridge.java");
+        String gpuClient = read("src/main/java/com/sktpj/npcbrain/ClefGpuProcessClient.java");
+        String gpuService = read("src/main/java/com/sktpj/npcbrain/ClefGpuService.java");
+        String gpuHealth = read("src/main/java/com/sktpj/npcbrain/ClefGpuHealthStore.java");
+        String application = read("src/main/java/com/sktpj/npcbrain/NPCBrainApplication.java");
 
         assertTrue(cmake.contains("set(GGML_VULKAN ON CACHE BOOL \"\" FORCE)"));
         assertTrue(cmake.contains("Vulkan_GLSLC_EXECUTABLE"));
@@ -52,16 +59,40 @@ public final class ClefLocalRuntimeSourceTest {
         assertTrue(cmake.contains("PatchLlamaAndroidVulkan.cmake"));
         assertTrue(vulkanPatch.contains("vkGetInstanceProcAddr"));
         assertTrue(vulkanPatch.contains("vkGetPhysicalDeviceFeatures2KHR"));
-        assertTrue(nativeSource.contains("enum class ClefBackendMode"));
-        assertTrue(nativeSource.contains("model_params.n_gpu_layers = gpu ? -1 : 0"));
-        assertTrue(nativeSource.contains("context_params.offload_kqv = gpu"));
-        assertTrue(nativeSource.contains("context_params.op_offload = gpu"));
-        assertTrue(nativeSource.contains("run_decision_once_locked("));
+
+        assertTrue(manifest.contains("android:name=\".ClefGpuService\""));
+        assertTrue(manifest.contains("android:process=\":clef_gpu\""));
+        assertTrue(gpuService.contains("ClefNativeBridge.evaluateGpuOnly("));
+        assertTrue(gpuService.contains("ClefNativeBridge.evaluateCpuOnly("));
+        assertTrue(gpuClient.contains("TRANSACTION_GET_PID"));
+        assertTrue(gpuClient.contains("TRANSACTION_EVALUATE"));
+        assertTrue(gpuClient.contains("future.get("));
+        assertTrue(gpuClient.contains("Process.killProcess(servicePid)"));
+        assertTrue(gpuClient.contains("ClefGpuHealthStore"));
+        assertTrue(gpuHealth.contains("versionCode"));
+        assertTrue(application.contains("isClefGpuProcess()"));
+        assertTrue(application.contains("if (isClefGpuProcess()) return;"));
+
+        assertTrue(nativeRuntime.contains("ClefGpuProcessClient.evaluateGpu("));
+        assertTrue(nativeRuntime.contains("ClefGpuProcessClient.evaluateCpu("));
+        assertFalse(nativeRuntime.contains("System.loadLibrary"));
+        assertTrue(nativeBridge.contains("System.loadLibrary(\"npcbrain_clef\")"));
+        assertTrue(nativeBridge.contains("nativeEvaluateGpuOnly"));
+        assertTrue(nativeBridge.contains("nativeEvaluateCpuOnly"));
+        assertFalse(nativeRuntime.contains("OpenAiClient"));
+        assertFalse(nativeRuntime.contains("LocalLlmRuntime"));
+
+        assertTrue(nativeSource.contains("gpu_layer_limit_for_ram"));
+        assertTrue(nativeSource.contains("return 2;"));
+        assertTrue(nativeSource.contains("return 4;"));
+        assertTrue(nativeSource.contains("return 8;"));
+        assertFalse(nativeSource.contains("n_gpu_layers = gpu ? -1 : 0"));
+        assertFalse(nativeSource.contains("n_gpu_layers = -1"));
+        assertTrue(nativeSource.contains("context_params.offload_kqv = false"));
+        assertTrue(nativeSource.contains("context_params.op_offload = false"));
         assertTrue(nativeSource.contains("ClefBackendMode::GPU"));
         assertTrue(nativeSource.contains("ClefBackendMode::CPU"));
-        assertTrue(nativeSource.contains("GPU failed; retrying CPU"));
-        assertFalse(nativeSource.contains("OpenAiClient"));
-        assertFalse(nativeSource.contains("LocalLlmRuntime"));
+        assertFalse(nativeSource.contains("GPU failed; retrying CPU"));
     }
 
     @Test

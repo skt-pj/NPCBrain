@@ -60,7 +60,7 @@ final class ClefSpecialistRuntime {
         try {
             JSONObject result = ClefLocalExecutionQueue.execute(queueId, () -> {
                 File modelFile = modelRepository.modelFile();
-                double[] scores = ClefNativeRuntime.evaluate(modelFile, boundedState, fields);
+                double[] scores = ClefNativeRuntime.evaluate(appContext, modelFile, boundedState, fields);
                 return adaptScores(moduleId, fields, scores);
             });
             success = true;

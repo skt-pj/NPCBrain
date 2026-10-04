@@ -1,11 +1,15 @@
 package com.sktpj.npcbrain;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.Application;
+import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.os.Bundle;
+import android.os.Process;
 
 import java.lang.ref.WeakReference;
+import java.util.List;
 
 public final class NPCBrainApplication extends Application {
     private static WeakReference<NPCBrainApplication> applicationRef = new WeakReference<>(null);
@@ -21,6 +25,7 @@ public final class NPCBrainApplication extends Application {
         super.onCreate();
         applicationRef = new WeakReference<>(this);
         debugBuild = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        if (isClefGpuProcess()) return;
         new ReplyTimerStore(this).rearmAll();
         NpcSocialMemoryScheduler.schedule(this);
         worldRuntime = new NpcWorldRuntimeV200(this);
@@ -106,12 +111,32 @@ public final class NPCBrainApplication extends Application {
         return debugBuild;
     }
 
+    static Context applicationContextForRuntime() {
+        NPCBrainApplication app = applicationRef.get();
+        return app == null ? null : app.getApplicationContext();
+    }
+
     static DemoActivityV032 currentDemoActivity() {
         return demoActivityRef.get();
     }
 
     static void requestDemoRoomRefresh() {
         demoRoomRefreshRequested = true;
+    }
+
+    private boolean isClefGpuProcess() {
+        ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        if (manager == null) return false;
+        List<ActivityManager.RunningAppProcessInfo> processes = manager.getRunningAppProcesses();
+        if (processes == null) return false;
+        int pid = Process.myPid();
+        String expected = getPackageName() + ":clef_gpu";
+        for (ActivityManager.RunningAppProcessInfo process : processes) {
+            if (process != null && process.pid == pid) {
+                return expected.equals(process.processName);
+            }
+        }
+        return false;
     }
 
     static WorldKernelV210 worldKernel() {
