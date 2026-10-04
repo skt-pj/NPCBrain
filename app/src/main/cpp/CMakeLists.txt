@@ -13,6 +13,28 @@ set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
 set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
 set(GGML_BACKEND_DL OFF CACHE BOOL "" FORCE)
+set(GGML_VULKAN ON CACHE BOOL "" FORCE)
+
+if (ANDROID AND DEFINED ANDROID_NDK AND NOT Vulkan_GLSLC_EXECUTABLE)
+    if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+        set(_npcbrain_shader_host "linux-x86_64")
+        set(_npcbrain_glslc_name "glslc")
+    elseif (CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+        set(_npcbrain_shader_host "darwin-x86_64")
+        set(_npcbrain_glslc_name "glslc")
+    elseif (CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
+        set(_npcbrain_shader_host "windows-x86_64")
+        set(_npcbrain_glslc_name "glslc.exe")
+    endif()
+
+    if (DEFINED _npcbrain_shader_host)
+        set(_npcbrain_glslc
+                "${ANDROID_NDK}/shader-tools/${_npcbrain_shader_host}/${_npcbrain_glslc_name}")
+        if (EXISTS "${_npcbrain_glslc}")
+            set(Vulkan_GLSLC_EXECUTABLE "${_npcbrain_glslc}" CACHE FILEPATH "" FORCE)
+        endif()
+    endif()
+endif()
 
 include(FetchContent)
 FetchContent_Declare(
