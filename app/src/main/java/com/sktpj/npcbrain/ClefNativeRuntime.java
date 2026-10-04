@@ -15,6 +15,14 @@ final class ClefNativeRuntime {
     static double[] evaluate(
             File modelFile,
             String state,
+            List<ClefSpecialistSchema.Field> fields
+    ) {
+        return evaluate(modelFile, state, fields, true);
+    }
+
+    static double[] evaluate(
+            File modelFile,
+            String state,
             List<ClefSpecialistSchema.Field> fields,
             boolean preferGpu
     ) {
