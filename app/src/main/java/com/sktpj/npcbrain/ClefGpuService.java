@@ -8,11 +8,7 @@ import android.os.Parcel;
 import android.os.Process;
 import android.os.RemoteException;
 
-/**
- * Dedicated process boundary for Vulkan/CLEF execution.
- *
- * A native GPU driver abort must terminate only :clef_gpu, never the primary UI process.
- */
+/** Dedicated process boundary for all CLEF native execution. */
 public final class ClefGpuService extends Service {
     private final Binder binder = new Binder() {
         @Override
@@ -29,7 +25,8 @@ public final class ClefGpuService extends Service {
                 reply.writeInt(Process.myPid());
                 return true;
             }
-            if (code != ClefGpuProcessClient.TRANSACTION_EVALUATE) {
+            if (code != ClefGpuProcessClient.TRANSACTION_EVALUATE_GPU
+                    && code != ClefGpuProcessClient.TRANSACTION_EVALUATE_CPU) {
                 return super.onTransact(code, data, reply, flags);
             }
 
@@ -42,14 +39,23 @@ public final class ClefGpuService extends Service {
             int[] optionCounts = data.createIntArray();
 
             try {
-                double[] scores = ClefNativeRuntime.evaluateGpuOnly(
-                        modelPath,
-                        state,
-                        fieldIds,
-                        instructions,
-                        optionIds,
-                        optionDescriptions,
-                        optionCounts);
+                double[] scores = code == ClefGpuProcessClient.TRANSACTION_EVALUATE_GPU
+                        ? ClefNativeBridge.evaluateGpuOnly(
+                                modelPath,
+                                state,
+                                fieldIds,
+                                instructions,
+                                optionIds,
+                                optionDescriptions,
+                                optionCounts)
+                        : ClefNativeBridge.evaluateCpuOnly(
+                                modelPath,
+                                state,
+                                fieldIds,
+                                instructions,
+                                optionIds,
+                                optionDescriptions,
+                                optionCounts);
                 reply.writeNoException();
                 reply.writeDoubleArray(scores);
             } catch (Throwable error) {
