@@ -45,6 +45,8 @@ public final class ClefLocalRuntimeSourceTest {
 
         assertTrue(cmake.contains("set(GGML_VULKAN ON CACHE BOOL \"\" FORCE)"));
         assertTrue(cmake.contains("Vulkan_GLSLC_EXECUTABLE"));
+        assertTrue(cmake.contains("SPIRV-Headers"));
+        assertTrue(cmake.contains("OVERRIDE_FIND_PACKAGE"));
         assertTrue(nativeSource.contains("enum class ClefBackendMode"));
         assertTrue(nativeSource.contains("model_params.n_gpu_layers = gpu ? -1 : 0"));
         assertTrue(nativeSource.contains("context_params.offload_kqv = gpu"));
