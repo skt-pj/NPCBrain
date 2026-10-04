@@ -45,6 +45,7 @@ public final class ClefLocalRuntimeSourceTest {
         String vulkanPatch = read("src/main/cpp/PatchLlamaAndroidVulkan.cmake");
         String manifest = read("src/main/AndroidManifest.xml");
         String nativeRuntime = read("src/main/java/com/sktpj/npcbrain/ClefNativeRuntime.java");
+        String nativeBridge = read("src/main/java/com/sktpj/npcbrain/ClefNativeBridge.java");
         String gpuClient = read("src/main/java/com/sktpj/npcbrain/ClefGpuProcessClient.java");
         String gpuService = read("src/main/java/com/sktpj/npcbrain/ClefGpuService.java");
         String gpuHealth = read("src/main/java/com/sktpj/npcbrain/ClefGpuHealthStore.java");
@@ -61,7 +62,8 @@ public final class ClefLocalRuntimeSourceTest {
 
         assertTrue(manifest.contains("android:name=\".ClefGpuService\""));
         assertTrue(manifest.contains("android:process=\":clef_gpu\""));
-        assertTrue(gpuService.contains("ClefNativeRuntime.evaluateGpuOnly("));
+        assertTrue(gpuService.contains("ClefNativeBridge.evaluateGpuOnly("));
+        assertTrue(gpuService.contains("ClefNativeBridge.evaluateCpuOnly("));
         assertTrue(gpuClient.contains("TRANSACTION_GET_PID"));
         assertTrue(gpuClient.contains("TRANSACTION_EVALUATE"));
         assertTrue(gpuClient.contains("future.get("));
@@ -72,9 +74,11 @@ public final class ClefLocalRuntimeSourceTest {
         assertTrue(application.contains("if (isClefGpuProcess()) return;"));
 
         assertTrue(nativeRuntime.contains("ClefGpuProcessClient.evaluate("));
-        assertTrue(nativeRuntime.contains("evaluateCpuOnly("));
-        assertTrue(nativeRuntime.contains("nativeEvaluateGpuOnly"));
-        assertTrue(nativeRuntime.contains("nativeEvaluateCpuOnly"));
+        assertTrue(nativeRuntime.contains("ClefGpuProcessClient.evaluateCpu("));
+        assertFalse(nativeRuntime.contains("System.loadLibrary"));
+        assertTrue(nativeBridge.contains("System.loadLibrary(\"npcbrain_clef\")"));
+        assertTrue(nativeBridge.contains("nativeEvaluateGpuOnly"));
+        assertTrue(nativeBridge.contains("nativeEvaluateCpuOnly"));
         assertFalse(nativeRuntime.contains("OpenAiClient"));
         assertFalse(nativeRuntime.contains("LocalLlmRuntime"));
 
