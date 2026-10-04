@@ -12,6 +12,10 @@ import java.util.Locale;
 
 /** Debug probe that measures the actual local CLEF runtime without OpenAI. */
 final class ClefPerformanceProbe {
+    interface ProgressListener {
+        void onProgress(String moduleId, int completed, int total, long durationMs);
+    }
+
     static final class Result {
         final String text;
 
@@ -28,6 +32,10 @@ final class ClefPerformanceProbe {
     }
 
     static Result run(Context context) throws Exception {
+        return run(context, null);
+    }
+
+    static Result run(Context context, ProgressListener listener) throws Exception {
         Context appContext = context.getApplicationContext();
         ClefLocalModelRepository repository = new ClefLocalModelRepository(appContext);
         if (!repository.isDownloaded()) {
@@ -44,9 +52,11 @@ final class ClefPerformanceProbe {
         long totalHeapBefore = usedJavaHeapBytes();
         long sumMs = 0L;
         int completed = 0;
+        int processed = 0;
         StringBuilder detail = new StringBuilder();
+        String[] moduleIds = BrainEngine.specialistIds();
 
-        for (String moduleId : BrainEngine.specialistIds()) {
+        for (String moduleId : moduleIds) {
             List<ClefSpecialistSchema.Field> fields =
                     ClefSpecialistSchema.forModule(moduleId);
             if (fields.isEmpty()) continue;
@@ -86,6 +96,10 @@ final class ClefPerformanceProbe {
                         .append(durationMs)
                         .append(" ms")
                         .append(success ? "" : "  ERROR");
+                processed++;
+                if (listener != null) {
+                    listener.onProgress(moduleId, processed, moduleIds.length, durationMs);
+                }
             }
         }
 
