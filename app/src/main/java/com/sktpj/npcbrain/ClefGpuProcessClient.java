@@ -287,16 +287,17 @@ final class ClefGpuProcessClient {
             ServiceConnection candidate,
             long generation
     ) {
-        ServiceConnection current = null;
         synchronized (LOCK) {
-            if (!isCurrentConnection(candidate, generation)) return;
-            current = connection;
-            connection = null;
-            binder = null;
-            servicePid = -1;
-            activeConnectionGeneration = 0L;
+            if (isCurrentConnection(candidate, generation)) {
+                connection = null;
+                binder = null;
+                servicePid = -1;
+                activeConnectionGeneration = 0L;
+            }
         }
-        unbindQuietly(appContext, current);
+        // A stale bind still belongs to this caller and must be released, but must not clear
+        // the newer generation's binder state.
+        unbindQuietly(appContext, candidate);
     }
 
     private static int queryServicePid(IBinder remote) throws RemoteException {
