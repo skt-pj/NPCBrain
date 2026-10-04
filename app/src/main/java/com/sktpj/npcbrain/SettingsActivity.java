@@ -29,6 +29,7 @@ public final class SettingsActivity extends Activity {
     private RoutingSettingsStore routingSettingsStore;
     private LocalInferenceSettingsStore localInferenceSettingsStore;
     private SpecialistInferenceSettingsStore specialistInferenceSettingsStore;
+    private ClefRuntimeSettingsStore clefRuntimeSettingsStore;
     private ClefPerformanceStore clefPerformanceStore;
     private NpcRegistryStore registryStore;
     private NpcAiStaminaStore staminaStore;
@@ -53,6 +54,7 @@ public final class SettingsActivity extends Activity {
         routingSettingsStore = new RoutingSettingsStore(this);
         localInferenceSettingsStore = new LocalInferenceSettingsStore(this);
         specialistInferenceSettingsStore = new SpecialistInferenceSettingsStore(this);
+        clefRuntimeSettingsStore = new ClefRuntimeSettingsStore(this);
         clefPerformanceStore = new ClefPerformanceStore(this);
         registryStore = new NpcRegistryStore(this);
         staminaStore = new NpcAiStaminaStore(this);
@@ -175,7 +177,8 @@ public final class SettingsActivity extends Activity {
                 card,
                 "分割脳（9専門）",
                 specialistInferenceSettingsStore.usesDecisionModel()
-                        ? "判断モデル / ローカル / CLEF-Flash 9B Q4_K_M"
+                        ? "判断モデル / ローカル / CLEF-Flash 9B Q4_K_M / "
+                        + clefRuntimeSettingsStore.summary()
                         : "通常LLM / " + routeSummary(routingSettingsStore.specialistModel()));
         return card;
     }
@@ -567,6 +570,7 @@ public final class SettingsActivity extends Activity {
             card.addView(text(
                     "実行場所  ローカル"
                             + "\nモデル  CLEF-Flash 9B · Q4_K_M"
+                            + "\n実行backend  " + clefRuntimeSettingsStore.summary()
                             + "\n処理  9専門を独立キュー項目としてFIFO実行"
                             + "\ncontext  2048 tokens内へgrounded snapshotを自動圧縮"
                             + "\n状態  " + snapshot.displayText(),
@@ -715,6 +719,32 @@ public final class SettingsActivity extends Activity {
         clefModelButton = actionButton("");
         clefModelButton.setOnClickListener(v -> handleClefModelButton());
         card.addView(clefModelButton, matchTop(dp(7)));
+
+        CheckBox preferGpu = detailCheckBox(
+                "Vulkan GPUを優先する",
+                "CLEFのTransformer/KV/演算をVulkan GPUへoffloadします。GPU初期化やmodel loadに失敗した場合だけCPUへ自動フォールバックします。",
+                clefRuntimeSettingsStore.preferGpu());
+        preferGpu.setOnCheckedChangeListener((buttonView, checked) -> {
+            if (clefRuntimeSettingsStore.preferGpu() == checked) return;
+            clefRuntimeSettingsStore.setPreferGpu(checked);
+            ClefNativeRuntime.unload();
+            rebuildContent();
+        });
+        card.addView(preferGpu, matchTop(dp(10)));
+
+        String activeBackend = ClefNativeRuntime.backendInfo();
+        String fallbackReason = ClefNativeRuntime.gpuFallbackReason();
+        String backendText = "現在runtime  " + activeBackend
+                + "\n設定  " + clefRuntimeSettingsStore.summary();
+        if (!fallbackReason.isEmpty()) {
+            backendText += "\nGPU fallback理由  " + fallbackReason;
+        }
+        card.addView(text(
+                backendText,
+                10,
+                AppUiTheme.APP_MUTED,
+                false),
+                matchTop(dp(6)));
         return card;
     }
 
@@ -745,7 +775,7 @@ public final class SettingsActivity extends Activity {
         LinearLayout card = card();
         card.addView(text("CLEF 実測パフォーマンス", 18, AppUiTheme.APP_TEXT, true));
         card.addView(text(
-                "通常の分割脳実行は自動記録します。下の実測ボタンはOpenAIを一切使わず、端末内CLEFで固定9専門を1回ずつ実推論して処理時間とprocess memoryを測ります。",
+                "通常の分割脳実行は自動記録します。下の実測ボタンはOpenAIを一切使わず、選択中のCLEF backend（Vulkan GPU優先またはCPU固定）で固定9専門を1回ずつ実推論して処理時間とprocess memoryを測ります。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false));
@@ -803,7 +833,8 @@ public final class SettingsActivity extends Activity {
         clefProbeRunning = true;
         if (clefProbeButton != null) clefProbeButton.setEnabled(false);
         if (clefProbeStatus != null) {
-            clefProbeStatus.setText("実測中… 端末内CLEFで9専門を順番に実推論しています。");
+            clefProbeStatus.setText("実測中… 端末内CLEFで9専門を順番に実推論しています。"
+                    + "\nbackend設定  " + clefRuntimeSettingsStore.summary());
         }
 
         new Thread(() -> {
@@ -818,6 +849,7 @@ public final class SettingsActivity extends Activity {
                                             + "  " + durationMs + " ms"
                                             + "\n実行場所  ローカル · モデル  "
                                             + ClefSettingsStore.displayLabel()
+                                            + "\n実backend  " + ClefNativeRuntime.backendInfo()
                                             + "\nAPIキー不要・外部通信なし。");
                         }));
                 runOnUiThread(() -> finishClefPerformanceProbe(result.displayText()));
@@ -846,7 +878,8 @@ public final class SettingsActivity extends Activity {
         if (clefModelStatus != null) {
             clefModelStatus.setText(snapshot.displayText()
                     + (specialistInferenceSettingsStore.usesDecisionModel()
-                    ? " · 分割脳9専門で使用中" : ""));
+                    ? " · 分割脳9専門で使用中" : "")
+                    + " · " + clefRuntimeSettingsStore.summary());
         }
         if (clefModelButton != null) {
             clefModelButton.setEnabled(!snapshot.downloading);
