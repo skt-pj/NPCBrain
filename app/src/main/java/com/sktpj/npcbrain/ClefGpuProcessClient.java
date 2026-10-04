@@ -262,15 +262,19 @@ final class ClefGpuProcessClient {
             throw new IllegalStateException("CLEF native service bind failed");
         }
 
+        IBinder ready;
         synchronized (LOCK) {
-            if (!isCurrentConnection(newConnection, generation)
-                    || binder == null
-                    || !binder.isBinderAlive()) {
-                resetConnectionIfCurrent(appContext, newConnection, generation);
-                throw new IllegalStateException("CLEF native service is unavailable");
-            }
-            return binder;
+            ready = isCurrentConnection(newConnection, generation)
+                    && binder != null
+                    && binder.isBinderAlive()
+                    ? binder
+                    : null;
         }
+        if (ready == null) {
+            resetConnectionIfCurrent(appContext, newConnection, generation);
+            throw new IllegalStateException("CLEF native service is unavailable");
+        }
+        return ready;
     }
 
     /** Must be called while LOCK is held. */
