@@ -13,6 +13,25 @@ set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
 set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
 set(GGML_BACKEND_DL OFF CACHE BOOL "" FORCE)
+set(GGML_VULKAN ON CACHE BOOL "" FORCE)
+set(GGML_VULKAN_CHECK_RESULTS OFF CACHE BOOL "" FORCE)
+set(GGML_VULKAN_VALIDATE OFF CACHE BOOL "" FORCE)
+set(GGML_VULKAN_RUN_TESTS OFF CACHE BOOL "" FORCE)
+set(GGML_VULKAN_DEBUG OFF CACHE BOOL "" FORCE)
+
+# Android NDK ships a host glslc under shader-tools. Point llama.cpp at it explicitly
+# so Vulkan shaders are generated during the Android cross-build.
+if(ANDROID AND DEFINED ANDROID_NDK)
+    file(GLOB NPCBRAIN_NDK_GLSLC_DIRS "${ANDROID_NDK}/shader-tools/*")
+    find_program(
+            NPCBRAIN_GLSLC
+            NAMES glslc
+            HINTS ${NPCBRAIN_NDK_GLSLC_DIRS}
+            NO_CMAKE_FIND_ROOT_PATH)
+    if(NPCBRAIN_GLSLC)
+        set(Vulkan_GLSLC_EXECUTABLE "${NPCBRAIN_GLSLC}" CACHE FILEPATH "" FORCE)
+    endif()
+endif()
 
 include(FetchContent)
 FetchContent_Declare(
