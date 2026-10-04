@@ -332,8 +332,10 @@ public final class ProcessingQueueActivity extends Activity {
 
     private void showEntryDetail(ProcessingQueueRegistry.Entry entry) {
         ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(AppUiTheme.APP_SURFACE);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
+        content.setBackgroundColor(AppUiTheme.APP_SURFACE);
         content.setPadding(dp(16), dp(8), dp(16), dp(16));
         scroll.addView(content);
 
