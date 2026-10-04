@@ -525,7 +525,7 @@ jdoubleArray evaluate_jni(
 
 extern "C"
 JNIEXPORT jdoubleArray JNICALL
-Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeEvaluateGpuOnly(
+Java_com_sktpj_npcbrain_ClefNativeBridge_nativeEvaluateGpuOnly(
         JNIEnv * env,
         jclass,
         jstring model_path,
@@ -549,7 +549,7 @@ Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeEvaluateGpuOnly(
 
 extern "C"
 JNIEXPORT jdoubleArray JNICALL
-Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeEvaluateCpuOnly(
+Java_com_sktpj_npcbrain_ClefNativeBridge_nativeEvaluateCpuOnly(
         JNIEnv * env,
         jclass,
         jstring model_path,
@@ -573,7 +573,7 @@ Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeEvaluateCpuOnly(
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeUnload(JNIEnv *, jclass) {
+Java_com_sktpj_npcbrain_ClefNativeBridge_nativeUnload(JNIEnv *, jclass) {
     std::lock_guard<std::mutex> guard(g_mutex);
     unload_locked();
 }
