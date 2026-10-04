@@ -42,11 +42,16 @@ public final class ClefLocalRuntimeSourceTest {
     public void localClefBuildAndRuntimeSupportGpuWithCpuFallback() throws Exception {
         String nativeSource = read("src/main/cpp/clef_jni.cpp");
         String cmake = read("src/main/cpp/CMakeLists.txt");
+        String vulkanPatch = read("src/main/cpp/llama-android-vulkan-compat.patch");
 
         assertTrue(cmake.contains("set(GGML_VULKAN ON CACHE BOOL \"\" FORCE)"));
         assertTrue(cmake.contains("Vulkan_GLSLC_EXECUTABLE"));
         assertTrue(cmake.contains("SPIRV-Headers"));
         assertTrue(cmake.contains("OVERRIDE_FIND_PACKAGE"));
+        assertTrue(cmake.contains("Vulkan-Headers"));
+        assertTrue(cmake.contains("llama-android-vulkan-compat.patch"));
+        assertTrue(vulkanPatch.contains("vkGetInstanceProcAddr"));
+        assertTrue(vulkanPatch.contains("vkGetPhysicalDeviceFeatures2KHR"));
         assertTrue(nativeSource.contains("enum class ClefBackendMode"));
         assertTrue(nativeSource.contains("model_params.n_gpu_layers = gpu ? -1 : 0"));
         assertTrue(nativeSource.contains("context_params.offload_kqv = gpu"));
