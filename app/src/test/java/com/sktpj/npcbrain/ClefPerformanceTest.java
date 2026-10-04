@@ -49,13 +49,17 @@ public final class ClefPerformanceTest {
         assertTrue(settings.contains("clefPerformanceStore.snapshot().displayText()"));
         assertTrue(settings.contains("ローカルCLEF 9専門を実測"));
         assertTrue(settings.contains("APIキー不要"));
-        assertTrue(settings.contains("ClefPerformanceProbe.run(this)"));
+        assertTrue(settings.contains("ClefPerformanceProbe.run("));
+        assertTrue(settings.contains("APIキー不要・外部通信なし"));
+        assertTrue(settings.contains("usesAnyOpenAiRoute()"));
 
         String probe = read("src/main/java/com/sktpj/npcbrain/ClefPerformanceProbe.java");
         assertTrue(probe.contains("ClefNativeRuntime.evaluate("));
         assertTrue(probe.contains("ClefLocalExecutionQueue.execute("));
         assertTrue(probe.contains("BrainEngine.specialistIds()"));
         assertTrue(probe.contains("ClefPerformanceStore"));
+        assertTrue(probe.contains("ProgressListener"));
+        assertTrue(probe.contains("listener.onProgress"));
         assertTrue(!probe.contains("SecureApiKeyStore"));
         assertTrue(!probe.contains("OpenAiClient"));
     }
