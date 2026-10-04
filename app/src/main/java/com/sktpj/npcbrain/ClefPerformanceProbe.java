@@ -45,6 +45,8 @@ final class ClefPerformanceProbe {
         File modelFile = repository.modelFile();
         String model = new ClefSettingsStore(appContext).model();
         ClefPerformanceStore store = new ClefPerformanceStore(appContext);
+        ClefRuntimeSettingsStore runtimeSettings = new ClefRuntimeSettingsStore(appContext);
+        boolean preferGpu = runtimeSettings.preferGpu();
         String state = probeState().toString();
 
         long totalStart = SystemClock.elapsedRealtimeNanos();
@@ -69,7 +71,7 @@ final class ClefPerformanceProbe {
             try {
                 double[] scores = ClefLocalExecutionQueue.execute(
                         "",
-                        () -> ClefNativeRuntime.evaluate(modelFile, state, fields));
+                        () -> ClefNativeRuntime.evaluate(modelFile, state, fields, preferGpu));
                 ClefSpecialistRuntime.adaptScores(moduleId, fields, scores);
                 success = true;
                 completed++;
@@ -83,6 +85,7 @@ final class ClefPerformanceProbe {
                 sumMs += durationMs;
                 store.record(
                         model,
+                        ClefNativeRuntime.backendInfo(),
                         durationMs,
                         pssBefore,
                         Debug.getPss(),
@@ -113,6 +116,8 @@ final class ClefPerformanceProbe {
         StringBuilder result = new StringBuilder();
         result.append("ローカルCLEF実測完了")
                 .append("\nモデル  ").append(ClefSettingsStore.displayLabel())
+                .append("\n実行backend  ").append(ClefNativeRuntime.backendInfo())
+                .append("\nGPU設定  ").append(runtimeSettings.summary())
                 .append("\n9専門合計  ").append(totalMs).append(" ms")
                 .append(" · 平均 ").append(average).append(" ms/専門")
                 .append("\nPSS  ")
@@ -123,8 +128,12 @@ final class ClefPerformanceProbe {
                 .append(ClefPerformanceStore.formatBytes(totalHeapBefore))
                 .append(" → ")
                 .append(ClefPerformanceStore.formatBytes(heapAfter))
-                .append("\n\n専門別\n")
-                .append(detail);
+                .append("\n");
+        String fallback = ClefNativeRuntime.gpuFallbackReason();
+        if (!fallback.isEmpty()) {
+            result.append("GPU fallback理由  ").append(fallback).append("\n");
+        }
+        result.append("\n専門別\n").append(detail);
         return new Result(result.toString());
     }
 

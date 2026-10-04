@@ -29,11 +29,19 @@ public final class ClefLocalRuntimeSourceTest {
         assertTrue(nativeSource.contains("LLAMA_DECISION_ORDER_OPTION"));
         assertTrue(nativeSource.contains("CLEF_CONTEXT_TOKENS = 2048"));
         assertTrue(nativeSource.contains("append_bounded_state"));
+        assertTrue(nativeSource.contains("model_params.n_gpu_layers = use_gpu ? -1 : 0"));
+        assertTrue(nativeSource.contains("context_params.offload_kqv = use_gpu"));
+        assertTrue(nativeSource.contains("context_params.op_offload = use_gpu"));
+        assertTrue(nativeSource.contains("GGML_BACKEND_DEVICE_TYPE_GPU"));
+        assertTrue(nativeSource.contains("falling back to CPU"));
+        assertTrue(cmake.contains("GGML_VULKAN ON"));
         assertTrue(cmake.contains("99b95488cac0f00ce3f05af113a8c1e287753f87"));
 
         assertTrue(settings.contains("CLEF-Flash 共通設定"));
         assertTrue(settings.contains("CLEFモデルをダウンロード"));
         assertTrue(settings.contains("分割脳9専門"));
+        assertTrue(settings.contains("Vulkan GPUを優先する"));
+        assertTrue(settings.contains("CPUへ自動フォールバック"));
         assertFalse(settings.contains("Cloudflare Account ID"));
         assertFalse(settings.contains("Cloudflare API token"));
     }

@@ -17,6 +17,15 @@ final class ClefNativeRuntime {
             String state,
             List<ClefSpecialistSchema.Field> fields
     ) {
+        return evaluate(modelFile, state, fields, true);
+    }
+
+    static double[] evaluate(
+            File modelFile,
+            String state,
+            List<ClefSpecialistSchema.Field> fields,
+            boolean preferGpu
+    ) {
         if (modelFile == null || !modelFile.isFile() || modelFile.length() <= 0L) {
             throw new IllegalStateException("ローカルCLEFモデルがありません");
         }
@@ -59,7 +68,8 @@ final class ClefNativeRuntime {
                     instructions,
                     optionIds.toArray(new String[0]),
                     optionDescriptions.toArray(new String[0]),
-                    optionCounts);
+                    optionCounts,
+                    preferGpu);
             if (scores == null || scores.length != expectedScores) {
                 throw new IllegalStateException(
                         "CLEF native score countが不正です: "
@@ -96,12 +106,26 @@ final class ClefNativeRuntime {
                 "Should this NPC commit to the chosen action class now?",
                 new String[]{"true", "false"},
                 new String[]{"Yes.", "No."});
-        return evaluate(modelFile, state, Arrays.asList(action, commit));
+        return evaluate(modelFile, state, Arrays.asList(action, commit), true);
     }
 
     static void unload() {
         synchronized (LOCK) {
             nativeUnload();
+        }
+    }
+
+    static String backendInfo() {
+        synchronized (LOCK) {
+            String value = nativeBackendInfo();
+            return value == null || value.trim().isEmpty() ? "not_loaded" : value.trim();
+        }
+    }
+
+    static String gpuFallbackReason() {
+        synchronized (LOCK) {
+            String value = nativeGpuFallbackReason();
+            return value == null ? "" : value.trim();
         }
     }
 
@@ -112,7 +136,12 @@ final class ClefNativeRuntime {
             String[] instructions,
             String[] optionIds,
             String[] optionDescriptions,
-            int[] optionCounts);
+            int[] optionCounts,
+            boolean preferGpu);
+
+    private static native String nativeBackendInfo();
+
+    private static native String nativeGpuFallbackReason();
 
     private static native void nativeUnload();
 

@@ -14,6 +14,7 @@
 
 #include "llama.h"
 #include "llama-ext.h"
+#include "ggml-backend.h"
 
 namespace {
 
@@ -26,6 +27,9 @@ llama_model * g_model = nullptr;
 llama_context * g_context = nullptr;
 std::string g_model_path;
 bool g_backend_initialized = false;
+bool g_loaded_prefer_gpu = false;
+std::string g_backend_info = "not_loaded";
+std::string g_gpu_fallback_reason;
 
 void log_error(const std::string & message) {
     __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "%s", message.c_str());
@@ -262,7 +266,7 @@ PromptInput build_prompt(
     return input;
 }
 
-void unload_locked() {
+void free_model_locked() {
     if (g_context != nullptr) {
         llama_free(g_context);
         g_context = nullptr;
@@ -274,25 +278,75 @@ void unload_locked() {
     g_model_path.clear();
 }
 
-void ensure_loaded_locked(const std::string & path) {
-    if (g_model != nullptr && g_context != nullptr && g_model_path == path) return;
-    unload_locked();
+void unload_locked() {
+    free_model_locked();
+    g_loaded_prefer_gpu = false;
+    g_backend_info = "not_loaded";
+    g_gpu_fallback_reason.clear();
+}
 
-    if (!g_backend_initialized) {
-        llama_backend_init();
-        g_backend_initialized = true;
+ggml_backend_dev_t first_gpu_device() {
+    const size_t count = ggml_backend_dev_count();
+    for (size_t i = 0; i < count; ++i) {
+        ggml_backend_dev_t device = ggml_backend_dev_get(i);
+        if (device == nullptr) continue;
+        const enum ggml_backend_dev_type type = ggml_backend_dev_type(device);
+        if (type == GGML_BACKEND_DEVICE_TYPE_GPU
+                || type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
+            return device;
+        }
+    }
+    return nullptr;
+}
+
+std::string device_label(ggml_backend_dev_t device) {
+    if (device == nullptr) return "unknown";
+    const char * name = ggml_backend_dev_name(device);
+    const char * description = ggml_backend_dev_description(device);
+    std::string result = name == nullptr ? "GPU" : std::string(name);
+    if (description != nullptr) {
+        std::string desc(description);
+        if (!desc.empty() && desc != result) {
+            result += " / ";
+            result += desc;
+        }
+    }
+    return result;
+}
+
+bool load_model_context_locked(
+        const std::string & path,
+        bool use_gpu,
+        std::string & failure) {
+    ggml_backend_dev_t gpu_device = nullptr;
+    ggml_backend_dev_t devices[2] = {nullptr, nullptr};
+    if (use_gpu) {
+        gpu_device = first_gpu_device();
+        if (gpu_device == nullptr) {
+            failure = "Vulkan GPU device was not detected";
+            return false;
+        }
+        devices[0] = gpu_device;
     }
 
     llama_model_params model_params = llama_model_default_params();
-    model_params.n_gpu_layers = 0;
+    model_params.n_gpu_layers = use_gpu ? -1 : 0;
+    if (use_gpu) model_params.devices = devices;
+
     g_model = llama_model_load_from_file(path.c_str(), model_params);
-    if (g_model == nullptr) throw std::runtime_error("CLEF GGUFの読み込みに失敗しました");
+    if (g_model == nullptr) {
+        failure = use_gpu
+                ? "CLEF GGUF could not be loaded with Vulkan GPU offload"
+                : "CLEF GGUF could not be loaded on CPU";
+        free_model_locked();
+        return false;
+    }
 
     char architecture[64] = {};
     if (llama_model_meta_val_str(
             g_model, "general.architecture", architecture, sizeof(architecture)) < 0
             || std::string(architecture) != "clef") {
-        unload_locked();
+        free_model_locked();
         throw std::runtime_error("CLEF joint headを含むarchitecture=clef GGUFではありません");
     }
 
@@ -311,23 +365,73 @@ void ensure_loaded_locked(const std::string & path) {
     context_params.n_threads_batch = threads;
     context_params.embeddings = true;
     context_params.pooling_type = LLAMA_POOLING_TYPE_NONE;
-    context_params.offload_kqv = false;
-    context_params.op_offload = false;
+    context_params.offload_kqv = use_gpu;
+    context_params.op_offload = use_gpu;
     context_params.no_perf = false;
 
     g_context = llama_init_from_model(g_model, context_params);
     if (g_context == nullptr) {
-        unload_locked();
-        throw std::runtime_error("CLEF contextの初期化に失敗しました");
+        failure = use_gpu
+                ? "CLEF context could not be initialized with Vulkan GPU offload"
+                : "CLEF CPU context could not be initialized";
+        free_model_locked();
+        return false;
     }
+
     g_model_path = path;
+    g_backend_info = use_gpu
+            ? "Vulkan GPU / " + device_label(gpu_device)
+            : "CPU";
+    return true;
+}
+
+void ensure_loaded_locked(const std::string & path, bool prefer_gpu) {
+    if (g_model != nullptr
+            && g_context != nullptr
+            && g_model_path == path
+            && g_loaded_prefer_gpu == prefer_gpu) {
+        return;
+    }
+
+    free_model_locked();
+    g_backend_info = "not_loaded";
+    g_gpu_fallback_reason.clear();
+
+    if (!g_backend_initialized) {
+        llama_backend_init();
+        g_backend_initialized = true;
+    }
+
+    if (prefer_gpu) {
+        std::string gpu_failure;
+        if (load_model_context_locked(path, true, gpu_failure)) {
+            g_loaded_prefer_gpu = true;
+            return;
+        }
+        g_gpu_fallback_reason = gpu_failure;
+        log_error("CLEF Vulkan GPU unavailable, falling back to CPU: " + gpu_failure);
+        free_model_locked();
+    }
+
+    std::string cpu_failure;
+    if (!load_model_context_locked(path, false, cpu_failure)) {
+        std::string message = cpu_failure.empty()
+                ? "CLEF CPU fallback failed"
+                : cpu_failure;
+        if (!g_gpu_fallback_reason.empty()) {
+            message += " (GPU failure: " + g_gpu_fallback_reason + ")";
+        }
+        throw std::runtime_error(message);
+    }
+    g_loaded_prefer_gpu = prefer_gpu;
 }
 
 std::vector<double> run_decision_locked(
         const std::string & model_path,
         const std::string & state,
-        const std::vector<FieldSpec> & fields) {
-    ensure_loaded_locked(model_path);
+        const std::vector<FieldSpec> & fields,
+        bool prefer_gpu) {
+    ensure_loaded_locked(model_path, prefer_gpu);
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
 
     PromptInput fixed = build_prompt(vocab, "", fields, 0);
@@ -452,7 +556,8 @@ Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeEvaluate(
         jobjectArray instructions,
         jobjectArray option_ids,
         jobjectArray option_descriptions,
-        jintArray option_counts) {
+        jintArray option_counts,
+        jboolean prefer_gpu) {
     try {
         const std::string model = jstring_to_utf8(env, model_path);
         const std::string state_text = jstring_to_utf8(env, state);
@@ -465,7 +570,7 @@ Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeEvaluate(
 
         std::lock_guard<std::mutex> guard(g_mutex);
         const std::vector<double> scores =
-                run_decision_locked(model, state_text, fields);
+                run_decision_locked(model, state_text, fields, prefer_gpu == JNI_TRUE);
         jdoubleArray result = env->NewDoubleArray(static_cast<jsize>(scores.size()));
         if (result != nullptr && !scores.empty()) {
             env->SetDoubleArrayRegion(
@@ -487,4 +592,18 @@ JNIEXPORT void JNICALL
 Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeUnload(JNIEnv *, jclass) {
     std::lock_guard<std::mutex> guard(g_mutex);
     unload_locked();
+}
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeBackendInfo(JNIEnv * env, jclass) {
+    std::lock_guard<std::mutex> guard(g_mutex);
+    return env->NewStringUTF(g_backend_info.c_str());
+}
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_sktpj_npcbrain_ClefNativeRuntime_nativeGpuFallbackReason(JNIEnv * env, jclass) {
+    std::lock_guard<std::mutex> guard(g_mutex);
+    return env->NewStringUTF(g_gpu_fallback_reason.c_str());
 }

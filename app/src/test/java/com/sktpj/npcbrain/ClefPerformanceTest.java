@@ -27,11 +27,13 @@ public final class ClefPerformanceTest {
                 14L * 1024L * 1024L,
                 1L,
                 "clef-flash",
+                "Vulkan GPU / test",
                 true,
                 "");
         assertEquals(250L, snapshot.averageDurationMs());
         assertEquals("1.0 MiB", ClefPerformanceStore.formatBytes(1024L * 1024L));
         assertEquals("1.0 MiB", ClefPerformanceStore.formatKiB(1024L));
+        assertTrue(snapshot.displayText().contains("Vulkan GPU"));
     }
 
     @Test

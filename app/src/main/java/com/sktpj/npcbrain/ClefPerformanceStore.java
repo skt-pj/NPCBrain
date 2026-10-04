@@ -23,6 +23,7 @@ final class ClefPerformanceStore {
     private static final String PEAK_HEAP_BYTES = "peak_heap_bytes";
     private static final String LAST_AT_MS = "last_at_ms";
     private static final String LAST_MODEL = "last_model";
+    private static final String LAST_BACKEND = "last_backend";
     private static final String LAST_SUCCESS = "last_success";
     private static final String LAST_ERROR = "last_error";
 
@@ -41,6 +42,7 @@ final class ClefPerformanceStore {
         final long peakHeapBytes;
         final long lastAtMs;
         final String lastModel;
+        final String lastBackend;
         final boolean lastSuccess;
         final String lastError;
 
@@ -59,6 +61,7 @@ final class ClefPerformanceStore {
                 long peakHeapBytes,
                 long lastAtMs,
                 String lastModel,
+                String lastBackend,
                 boolean lastSuccess,
                 String lastError
         ) {
@@ -76,6 +79,7 @@ final class ClefPerformanceStore {
             this.peakHeapBytes = Math.max(0L, peakHeapBytes);
             this.lastAtMs = Math.max(0L, lastAtMs);
             this.lastModel = safe(lastModel);
+            this.lastBackend = safe(lastBackend);
             this.lastSuccess = lastSuccess;
             this.lastError = safe(lastError);
         }
@@ -129,6 +133,8 @@ final class ClefPerformanceStore {
             result.append("直近  ")
                     .append(lastModel.isEmpty() ? "-" : lastModel)
                     .append("  ·  ")
+                    .append(lastBackend.isEmpty() ? "backend不明" : lastBackend)
+                    .append("  ·  ")
                     .append(lastSuccess ? "成功" : "失敗");
             if (!lastSuccess && !lastError.isEmpty()) {
                 result.append("  ·  ").append(lastError);
@@ -145,6 +151,21 @@ final class ClefPerformanceStore {
 
     void record(
             String model,
+            long durationMs,
+            long pssBeforeKb,
+            long pssAfterKb,
+            long heapBeforeBytes,
+            long heapAfterBytes,
+            boolean success,
+            Throwable error
+    ) {
+        record(model, "", durationMs, pssBeforeKb, pssAfterKb,
+                heapBeforeBytes, heapAfterBytes, success, error);
+    }
+
+    void record(
+            String model,
+            String backend,
             long durationMs,
             long pssBeforeKb,
             long pssAfterKb,
@@ -186,6 +207,7 @@ final class ClefPerformanceStore {
                                     Math.max(normalizedHeapBefore, normalizedHeapAfter)))
                     .putLong(LAST_AT_MS, System.currentTimeMillis())
                     .putString(LAST_MODEL, ClefSettingsStore.normalizeModel(model))
+                    .putString(LAST_BACKEND, safe(backend))
                     .putBoolean(LAST_SUCCESS, success)
                     .putString(LAST_ERROR, error == null ? "" : ProcessingQueueRegistry.rootMessage(error))
                     .apply();
@@ -209,6 +231,7 @@ final class ClefPerformanceStore {
                     preferences.getLong(PEAK_HEAP_BYTES, 0L),
                     preferences.getLong(LAST_AT_MS, 0L),
                     preferences.getString(LAST_MODEL, ""),
+                    preferences.getString(LAST_BACKEND, ""),
                     preferences.getBoolean(LAST_SUCCESS, false),
                     preferences.getString(LAST_ERROR, ""));
         }

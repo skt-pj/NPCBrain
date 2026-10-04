@@ -106,14 +106,14 @@ public final class NpcBrainQueueViewModelTest {
                 "q4",
                 "decision_model",
                 "npc9",
-                "clef-flash-local-q4_k_m · local · brain_stage=valuation",
+                "clef-flash-local-q4_k_m · local · backend=Vulkan GPU / Vulkan0 · brain_stage=valuation",
                 ProcessingQueueRegistry.Status.RUNNING,
                 1_000L,
                 1_100L,
                 0L,
                 "");
         assertEquals("専門Brain · 価値判断", NpcBrainQueueViewModel.internalLabel(decision));
-        assertEquals("判断モデル · ローカル · CLEF-Flash 9B · Q4_K_M",
+        assertEquals("判断モデル · ローカル · CLEF-Flash 9B · Q4_K_M · Vulkan GPU / Vulkan0",
                 NpcBrainQueueViewModel.modelLabel(decision));
         assertFalse(NpcBrainQueueViewModel.belongsToNpcBrain(new ProcessingQueueRegistry.Entry(
                 "q3", "spontaneous_cognition", "", "", ProcessingQueueRegistry.Status.RUNNING,

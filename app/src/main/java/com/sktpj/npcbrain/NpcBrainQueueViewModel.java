@@ -174,7 +174,9 @@ final class NpcBrainQueueViewModel {
     static String modelLabel(ProcessingQueueRegistry.Entry entry) {
         if (entry == null) return "";
         if (isDecisionModel(entry)) {
-            return "判断モデル · ローカル · CLEF-Flash 9B · Q4_K_M";
+            String backend = detailValue(entry.detail, "backend=");
+            String suffix = backend.isEmpty() ? "" : " · " + backend;
+            return "判断モデル · ローカル · CLEF-Flash 9B · Q4_K_M" + suffix;
         }
         if (!isLlm(entry)) return "";
 
@@ -190,6 +192,17 @@ final class NpcBrainQueueViewModel {
             return "通常LLM · クラウド · OpenAI / " + NpcInferenceModel.displayLabel(model);
         }
         return "推論モデル · " + model;
+    }
+
+    static String detailValue(String detail, String marker) {
+        String value = safe(detail);
+        String key = safe(marker);
+        if (key.isEmpty()) return "";
+        int start = value.indexOf(key);
+        if (start < 0) return "";
+        int valueStart = start + key.length();
+        int end = value.indexOf(" · ", valueStart);
+        return (end >= 0 ? value.substring(valueStart, end) : value.substring(valueStart)).trim();
     }
 
     static String stageId(String detail) {
