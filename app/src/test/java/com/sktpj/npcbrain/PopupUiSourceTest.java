@@ -52,6 +52,8 @@ public final class PopupUiSourceTest {
         assertTrue(dialogHelper.contains("setBackgroundColor(AppUiTheme.APP_SURFACE)"));
         assertTrue(dialogHelper.contains("setTextColor(AppUiTheme.APP_TEXT)"));
         assertTrue(dialogHelper.contains("setHintTextColor(AppUiTheme.APP_MUTED)"));
+        assertTrue(dialogHelper.contains("setButtonTintList"));
+        assertTrue(dialogHelper.contains("AppUiTheme.APP_ACCENT"));
     }
 
     @Test
