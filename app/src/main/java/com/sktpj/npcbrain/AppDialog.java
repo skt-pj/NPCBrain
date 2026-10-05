@@ -35,22 +35,6 @@ final class AppDialog {
             return super.setView(view);
         }
 
-        @Override
-        public AlertDialog.Builder setView(
-                View view,
-                int viewSpacingLeft,
-                int viewSpacingTop,
-                int viewSpacingRight,
-                int viewSpacingBottom
-        ) {
-            styleCustomContent(view);
-            return super.setView(
-                    view,
-                    viewSpacingLeft,
-                    viewSpacingTop,
-                    viewSpacingRight,
-                    viewSpacingBottom);
-        }
     }
 
     private static void styleCustomContent(View root) {
