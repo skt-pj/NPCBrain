@@ -1,6 +1,5 @@
 package com.sktpj.npcbrain;
 
-import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -173,7 +172,7 @@ final class NpcInnerLifeUiBridge {
             }
         }
 
-        new AlertDialog.Builder(activity)
+        AppDialog.builder(activity)
                 .setTitle(character.isDead() ? "最後の内面状態" : "内面 / 思考ストリーム")
                 .setView(scroll)
                 .setPositiveButton("閉じる", null)
