@@ -12,13 +12,20 @@ final class ClefNativeRuntime {
             Context context,
             File modelFile,
             String state,
-            List<ClefSpecialistSchema.Field> fields
-    ) {
+            List<ClefSpecialistSchema.Field> fields,
+            String executionBackend
+    ) throws Exception {
         if (context == null) throw new IllegalArgumentException("context is required");
-        Payload payload = buildPayload(modelFile, state, fields);
+        String backend = ClefSettingsStore.normalizeExecutionBackend(executionBackend);
+        if (backend.isEmpty()) {
+            throw new IllegalStateException(
+                    "CLEF実行方式が未選択です。AI管理でGPUまたはCPUを選択してください。");
+        }
 
-        try {
-            double[] scores = ClefGpuProcessClient.evaluateGpu(
+        Payload payload = buildPayload(modelFile, state, fields);
+        double[] scores;
+        if (ClefSettingsStore.EXECUTION_GPU.equals(executionBackend)) {
+            scores = ClefGpuProcessClient.evaluateGpu(
                     context,
                     payload.modelPath,
                     payload.state,
@@ -27,30 +34,21 @@ final class ClefNativeRuntime {
                     payload.optionIds,
                     payload.optionDescriptions,
                     payload.optionCounts);
-            verifyScoreCount(scores, payload.expectedScores);
-            return scores;
-        } catch (Exception gpuFailure) {
-            try {
-                double[] scores = ClefGpuProcessClient.evaluateCpu(
-                        context,
-                        payload.modelPath,
-                        payload.state,
-                        payload.fieldIds,
-                        payload.instructions,
-                        payload.optionIds,
-                        payload.optionDescriptions,
-                        payload.optionCounts);
-                verifyScoreCount(scores, payload.expectedScores);
-                return scores;
-            } catch (Exception cpuFailure) {
-                throw new IllegalStateException(
-                        "CLEF isolated GPU/CPU execution failed. GPU: "
-                                + rootMessage(gpuFailure)
-                                + "; CPU: "
-                                + rootMessage(cpuFailure),
-                        cpuFailure);
-            }
+        } else if (ClefSettingsStore.EXECUTION_CPU.equals(executionBackend)) {
+            scores = ClefGpuProcessClient.evaluateCpu(
+                    context,
+                    payload.modelPath,
+                    payload.state,
+                    payload.fieldIds,
+                    payload.instructions,
+                    payload.optionIds,
+                    payload.optionDescriptions,
+                    payload.optionCounts);
+        } else {
+            throw new IllegalStateException("Unsupported CLEF execution backend: " + executionBackend);
         }
+        verifyScoreCount(scores, payload.expectedScores);
+        return scores;
     }
 
     /**
@@ -62,7 +60,7 @@ final class ClefNativeRuntime {
             String state,
             String[] actionIds,
             String[] actionDescriptions
-    ) {
+    ) throws Exception {
         Context context = NPCBrainApplication.applicationContextForRuntime();
         if (context == null) {
             throw new IllegalStateException("NPCBrain application context is unavailable");
@@ -83,7 +81,8 @@ final class ClefNativeRuntime {
                 "Should this NPC commit to the chosen action class now?",
                 new String[]{"true", "false"},
                 new String[]{"Yes.", "No."});
-        return evaluate(context, modelFile, state, Arrays.asList(action, commit));
+        String backend = new ClefSettingsStore(context).executionBackend();
+        return evaluate(context, modelFile, state, Arrays.asList(action, commit), backend);
     }
 
     static void unload() {
@@ -148,18 +147,6 @@ final class ClefNativeRuntime {
                             + (scores == null ? 0 : scores.length)
                             + " / expected " + expectedScores);
         }
-    }
-
-    private static String rootMessage(Throwable error) {
-        Throwable current = error;
-        while (current != null && current.getCause() != null && current.getCause() != current) {
-            current = current.getCause();
-        }
-        if (current == null) return "unknown";
-        String message = current.getMessage();
-        return message == null || message.trim().isEmpty()
-                ? current.getClass().getSimpleName()
-                : message.trim();
     }
 
     private static final class Payload {
