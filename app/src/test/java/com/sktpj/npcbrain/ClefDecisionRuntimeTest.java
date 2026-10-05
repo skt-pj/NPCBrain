@@ -19,6 +19,13 @@ public final class ClefDecisionRuntimeTest {
                 ClefSettingsStore.MODEL_CLEF_FLASH,
                 ClefSettingsStore.normalizeModel("remote-or-unknown"));
         assertTrue(ClefSettingsStore.displayLabel().contains("ローカル"));
+        assertEquals("", ClefSettingsStore.normalizeExecutionBackend(null));
+        assertEquals("", ClefSettingsStore.normalizeExecutionBackend("unknown"));
+        assertEquals(ClefSettingsStore.EXECUTION_GPU,
+                ClefSettingsStore.normalizeExecutionBackend(ClefSettingsStore.EXECUTION_GPU));
+        assertEquals(ClefSettingsStore.EXECUTION_CPU,
+                ClefSettingsStore.normalizeExecutionBackend(ClefSettingsStore.EXECUTION_CPU));
+        assertEquals("未選択", ClefSettingsStore.executionBackendLabel(""));
     }
 
     @Test
