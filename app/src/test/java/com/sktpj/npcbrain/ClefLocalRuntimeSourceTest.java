@@ -49,6 +49,7 @@ public final class ClefLocalRuntimeSourceTest {
         String gpuClient = read("src/main/java/com/sktpj/npcbrain/ClefGpuProcessClient.java");
         String gpuService = read("src/main/java/com/sktpj/npcbrain/ClefGpuService.java");
         String application = read("src/main/java/com/sktpj/npcbrain/NPCBrainApplication.java");
+        String settings = read("src/main/java/com/sktpj/npcbrain/SettingsActivity.java");
 
         assertTrue(cmake.contains("set(GGML_VULKAN ON CACHE BOOL \"\" FORCE)"));
         assertTrue(cmake.contains("Vulkan_GLSLC_EXECUTABLE"));
