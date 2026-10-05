@@ -174,7 +174,9 @@ final class NpcBrainQueueViewModel {
     static String modelLabel(ProcessingQueueRegistry.Entry entry) {
         if (entry == null) return "";
         if (isDecisionModel(entry)) {
-            return "判断モデル · ローカル · CLEF-Flash 9B · Q4_K_M";
+            String backend = taggedValue(entry.detail, "backend=");
+            return "判断モデル · ローカル · CLEF-Flash 9B · Q4_K_M · "
+                    + ClefSettingsStore.executionBackendLabel(backend);
         }
         if (!isLlm(entry)) return "";
 
@@ -194,16 +196,19 @@ final class NpcBrainQueueViewModel {
 
     static String stageId(String detail) {
         String value = safe(detail);
-        String marker = "brain_stage=";
-        int start = value.indexOf(marker);
-        if (start >= 0) {
-            int valueStart = start + marker.length();
-            int end = value.indexOf(" · ", valueStart);
-            String stage = (end >= 0 ? value.substring(valueStart, end) : value.substring(valueStart)).trim();
-            if (!stage.isEmpty()) return stage;
-        }
+        String stage = taggedValue(value, "brain_stage=");
+        if (!stage.isEmpty()) return stage;
         if (value.contains("Global Workspace")) return "global_workspace";
         return value.contains("specialist / task") ? "specialist" : "";
+    }
+
+    private static String taggedValue(String detail, String marker) {
+        String value = safe(detail);
+        int start = value.indexOf(marker);
+        if (start < 0) return "";
+        int valueStart = start + marker.length();
+        int end = value.indexOf(" · ", valueStart);
+        return (end >= 0 ? value.substring(valueStart, end) : value.substring(valueStart)).trim();
     }
 
     private static MutableGroup mutable(Map<String, MutableGroup> groups, String npcId) {

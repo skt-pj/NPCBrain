@@ -43,7 +43,13 @@ final class ClefPerformanceProbe {
         }
 
         File modelFile = repository.modelFile();
-        String model = new ClefSettingsStore(appContext).model();
+        ClefSettingsStore settings = new ClefSettingsStore(appContext);
+        String model = settings.model();
+        String executionBackend = settings.executionBackend();
+        if (executionBackend.isEmpty()) {
+            throw new IllegalStateException(
+                    "CLEF実行方式が未選択です。AI管理でGPUまたはCPUを選択してください。");
+        }
         ClefPerformanceStore store = new ClefPerformanceStore(appContext);
         String state = probeState().toString();
 
@@ -69,7 +75,8 @@ final class ClefPerformanceProbe {
             try {
                 double[] scores = ClefLocalExecutionQueue.execute(
                         "",
-                        () -> ClefNativeRuntime.evaluate(appContext, modelFile, state, fields));
+                        () -> ClefNativeRuntime.evaluate(
+                                appContext, modelFile, state, fields, executionBackend));
                 ClefSpecialistRuntime.adaptScores(moduleId, fields, scores);
                 success = true;
                 completed++;
@@ -113,6 +120,7 @@ final class ClefPerformanceProbe {
         StringBuilder result = new StringBuilder();
         result.append("ローカルCLEF実測完了")
                 .append("\nモデル  ").append(ClefSettingsStore.displayLabel())
+                .append("\n実行方式  ").append(ClefSettingsStore.executionBackendLabel(executionBackend))
                 .append("\n9専門合計  ").append(totalMs).append(" ms")
                 .append(" · 平均 ").append(average).append(" ms/専門")
                 .append("\nPSS  ")

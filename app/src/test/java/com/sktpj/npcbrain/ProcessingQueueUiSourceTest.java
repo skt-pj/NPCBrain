@@ -34,6 +34,8 @@ public final class ProcessingQueueUiSourceTest {
         assertTrue(viewModel.contains("Global Workspace"));
         assertTrue(viewModel.contains("\"decision_model\".equals(entry.type)"));
         assertTrue(viewModel.contains("判断モデル · ローカル"));
+        assertTrue(viewModel.contains("backend="));
+        assertTrue(viewModel.contains("executionBackendLabel"));
 
         // Rejected concepts must never return as top-level queue terminology.
         assertFalse(source.contains("親処理"));
