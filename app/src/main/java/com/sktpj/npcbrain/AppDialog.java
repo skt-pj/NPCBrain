@@ -76,6 +76,18 @@ final class AppDialog {
             input.setTextColor(AppUiTheme.APP_TEXT);
             input.setHintTextColor(AppUiTheme.APP_MUTED);
             input.setBackgroundTintList(ColorStateList.valueOf(AppUiTheme.APP_MUTED));
+        } else if (view instanceof CompoundButton && !insideExplicitSurface) {
+            CompoundButton option = (CompoundButton) view;
+            option.setTextColor(AppUiTheme.APP_TEXT);
+            option.setButtonTintList(new ColorStateList(
+                    new int[][]{
+                            new int[]{android.R.attr.state_checked},
+                            new int[]{}
+                    },
+                    new int[]{
+                            AppUiTheme.APP_ACCENT,
+                            AppUiTheme.APP_MUTED
+                    }));
         } else if (view instanceof TextView && !explicitSurface) {
             ((TextView) view).setTextColor(AppUiTheme.APP_TEXT);
         }
