@@ -758,7 +758,7 @@ public final class DemoActivityV032 extends Activity {
         liveBrainContent.setPadding(dp(16), dp(6), dp(16), dp(18));
         ScrollView scroll = new ScrollView(this);
         scroll.addView(liveBrainContent);
-        liveBrainDialog = new AlertDialog.Builder(this)
+        liveBrainDialog = AppDialog.builder(this)
                 .setTitle(liveNpcName + " の脳内（リアルタイム）")
                 .setView(scroll)
                 .setPositiveButton("閉じる", null)
@@ -857,7 +857,7 @@ public final class DemoActivityV032 extends Activity {
     private void showMessageDetails(JSONObject message) {
         JSONArray trace = message.optJSONArray("brain_trace");
         if (trace == null || trace.length() == 0) {
-            new AlertDialog.Builder(this)
+            AppDialog.builder(this)
                     .setTitle("メッセージ詳細")
                     .setMessage("送信者: " + message.optString("sender_name", "あなた")
                             + "\n時刻: " + formatTime(message.optLong("time_ms", 0L))
@@ -886,7 +886,7 @@ public final class DemoActivityV032 extends Activity {
         }
         ScrollView scroll = new ScrollView(this);
         scroll.addView(content);
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(message.optString("sender_name", "NPC") + " の脳内トレース")
                 .setView(scroll)
                 .setPositiveButton("閉じる", null)
@@ -943,7 +943,7 @@ public final class DemoActivityV032 extends Activity {
 
     private void showHomeMenu(View anchor) {
         if (currentRoomId != null) return;
-        PopupMenu popup = new PopupMenu(this, anchor);
+        PopupMenu popup = AppPopupMenu.create(this, anchor);
         popup.getMenu().add("AI設定");
         popup.getMenu().add("NPC1 人格設定");
         popup.getMenu().add("NPC2 人格設定");
@@ -1000,7 +1000,7 @@ public final class DemoActivityV032 extends Activity {
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(form);
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("AI設定")
                 .setView(scroll)
                 .setPositiveButton("保存", (dialog, which) -> {
@@ -1050,7 +1050,7 @@ public final class DemoActivityV032 extends Activity {
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(form);
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(demoRuntime.displayName(npcId) + " の人格")
                 .setView(scroll)
                 .setPositiveButton("保存", (dialog, which) -> {
@@ -1120,7 +1120,7 @@ public final class DemoActivityV032 extends Activity {
         text.setPadding(dp(18), dp(8), dp(18), dp(16));
         ScrollView scroll = new ScrollView(this);
         scroll.addView(text);
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(demoRuntime.displayName(npcId) + " の長期記憶")
                 .setView(scroll)
                 .setPositiveButton("閉じる", null)
@@ -1128,7 +1128,7 @@ public final class DemoActivityV032 extends Activity {
     }
 
     private void confirmClearConversations() {
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("会話履歴を消去")
                 .setMessage("NPCの長期記憶・人格・APIキーは消えません。")
                 .setPositiveButton("消去", (dialog, which) -> {
@@ -1140,7 +1140,7 @@ public final class DemoActivityV032 extends Activity {
     }
 
     private void showMissingApiKeyDialog() {
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("APIキーが未設定です")
                 .setMessage("APIキーはホーム右上の「AI設定」1か所だけで設定します。")
                 .setPositiveButton("ホームへ", (dialog, which) -> showRoomList())
@@ -1152,7 +1152,7 @@ public final class DemoActivityV032 extends Activity {
         boolean network = message != null && (
                 message.contains("DNS") || message.contains("ネットワーク")
                         || message.contains("接続") || message.contains("api.openai.com"));
-        AlertDialog.Builder builder = new AlertDialog.Builder(this)
+        AlertDialog.Builder builder = AppDialog.builder(this)
                 .setTitle(network ? "通信エラー" : "処理エラー")
                 .setMessage(message == null ? "不明なエラー" : message)
                 .setNegativeButton("閉じる", null);
