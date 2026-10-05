@@ -45,6 +45,13 @@ public final class PopupUiSourceTest {
         assertTrue(styles.contains("android:textColorPrimary"));
         assertTrue(styles.contains("android:textColorSecondary"));
         assertTrue(styles.contains("android:textColorAlertDialogListItem"));
+
+        String dialogHelper = read(Paths.get(
+                "src/main/java/com/sktpj/npcbrain/AppDialog.java"));
+        assertTrue(dialogHelper.contains("styleCustomContent(view)"));
+        assertTrue(dialogHelper.contains("setBackgroundColor(AppUiTheme.APP_SURFACE)"));
+        assertTrue(dialogHelper.contains("setTextColor(AppUiTheme.APP_TEXT)"));
+        assertTrue(dialogHelper.contains("setHintTextColor(AppUiTheme.APP_MUTED)"));
     }
 
     @Test
