@@ -368,7 +368,7 @@ public final class ProcessingQueueActivity extends Activity {
             addDetailText(content, "エラー", entry.error, true);
         }
 
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(NpcBrainQueueViewModel.internalLabel(entry))
                 .setView(scroll)
                 .setPositiveButton("閉じる", null)
