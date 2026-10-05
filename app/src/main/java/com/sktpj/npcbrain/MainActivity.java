@@ -387,7 +387,7 @@ public final class MainActivity extends Activity {
                     + "\n時刻: " + formatTime(message.optLong("time_ms", 0L))
                     + "\n\n" + message.optString("text", "")
                     + "\n\nこれはユーザー入力イベントなのでNPCの脳内トレースはありません。";
-            new AlertDialog.Builder(this)
+            AppDialog.builder(this)
                     .setTitle("メッセージ詳細")
                     .setMessage(details)
                     .setPositiveButton("閉じる", null)
@@ -440,7 +440,7 @@ public final class MainActivity extends Activity {
         scroll.addView(content, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT));
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(message.optString("sender_name", "NPC") + " の脳内トレース")
                 .setView(scroll)
                 .setPositiveButton("閉じる", null)
@@ -618,7 +618,7 @@ public final class MainActivity extends Activity {
 
     private void showHomeMenu(View anchor) {
         if (currentRoomId != null) return;
-        PopupMenu popup = new PopupMenu(this, anchor);
+        PopupMenu popup = AppPopupMenu.create(this, anchor);
         popup.getMenu().add("AI設定");
         popup.getMenu().add("NPC1 人格設定");
         popup.getMenu().add("NPC2 人格設定");
@@ -721,7 +721,7 @@ public final class MainActivity extends Activity {
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT));
 
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("AI設定")
                 .setView(scroll)
                 .setPositiveButton("保存", (dialog, which) -> {
@@ -773,7 +773,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showMissingApiKeyDialog() {
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("APIキーが未設定です")
                 .setMessage("APIキーの入力場所はホームの「AI設定」1か所だけです。トーク画面では設定を変更できません。")
                 .setPositiveButton("ホームへ", (dialog, which) -> showRoomList())
@@ -843,7 +843,7 @@ public final class MainActivity extends Activity {
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT));
 
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(demoRuntime.displayName(npcId) + " の人格")
                 .setMessage("NPCごとに人格・長期記憶を分離します。脳の9専門領域＋Global Workspaceは増減しません。")
                 .setView(scroll)
@@ -972,7 +972,7 @@ public final class MainActivity extends Activity {
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT));
 
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(demoRuntime.displayName(npcId) + " の長期記憶")
                 .setMessage("このNPCだけのエピソード記憶・意味記憶です。")
                 .setView(scroll)
@@ -985,7 +985,7 @@ public final class MainActivity extends Activity {
     }
 
     private void confirmClearConversations() {
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("会話履歴を消去")
                 .setMessage("3つのデモトークと、各NPC発話に紐づく脳内トレースを削除します。NPCの人格・長期記憶・AI設定は削除しません。")
                 .setPositiveButton("消去", (dialog, which) -> {
@@ -1065,7 +1065,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showErrorDialog(String message) {
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("処理エラー")
                 .setMessage(message == null ? "不明なエラー" : message)
                 .setPositiveButton("閉じる", null)
