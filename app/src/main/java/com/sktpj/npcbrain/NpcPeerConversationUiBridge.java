@@ -1,6 +1,5 @@
 package com.sktpj.npcbrain;
 
-import android.app.AlertDialog;
 import android.graphics.Typeface;
 import android.os.Handler;
 import android.os.Looper;
@@ -132,7 +131,7 @@ final class NpcPeerConversationUiBridge {
         text.setTextIsSelectable(true);
         ScrollView scroll = new ScrollView(activity);
         scroll.addView(text);
-        new AlertDialog.Builder(activity)
+        AppDialog.builder(activity)
                 .setTitle(firstName + " ↔ " + secondName)
                 .setView(scroll)
                 .setPositiveButton("閉じる", null)
