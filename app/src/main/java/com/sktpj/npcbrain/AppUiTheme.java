@@ -8,6 +8,7 @@ final class AppUiTheme {
     static final int APP_MUTED = Color.rgb(160, 178, 200);
     static final int APP_SURFACE = Color.rgb(16, 26, 40);
     static final int APP_BORDER = Color.rgb(43, 58, 77);
+    static final int APP_ACCENT = Color.rgb(0, 150, 136);
 
     static final int NAV_BACKGROUND = APP_BACKGROUND;
     static final int NAV_SELECTED = Color.rgb(40, 87, 150);
