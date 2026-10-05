@@ -745,30 +745,51 @@ public final class SettingsActivity extends Activity {
 
     private void showClefExecutionBackendPicker(Runnable onSaved) {
         String current = clefSettingsStore.executionBackend();
-        String[] labels = new String[]{
-                "GPU — Vulkanで実行。失敗してもCPUへ切り替えません。",
-                "CPU — CPUのみで実行。GPUは試行しません。"
-        };
-        int checked = ClefSettingsStore.EXECUTION_GPU.equals(current)
-                ? 0
-                : ClefSettingsStore.EXECUTION_CPU.equals(current) ? 1 : -1;
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setBackgroundColor(AppUiTheme.APP_SURFACE);
+        content.setPadding(dp(20), dp(8), dp(20), dp(8));
+        content.addView(text(
+                "使用する実行方式を選択してください。",
+                11,
+                AppUiTheme.APP_MUTED,
+                false));
+
+        RadioGroup backendGroup = new RadioGroup(this);
+        backendGroup.setOrientation(LinearLayout.VERTICAL);
+        RadioButton gpu = routeRadio("GPU");
+        RadioButton cpu = routeRadio("CPU");
+        int gpuId = View.generateViewId();
+        int cpuId = View.generateViewId();
+        gpu.setId(gpuId);
+        cpu.setId(cpuId);
+        backendGroup.addView(gpu, new RadioGroup.LayoutParams(
+                RadioGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        backendGroup.addView(cpu, new RadioGroup.LayoutParams(
+                RadioGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        if (ClefSettingsStore.EXECUTION_GPU.equals(current)) {
+            backendGroup.check(gpuId);
+        } else if (ClefSettingsStore.EXECUTION_CPU.equals(current)) {
+            backendGroup.check(cpuId);
+        }
+        content.addView(backendGroup, matchTop(dp(8)));
 
         AlertDialog dialog = AppDialog.builder(this)
                 .setTitle("CLEF-Flash 実行方式")
-                .setMessage("GPUかCPUを明示選択します。実行中の自動切替は行いません。")
-                .setSingleChoiceItems(labels, checked, null)
+                .setView(content)
                 .setPositiveButton("保存", null)
                 .setNegativeButton("キャンセル", null)
                 .create();
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
                 .setOnClickListener(v -> {
-                    int selected = dialog.getListView().getCheckedItemPosition();
-                    if (selected != 0 && selected != 1) {
+                    int selected = backendGroup.getCheckedRadioButtonId();
+                    if (selected != gpuId && selected != cpuId) {
                         Toast.makeText(this, "GPUまたはCPUを選択してください。", Toast.LENGTH_SHORT).show();
                         return;
                     }
                     clefSettingsStore.setExecutionBackend(
-                            selected == 0
+                            selected == gpuId
                                     ? ClefSettingsStore.EXECUTION_GPU
                                     : ClefSettingsStore.EXECUTION_CPU);
                     dialog.dismiss();
