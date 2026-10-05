@@ -6,6 +6,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Stream;
 
 import static org.junit.Assert.assertFalse;
@@ -15,25 +17,27 @@ public final class PopupUiSourceTest {
     @Test
     public void productionPopupCreationUsesSharedDarkThemeHelpers() throws Exception {
         Path root = Paths.get("src/main/java");
+        List<String> violations = new ArrayList<>();
         try (Stream<Path> files = Files.walk(root)) {
             files.filter(path -> path.toString().endsWith(".java"))
                     .forEach(path -> {
                         try {
                             String source = read(path);
                             String name = path.getFileName().toString();
-                            if (!"AppDialog.java".equals(name)) {
-                                assertFalse(path + " uses raw AlertDialog.Builder",
-                                        source.contains("new AlertDialog.Builder("));
+                            if (!"AppDialog.java".equals(name)
+                                    && source.contains("new AlertDialog.Builder(")) {
+                                violations.add(path + " uses raw AlertDialog.Builder");
                             }
-                            if (!"AppPopupMenu.java".equals(name)) {
-                                assertFalse(path + " uses raw PopupMenu",
-                                        source.contains("new PopupMenu("));
+                            if (!"AppPopupMenu.java".equals(name)
+                                    && source.contains("new PopupMenu(")) {
+                                violations.add(path + " uses raw PopupMenu");
                             }
                         } catch (Exception error) {
                             throw new RuntimeException(error);
                         }
                     });
         }
+        assertTrue("Raw popup creation remains: " + violations, violations.isEmpty());
 
         String manifest = read(Paths.get("src/main/AndroidManifest.xml"));
         String styles = read(Paths.get("src/main/res/values/styles.xml"));
