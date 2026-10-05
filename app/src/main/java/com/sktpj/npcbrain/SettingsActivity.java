@@ -29,6 +29,7 @@ public final class SettingsActivity extends Activity {
     private RoutingSettingsStore routingSettingsStore;
     private LocalInferenceSettingsStore localInferenceSettingsStore;
     private SpecialistInferenceSettingsStore specialistInferenceSettingsStore;
+    private ClefSettingsStore clefSettingsStore;
     private ClefPerformanceStore clefPerformanceStore;
     private NpcRegistryStore registryStore;
     private NpcAiStaminaStore staminaStore;
@@ -53,6 +54,7 @@ public final class SettingsActivity extends Activity {
         routingSettingsStore = new RoutingSettingsStore(this);
         localInferenceSettingsStore = new LocalInferenceSettingsStore(this);
         specialistInferenceSettingsStore = new SpecialistInferenceSettingsStore(this);
+        clefSettingsStore = new ClefSettingsStore(this);
         clefPerformanceStore = new ClefPerformanceStore(this);
         registryStore = new NpcRegistryStore(this);
         staminaStore = new NpcAiStaminaStore(this);
@@ -175,7 +177,8 @@ public final class SettingsActivity extends Activity {
                 card,
                 "分割脳（9専門）",
                 specialistInferenceSettingsStore.usesDecisionModel()
-                        ? "判断モデル / ローカル / CLEF-Flash 9B Q4_K_M"
+                        ? "判断モデル / ローカル / CLEF-Flash 9B Q4_K_M / "
+                        + ClefSettingsStore.executionBackendLabel(clefSettingsStore.executionBackend())
                         : "通常LLM / " + routeSummary(routingSettingsStore.specialistModel()));
         return card;
     }
@@ -541,9 +544,18 @@ public final class SettingsActivity extends Activity {
                     ClefLocalDownloadManager.snapshot(this);
             if (snapshot.downloaded) {
                 if (!specialistInferenceSettingsStore.usesDecisionModel()) {
-                    specialistInferenceSettingsStore.setMode(
-                            SpecialistInferenceSettingsStore.MODE_DECISION_MODEL);
-                    rebuildContent();
+                    if (clefSettingsStore.executionBackend().isEmpty()) {
+                        radioGroup.check(normalId);
+                        showClefExecutionBackendPicker(() -> {
+                            specialistInferenceSettingsStore.setMode(
+                                    SpecialistInferenceSettingsStore.MODE_DECISION_MODEL);
+                            rebuildContent();
+                        });
+                    } else {
+                        specialistInferenceSettingsStore.setMode(
+                                SpecialistInferenceSettingsStore.MODE_DECISION_MODEL);
+                        rebuildContent();
+                    }
                 }
                 return;
             }
@@ -564,9 +576,11 @@ public final class SettingsActivity extends Activity {
         if (specialistInferenceSettingsStore.usesDecisionModel()) {
             ClefLocalDownloadManager.Snapshot snapshot =
                     ClefLocalDownloadManager.snapshot(this);
+            String backend = clefSettingsStore.executionBackend();
             card.addView(text(
                     "実行場所  ローカル"
                             + "\nモデル  CLEF-Flash 9B · Q4_K_M"
+                            + "\n実行方式  " + ClefSettingsStore.executionBackendLabel(backend)
                             + "\n処理  9専門を独立キュー項目としてFIFO実行"
                             + "\ncontext  2048 tokens内へgrounded snapshotを自動圧縮"
                             + "\n状態  " + snapshot.displayText(),
@@ -574,6 +588,10 @@ public final class SettingsActivity extends Activity {
                     AppUiTheme.APP_MUTED,
                     false),
                     matchTop(dp(6)));
+            Button backendButton = actionButton(
+                    backend.isEmpty() ? "実行方式を選択" : "実行方式を変更");
+            backendButton.setOnClickListener(v -> showClefExecutionBackendPicker(this::rebuildContent));
+            card.addView(backendButton, matchTop(dp(6)));
         }
     }
 
@@ -709,6 +727,13 @@ public final class SettingsActivity extends Activity {
                 AppUiTheme.APP_MUTED,
                 false));
 
+        Button backend = actionButton(
+                "実行方式: "
+                        + ClefSettingsStore.executionBackendLabel(clefSettingsStore.executionBackend())
+                        + "  ▼");
+        backend.setOnClickListener(v -> showClefExecutionBackendPicker(this::rebuildContent));
+        card.addView(backend, matchTop(dp(8)));
+
         clefModelStatus = text("", 12, AppUiTheme.APP_TEXT, true);
         card.addView(clefModelStatus, matchTop(dp(8)));
 
@@ -716,6 +741,40 @@ public final class SettingsActivity extends Activity {
         clefModelButton.setOnClickListener(v -> handleClefModelButton());
         card.addView(clefModelButton, matchTop(dp(7)));
         return card;
+    }
+
+    private void showClefExecutionBackendPicker(Runnable onSaved) {
+        String current = clefSettingsStore.executionBackend();
+        String[] labels = new String[]{
+                "GPU — Vulkanで実行。失敗してもCPUへ切り替えません。",
+                "CPU — CPUのみで実行。GPUは試行しません。"
+        };
+        int checked = ClefSettingsStore.EXECUTION_GPU.equals(current)
+                ? 0
+                : ClefSettingsStore.EXECUTION_CPU.equals(current) ? 1 : -1;
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("CLEF-Flash 実行方式")
+                .setMessage("GPUかCPUを明示選択します。実行中の自動切替は行いません。")
+                .setSingleChoiceItems(labels, checked, null)
+                .setPositiveButton("保存", null)
+                .setNegativeButton("キャンセル", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    int selected = dialog.getListView().getCheckedItemPosition();
+                    if (selected != 0 && selected != 1) {
+                        Toast.makeText(this, "GPUまたはCPUを選択してください。", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    clefSettingsStore.setExecutionBackend(
+                            selected == 0
+                                    ? ClefSettingsStore.EXECUTION_GPU
+                                    : ClefSettingsStore.EXECUTION_CPU);
+                    dialog.dismiss();
+                    if (onSaved != null) onSaved.run();
+                }));
+        dialog.show();
     }
 
     private void handleClefModelButton() {
@@ -782,9 +841,12 @@ public final class SettingsActivity extends Activity {
         if (clefProbeButton != null) {
             ClefLocalDownloadManager.Snapshot snapshot =
                     ClefLocalDownloadManager.snapshot(this);
-            clefProbeButton.setEnabled(snapshot.downloaded && !clefProbeRunning);
+            boolean backendSelected = !clefSettingsStore.executionBackend().isEmpty();
+            clefProbeButton.setEnabled(snapshot.downloaded && backendSelected && !clefProbeRunning);
             if (!snapshot.downloaded && clefProbeStatus != null && !clefProbeRunning) {
                 clefProbeStatus.setText("CLEF-Flashをダウンロードすると実測できます。APIキーは不要です。");
+            } else if (!backendSelected && clefProbeStatus != null && !clefProbeRunning) {
+                clefProbeStatus.setText("実行方式が未選択です。GPUまたはCPUを選択してください。");
             }
         }
     }
@@ -818,6 +880,9 @@ public final class SettingsActivity extends Activity {
                                             + "  " + durationMs + " ms"
                                             + "\n実行場所  ローカル · モデル  "
                                             + ClefSettingsStore.displayLabel()
+                                            + "\n実行方式  "
+                                            + ClefSettingsStore.executionBackendLabel(
+                                                    clefSettingsStore.executionBackend())
                                             + "\nAPIキー不要・外部通信なし。");
                         }));
                 runOnUiThread(() -> finishClefPerformanceProbe(result.displayText()));
@@ -845,6 +910,8 @@ public final class SettingsActivity extends Activity {
         }
         if (clefModelStatus != null) {
             clefModelStatus.setText(snapshot.displayText()
+                    + " · 実行方式 "
+                    + ClefSettingsStore.executionBackendLabel(clefSettingsStore.executionBackend())
                     + (specialistInferenceSettingsStore.usesDecisionModel()
                     ? " · 分割脳9専門で使用中" : ""));
         }
