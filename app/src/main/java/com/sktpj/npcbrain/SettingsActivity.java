@@ -337,7 +337,7 @@ public final class SettingsActivity extends Activity {
                     + (local ? "  ·  " + NpcInferenceModel.loadLabel(values[i]) : "");
             if (values[i].equals(current)) checked = i;
         }
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(local ? "ローカルモデルを選択" : "クラウドモデルを選択")
                 .setSingleChoiceItems(labels, checked, (dialog, which) -> {
                     if (which < 0 || which >= values.length) return;
@@ -426,7 +426,7 @@ public final class SettingsActivity extends Activity {
                 localInferenceSettingsStore.retryInvalidJson());
         content.addView(retryJson, matchTop(dp(6)));
 
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(routeTitle + " 詳細設定")
                 .setView(scroll)
                 .setPositiveButton("保存", (dialog, which) -> {
@@ -489,7 +489,7 @@ public final class SettingsActivity extends Activity {
         }
         content.addView(efforts);
 
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(title)
                 .setView(content)
                 .setPositiveButton("保存", (dialog, which) -> {
@@ -561,7 +561,7 @@ public final class SettingsActivity extends Activity {
             }
 
             radioGroup.check(normalId);
-            new AlertDialog.Builder(this)
+            AppDialog.builder(this)
                     .setTitle("CLEF-Flashが未ダウンロードです")
                     .setMessage("判断モデルを選ぶには、約6.49GBのCLEF-Flashを先にダウンロードします。")
                     .setPositiveButton("ダウンロード", (dialog, which) -> {
@@ -753,7 +753,7 @@ public final class SettingsActivity extends Activity {
                 ? 0
                 : ClefSettingsStore.EXECUTION_CPU.equals(current) ? 1 : -1;
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        AlertDialog dialog = AppDialog.builder(this)
                 .setTitle("CLEF-Flash 実行方式")
                 .setMessage("GPUかCPUを明示選択します。実行中の自動切替は行いません。")
                 .setSingleChoiceItems(labels, checked, null)
@@ -785,7 +785,7 @@ public final class SettingsActivity extends Activity {
             refreshClef();
             return;
         }
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("CLEF-Flashモデルを削除")
                 .setMessage("約6.49 GBのCLEF-Flashモデルを端末から削除します。分割脳は通常LLMへ戻ります。")
                 .setPositiveButton("削除", (dialog, which) -> {
@@ -1194,7 +1194,7 @@ public final class SettingsActivity extends Activity {
     }
 
     private void confirmResetBudget(String npcId, String displayName) {
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("現在の費用枠をリセット")
                 .setMessage(displayName + " の現在枠の消費額とtokenを0にします。\n\n累計費用・累計tokenと費用上限は消えません。")
                 .setPositiveButton("リセット", (dialog, which) -> {
@@ -1212,7 +1212,7 @@ public final class SettingsActivity extends Activity {
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         int pad = dp(20);
         input.setPadding(pad, dp(6), pad, dp(6));
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("OpenAI APIキー")
                 .setMessage("APIキーはAndroid Keystoreで暗号化して保存します。保存済みの値は画面へ再表示しません。")
                 .setView(input)
@@ -1231,7 +1231,7 @@ public final class SettingsActivity extends Activity {
     }
 
     private void confirmClearApiKey() {
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("APIキーを削除")
                 .setMessage("保存済みのOpenAI APIキーを削除します。")
                 .setPositiveButton("削除", (dialog, which) -> {
