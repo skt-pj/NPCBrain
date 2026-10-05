@@ -63,35 +63,16 @@ final class ClefGpuProcessClient {
             String[] optionDescriptions,
             int[] optionCounts
     ) throws Exception {
-        Context appContext = checkedContext(context);
-        ClefGpuHealthStore health = new ClefGpuHealthStore(appContext);
-        if (health.isQuarantined()) {
-            throw new IllegalStateException("CLEF GPU is quarantined for this build");
-        }
-
-        IBinder remote = null;
-        int pid = -1;
-        try {
-            remote = ensureBound(appContext);
-            pid = queryServicePid(remote);
-            rememberServicePid(pid);
-            return transactWithTimeout(
-                    remote,
-                    TRANSACTION_EVALUATE_GPU,
-                    modelPath,
-                    state,
-                    fieldIds,
-                    instructions,
-                    optionIds,
-                    optionDescriptions,
-                    optionCounts);
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            throw interrupted;
-        } catch (Exception failure) {
-            quarantineAndReset(appContext, health, remote, pid);
-            throw failure;
-        }
+        return evaluate(
+                checkedContext(context),
+                TRANSACTION_EVALUATE_GPU,
+                modelPath,
+                state,
+                fieldIds,
+                instructions,
+                optionIds,
+                optionDescriptions,
+                optionCounts);
     }
 
     static double[] evaluateCpu(
@@ -104,7 +85,29 @@ final class ClefGpuProcessClient {
             String[] optionDescriptions,
             int[] optionCounts
     ) throws Exception {
-        Context appContext = checkedContext(context);
+        return evaluate(
+                checkedContext(context),
+                TRANSACTION_EVALUATE_CPU,
+                modelPath,
+                state,
+                fieldIds,
+                instructions,
+                optionIds,
+                optionDescriptions,
+                optionCounts);
+    }
+
+    private static double[] evaluate(
+            Context appContext,
+            int transaction,
+            String modelPath,
+            String state,
+            String[] fieldIds,
+            String[] instructions,
+            String[] optionIds,
+            String[] optionDescriptions,
+            int[] optionCounts
+    ) throws Exception {
         IBinder remote = null;
         int pid = -1;
         try {
@@ -113,7 +116,7 @@ final class ClefGpuProcessClient {
             rememberServicePid(pid);
             return transactWithTimeout(
                     remote,
-                    TRANSACTION_EVALUATE_CPU,
+                    transaction,
                     modelPath,
                     state,
                     fieldIds,
@@ -353,19 +356,6 @@ final class ClefGpuProcessClient {
         synchronized (LOCK) {
             servicePid = pid;
         }
-    }
-
-    private static void quarantineAndReset(
-            Context appContext,
-            ClefGpuHealthStore health,
-            IBinder remote,
-            int pid
-    ) {
-        health.quarantine();
-        // Invalidate/unbind first so delayed callbacks from this generation cannot touch a new bind.
-        resetConnection(appContext);
-        killServiceProcess(pid);
-        waitForBinderDeath(remote);
     }
 
     private static void killServiceProcess(int pid) {
