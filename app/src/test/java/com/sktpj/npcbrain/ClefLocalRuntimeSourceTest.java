@@ -39,7 +39,7 @@ public final class ClefLocalRuntimeSourceTest {
     }
 
     @Test
-    public void localClefGpuRunsOutOfProcessAndFallsBackToCpuSafely() throws Exception {
+    public void localClefBackendIsExplicitAndRunsOutOfProcessWithoutFallback() throws Exception {
         String nativeSource = read("src/main/cpp/clef_jni.cpp");
         String cmake = read("src/main/cpp/CMakeLists.txt");
         String vulkanPatch = read("src/main/cpp/PatchLlamaAndroidVulkan.cmake");
@@ -48,7 +48,6 @@ public final class ClefLocalRuntimeSourceTest {
         String nativeBridge = read("src/main/java/com/sktpj/npcbrain/ClefNativeBridge.java");
         String gpuClient = read("src/main/java/com/sktpj/npcbrain/ClefGpuProcessClient.java");
         String gpuService = read("src/main/java/com/sktpj/npcbrain/ClefGpuService.java");
-        String gpuHealth = read("src/main/java/com/sktpj/npcbrain/ClefGpuHealthStore.java");
         String application = read("src/main/java/com/sktpj/npcbrain/NPCBrainApplication.java");
 
         assertTrue(cmake.contains("set(GGML_VULKAN ON CACHE BOOL \"\" FORCE)"));
@@ -68,18 +67,21 @@ public final class ClefLocalRuntimeSourceTest {
         assertTrue(gpuClient.contains("TRANSACTION_EVALUATE"));
         assertTrue(gpuClient.contains("future.get("));
         assertTrue(gpuClient.contains("Process.killProcess(servicePid)"));
-        assertTrue(gpuClient.contains("ClefGpuHealthStore"));
+        assertFalse(gpuClient.contains("ClefGpuHealthStore"));
+        assertFalse(gpuClient.contains("quarantine"));
         assertTrue(gpuClient.contains("connectionGeneration"));
         assertTrue(gpuClient.contains("isCurrentConnection("));
         assertTrue(gpuClient.contains("waitForBinderDeath("));
         assertTrue(gpuClient.contains("resetConnection(appContext)"));
         assertTrue(gpuClient.indexOf("resetConnection(appContext)") < gpuClient.indexOf("killServiceProcess(pid)"));
-        assertTrue(gpuHealth.contains("versionCode"));
         assertTrue(application.contains("isClefGpuProcess()"));
         assertTrue(application.contains("if (isClefGpuProcess()) return;"));
 
         assertTrue(nativeRuntime.contains("ClefGpuProcessClient.evaluateGpu("));
         assertTrue(nativeRuntime.contains("ClefGpuProcessClient.evaluateCpu("));
+        assertTrue(nativeRuntime.contains("ClefSettingsStore.EXECUTION_GPU.equals(executionBackend)"));
+        assertTrue(nativeRuntime.contains("ClefSettingsStore.EXECUTION_CPU.equals(executionBackend)"));
+        assertFalse(nativeRuntime.contains("catch (Exception gpuFailure)"));
         assertFalse(nativeRuntime.contains("System.loadLibrary"));
         assertTrue(nativeBridge.contains("System.loadLibrary(\"npcbrain_clef\")"));
         assertTrue(nativeBridge.contains("nativeEvaluateGpuOnly"));
@@ -98,6 +100,19 @@ public final class ClefLocalRuntimeSourceTest {
         assertTrue(nativeSource.contains("ClefBackendMode::GPU"));
         assertTrue(nativeSource.contains("ClefBackendMode::CPU"));
         assertFalse(nativeSource.contains("GPU failed; retrying CPU"));
+
+        String clefSettings = read("src/main/java/com/sktpj/npcbrain/ClefSettingsStore.java");
+        assertTrue(clefSettings.contains("EXECUTION_GPU"));
+        assertTrue(clefSettings.contains("EXECUTION_CPU"));
+        assertTrue(clefSettings.contains("execution_backend"));
+        assertTrue(clefSettings.contains("executionBackend()"));
+        assertTrue(clefSettings.contains("setExecutionBackend("));
+
+        assertTrue(settings.contains("実行方式"));
+        assertTrue(settings.contains("GPU"));
+        assertTrue(settings.contains("CPU"));
+        assertTrue(settings.contains("showClefExecutionBackendPicker"));
+        assertTrue(settings.contains("未選択"));
     }
 
     @Test
