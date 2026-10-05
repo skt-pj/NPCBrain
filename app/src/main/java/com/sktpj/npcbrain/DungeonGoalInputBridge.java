@@ -61,7 +61,7 @@ final class DungeonGoalInputBridge {
         int pad = dp(activity, 20);
         input.setPadding(pad, dp(activity, 12), pad, dp(activity, 12));
 
-        AlertDialog dialog = new AlertDialog.Builder(activity)
+        AlertDialog dialog = AppDialog.builder(activity)
                 .setTitle("ダンジョンの目的")
                 .setMessage("自然な言葉で目的を入力してください。NPCが人格と状況に合わせて解釈し、行動方針へ変換します。")
                 .setView(input)
