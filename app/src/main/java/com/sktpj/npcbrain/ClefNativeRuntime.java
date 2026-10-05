@@ -60,7 +60,7 @@ final class ClefNativeRuntime {
             String state,
             String[] actionIds,
             String[] actionDescriptions
-    ) throws Exception {
+    ) {
         Context context = NPCBrainApplication.applicationContextForRuntime();
         if (context == null) {
             throw new IllegalStateException("NPCBrain application context is unavailable");
@@ -82,7 +82,15 @@ final class ClefNativeRuntime {
                 new String[]{"true", "false"},
                 new String[]{"Yes.", "No."});
         String backend = new ClefSettingsStore(context).executionBackend();
-        return evaluate(context, modelFile, state, Arrays.asList(action, commit), backend);
+        try {
+            return evaluate(context, modelFile, state, Arrays.asList(action, commit), backend);
+        } catch (RuntimeException error) {
+            throw error;
+        } catch (Exception error) {
+            throw new IllegalStateException(
+                    error.getMessage() == null ? "CLEF native execution failed" : error.getMessage(),
+                    error);
+        }
     }
 
     static void unload() {
