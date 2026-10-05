@@ -42,10 +42,15 @@ final class ClefSpecialistRuntime {
         }
 
         String model = clefSettings.model();
+        String executionBackend = clefSettings.executionBackend();
+        if (executionBackend.isEmpty()) {
+            throw new IllegalStateException(
+                    "CLEF実行方式が未選択です。AI管理でGPUまたはCPUを選択してください。");
+        }
         String queueId = ProcessingQueueRegistry.enqueue(
                 "decision_model",
                 npcId,
-                model + " · local · brain_stage=" + moduleId,
+                model + " · local · backend=" + executionBackend + " · brain_stage=" + moduleId,
                 System.currentTimeMillis());
         ProcessingQueueRegistry.attachRequest(
                 queueId,
@@ -60,7 +65,8 @@ final class ClefSpecialistRuntime {
         try {
             JSONObject result = ClefLocalExecutionQueue.execute(queueId, () -> {
                 File modelFile = modelRepository.modelFile();
-                double[] scores = ClefNativeRuntime.evaluate(appContext, modelFile, boundedState, fields);
+                double[] scores = ClefNativeRuntime.evaluate(
+                        appContext, modelFile, boundedState, fields, executionBackend);
                 return adaptScores(moduleId, fields, scores);
             });
             success = true;
