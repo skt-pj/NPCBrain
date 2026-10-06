@@ -16,6 +16,7 @@ final class ClefSpecialistRuntime {
     private final Context appContext;
     private final String npcId;
     private final SpecialistInferenceSettingsStore inferenceSettings;
+    private final DecisionModelSettingsStore decisionSettings;
     private final ClefSettingsStore clefSettings;
     private final ClefLocalModelRepository modelRepository;
 
@@ -23,6 +24,7 @@ final class ClefSpecialistRuntime {
         appContext = context.getApplicationContext();
         this.npcId = NpcId.of(npcId).value();
         inferenceSettings = new SpecialistInferenceSettingsStore(appContext);
+        decisionSettings = new DecisionModelSettingsStore(appContext);
         clefSettings = new ClefSettingsStore(appContext);
         modelRepository = new ClefLocalModelRepository(appContext);
     }
@@ -34,8 +36,45 @@ final class ClefSpecialistRuntime {
     JSONObject request(String moduleId, String boundedState) throws Exception {
         List<ClefSpecialistSchema.Field> fields = ClefSpecialistSchema.forModule(moduleId);
         if (fields.isEmpty()) {
-            throw new IllegalArgumentException("CLEF specialist schema not found: " + moduleId);
+            throw new IllegalArgumentException("Decision specialist schema not found: " + moduleId);
         }
+        if (DecisionModelSettingsStore.ROUTE_CLOUD_JEV.equals(decisionSettings.route())) {
+            return requestJev(moduleId, boundedState, fields);
+        }
+        return requestLocalClef(moduleId, boundedState, fields);
+    }
+
+    private JSONObject requestJev(
+            String moduleId,
+            String boundedState,
+            List<ClefSpecialistSchema.Field> fields
+    ) throws Exception {
+        String queueId = ProcessingQueueRegistry.startRunning(
+                "decision_model",
+                npcId,
+                "jev-latest · cloud · provider=typesafe · model=jev-latest · brain_stage="
+                        + moduleId,
+                System.currentTimeMillis());
+        ProcessingQueueRegistry.attachRequest(
+                queueId,
+                JevClient.buildRequest(boundedState, fields).toString());
+        try {
+            JSONObject result = new JevClient(appContext, npcId)
+                    .request(moduleId, boundedState, fields);
+            ProcessingQueueRegistry.attachResponse(queueId, result.toString());
+            ProcessingQueueRegistry.markCompleted(queueId);
+            return result;
+        } catch (Exception error) {
+            ProcessingQueueRegistry.markFailed(queueId, error);
+            throw error;
+        }
+    }
+
+    private JSONObject requestLocalClef(
+            String moduleId,
+            String boundedState,
+            List<ClefSpecialistSchema.Field> fields
+    ) throws Exception {
         if (!modelRepository.isDownloaded()) {
             throw new IllegalStateException(
                     "ローカルCLEFモデルが未ダウンロードです。AI管理からCLEF-Flashをダウンロードしてください。");
