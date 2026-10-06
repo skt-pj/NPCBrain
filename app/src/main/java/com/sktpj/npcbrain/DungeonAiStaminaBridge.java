@@ -74,7 +74,10 @@ final class DungeonAiStaminaBridge {
                         return;
                     }
                     String npcId = selectedNpcId(activity);
-                    if (!NpcInferenceAccess.usesOpenAi(activity, npcId)) {
+                    boolean usesPaidCloud = NpcInferenceAccess.usesOpenAi(activity, npcId)
+                            || (new SpecialistInferenceSettingsStore(activity).usesDecisionModel()
+                            && new DecisionModelSettingsStore(activity).usesCloudJev());
+                    if (!usesPaidCloud) {
                         label.setText("AI STAMINA  ローカル · 上限なし");
                         bar.setVisibility(View.GONE);
                         stamina.setContentDescription(label.getText());
@@ -86,7 +89,8 @@ final class DungeonAiStaminaBridge {
                     label.setText(
                             "AI STAMINA " + snapshot.remainingPercent + "%"
                                     + " · 消費 " + NpcAiUsageDisplayPolicy.formatSpentJpy(snapshot.spentJpy)
-                                    + " / ¥10.00"
+                                    + " / " + NpcAiUsageDisplayPolicy.formatRemainingJpy(
+                                            snapshot.budgetLimitJpy)
                                     + " · 残額 " + NpcAiUsageDisplayPolicy.formatRemainingJpy(snapshot.remainingJpy)
                                     + " · 累積 " + String.format(Locale.JAPAN, "%,d", snapshot.totalTokens)
                                     + " tokens");
