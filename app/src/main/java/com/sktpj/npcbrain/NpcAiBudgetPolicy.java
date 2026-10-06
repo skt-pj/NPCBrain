@@ -13,11 +13,25 @@ final class NpcAiBudgetPolicy {
     }
 
     static double reservationJpy(int requestUtf8Bytes, int maxOutputTokens) {
+        return reservationJpy(
+                ApiPricingPolicy.MODEL_GPT56_LUNA,
+                requestUtf8Bytes,
+                maxOutputTokens);
+    }
+
+    static double reservationJpy(
+            String billingModel,
+            int requestUtf8Bytes,
+            int maxOutputTokens
+    ) {
         long conservativeInputTokens = conservativeInputTokenUpperBound(requestUtf8Bytes);
-        int outputTokens = OpenAiClient.normalizeMaxOutputTokens(maxOutputTokens);
-        return DungeonTokenCostPolicy.costJpy(
+        int outputTokens = ApiPricingPolicy.MODEL_JEV_LATEST.equals(
+                ApiPricingPolicy.normalizeBillingModel(billingModel))
+                ? 0
+                : OpenAiClient.normalizeMaxOutputTokens(maxOutputTokens);
+        return ApiPricingPolicy.reservationJpy(
+                billingModel,
                 conservativeInputTokens,
-                0L,
                 outputTokens);
     }
 
