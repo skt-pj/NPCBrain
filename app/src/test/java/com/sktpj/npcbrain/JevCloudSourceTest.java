@@ -48,7 +48,8 @@ public final class JevCloudSourceTest {
         String store = read("src/main/java/com/sktpj/npcbrain/NpcAiStaminaStore.java");
         assertTrue(client.contains("cache_write_tokens"));
         assertTrue(client.contains("response.optString(\"model\""));
-        assertTrue(client.contains("ApiPricingPolicy"));
+        assertTrue(client.contains("NpcAiBudgetPolicy.reservationJpy("));
+        assertTrue(client.contains("billingModel"));
         assertTrue(store.contains("cache_write_input_tokens"));
         assertTrue(store.contains("ApiPricingPolicy.costJpy"));
         assertFalse(store.contains("DungeonTokenCostPolicy.costJpy("));
