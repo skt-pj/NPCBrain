@@ -79,6 +79,25 @@ public final class ApiPricingPolicyTest {
     }
 
     @Test
+    public void openAiUsageParsesCacheReadAndCacheWriteSeparately() throws Exception {
+        org.json.JSONObject response = new org.json.JSONObject()
+                .put("usage", new org.json.JSONObject()
+                        .put("input_tokens", 1000)
+                        .put("input_tokens_details", new org.json.JSONObject()
+                                .put("cached_tokens", 200)
+                                .put("cache_write_tokens", 300))
+                        .put("output_tokens", 400)
+                        .put("total_tokens", 1400));
+
+        OpenAiClient.Usage usage = OpenAiClient.Usage.fromResponse(response);
+        assertEquals(1000L, usage.inputTokens);
+        assertEquals(200L, usage.cachedInputTokens);
+        assertEquals(300L, usage.cacheWriteTokens);
+        assertEquals(400L, usage.outputTokens);
+        assertEquals(1400L, usage.totalTokens);
+    }
+
+    @Test
     public void reservationUsesTheSelectedModelRate() {
         double gpt56 = ApiPricingPolicy.reservationJpy(
                 ApiPricingPolicy.MODEL_GPT56_LUNA, 5_000L, 500);
