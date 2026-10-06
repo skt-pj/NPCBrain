@@ -33,6 +33,10 @@ final class ClefSpecialistRuntime {
         return inferenceSettings.usesDecisionModel();
     }
 
+    boolean usesCloudJev() {
+        return decisionSettings.usesCloudJev();
+    }
+
     JSONObject request(String moduleId, String boundedState) throws Exception {
         List<ClefSpecialistSchema.Field> fields = ClefSpecialistSchema.forModule(moduleId);
         if (fields.isEmpty()) {
