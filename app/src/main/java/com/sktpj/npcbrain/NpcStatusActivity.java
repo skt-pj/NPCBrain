@@ -375,7 +375,7 @@ public final class NpcStatusActivity extends Activity {
             if (!effect.isEmpty()) body.append("\n人格の影響: ").append(effect);
             body.append("\n\n");
         }
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("返信診断 · " + selectorLabel(selectedNpcId))
                 .setMessage(body.toString().trim())
                 .setPositiveButton("閉じる", null)
@@ -434,7 +434,7 @@ public final class NpcStatusActivity extends Activity {
                 .append((int) Math.round(node.activation * 100.0)).append("%");
         body.append("\n信頼度: ")
                 .append((int) Math.round(node.confidence * 100.0)).append("%");
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(node.label.isEmpty() ? "認知ポイント" : node.label)
                 .setMessage(body.toString())
                 .setPositiveButton("閉じる", null)

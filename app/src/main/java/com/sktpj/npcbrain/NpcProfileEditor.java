@@ -160,7 +160,7 @@ final class NpcProfileEditor {
         shell.addView(footer, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        AlertDialog dialog = new AlertDialog.Builder(activity)
+        AlertDialog dialog = AppDialog.builder(activity)
                 .setTitle(debugOverride ? "NPC設定を編集" : "NPCを招待")
                 .setView(shell)
                 .create();
@@ -192,7 +192,7 @@ final class NpcProfileEditor {
             cancel.setEnabled(false);
             status.setTextColor(Color.rgb(50, 85, 135));
             status.setText("プロフィールを更新中…");
-            AlertDialog progressDialog = new AlertDialog.Builder(activity)
+            AlertDialog progressDialog = AppDialog.builder(activity)
                     .setTitle("プロフィール更新中")
                     .setMessage("プロフィールをLLMで整合し、保存しています…")
                     .setCancelable(false)
@@ -320,7 +320,7 @@ final class NpcProfileEditor {
         status.setText("保存できませんでした: " + detail);
         save.setEnabled(true);
         cancel.setEnabled(true);
-        new AlertDialog.Builder(activity)
+        AppDialog.builder(activity)
                 .setTitle("プロフィール更新に失敗")
                 .setMessage(detail)
                 .setPositiveButton("OK", null)

@@ -275,7 +275,7 @@ public final class NpcManagerActivity extends Activity {
         }
 
         String title = global ? "Global Workspace 上書き" : "分割脳 通常LLM 上書き";
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(title)
                 .setSingleChoiceItems(labels, checked, (dialog, which) -> {
                     if (which == 0) {
@@ -294,7 +294,7 @@ public final class NpcManagerActivity extends Activity {
     }
 
     private void confirmBrainReset(String npcId, String displayName) {
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("脳内をリセット")
                 .setMessage(displayName + " (" + npcId + ") の学習した記憶・内面状態・現在の脳内状態・返信タイマーを消去します。\n\n人格・プロフィール・会話履歴・ダンジョン進行は保持します。")
                 .setNegativeButton("キャンセル", null)
@@ -310,7 +310,7 @@ public final class NpcManagerActivity extends Activity {
     }
 
     private void confirmDelete(String npcId, String displayName) {
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("NPCを削除")
                 .setMessage(displayName + " (" + npcId + ") をNPC一覧から削除します。")
                 .setNegativeButton("キャンセル", null)

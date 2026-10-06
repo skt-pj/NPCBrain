@@ -1,10 +1,8 @@
 package com.sktpj.npcbrain;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.view.View;
 import android.widget.Button;
-import android.widget.PopupMenu;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -26,7 +24,7 @@ final class DynamicConversationUiBridge {
     private static void showMenu(Activity activity, View anchor) {
         String currentRoomId = stringField(activity, "currentRoomId");
         if (!currentRoomId.isEmpty()) return;
-        PopupMenu popup = new PopupMenu(activity, anchor);
+        android.widget.PopupMenu popup = AppPopupMenu.create(activity, anchor);
         popup.getMenu().add("NPCを招待");
         popup.getMenu().add("AI設定");
         popup.getMenu().add("長期記憶を見る");
@@ -60,7 +58,7 @@ final class DynamicConversationUiBridge {
     private static void showNpcPicker(Activity activity, String title, String methodName) {
         List<String> ids = new NpcRegistryStore(activity).activeNpcIds();
         if (ids.isEmpty()) {
-            new AlertDialog.Builder(activity)
+            AppDialog.builder(activity)
                     .setTitle(title)
                     .setMessage("利用できるNPCがいません。")
                     .setPositiveButton("閉じる", null)
@@ -75,7 +73,7 @@ final class DynamicConversationUiBridge {
             }
             labels.add(name.trim() + "  (" + npcId + ")");
         }
-        new AlertDialog.Builder(activity)
+        AppDialog.builder(activity)
                 .setTitle(title)
                 .setItems(labels.toArray(new String[0]), (dialog, which) -> {
                     if (which >= 0 && which < ids.size()) {

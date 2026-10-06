@@ -363,7 +363,7 @@ public final class CodexActivity extends Activity {
                 .append((int) Math.round(node.activation * 100.0)).append("%");
         body.append("\n信頼度: ")
                 .append((int) Math.round(node.confidence * 100.0)).append("%");
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(node.label.isEmpty() ? "認知ポイント" : node.label)
                 .setMessage(body.toString())
                 .setPositiveButton("閉じる", null)

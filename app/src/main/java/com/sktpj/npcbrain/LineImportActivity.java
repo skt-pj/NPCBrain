@@ -260,7 +260,7 @@ public final class LineImportActivity extends Activity {
                 ? "関係・年齢・経歴は、この保存後に編集できません。"
                 : "関係・年齢・経歴は初回確定済みのため変更しません。";
 
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("解析結果を確認")
                 .setMessage(note)
                 .setView(form)
@@ -316,7 +316,7 @@ public final class LineImportActivity extends Activity {
             CharacterStateStore store,
             ImportedPersonalityProfile profile
     ) {
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("人格を設定しました")
                 .setMessage(store.displayName() + "（" + npcId + "）を保存しました。\n\n"
                         + "関係: " + store.relationshipToUser()
@@ -333,7 +333,7 @@ public final class LineImportActivity extends Activity {
     }
 
     private void showMissingApiKeyDialog() {
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle("OpenAI APIキーが必要です")
                 .setMessage("NPCBrainのホーム → AI設定でAPIキーを設定してから、LINEのトーク履歴をもう一度共有してください。")
                 .setPositiveButton("NPCBrainを開く", (dialog, which) -> openNpcBrain())
@@ -488,7 +488,7 @@ public final class LineImportActivity extends Activity {
     }
 
     private void showMessage(String message) {
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setMessage(message)
                 .setPositiveButton("OK", null)
                 .show();

@@ -1,6 +1,5 @@
 package com.sktpj.npcbrain;
 
-import android.app.AlertDialog;
 import android.graphics.Typeface;
 import android.os.Handler;
 import android.os.Looper;
@@ -185,7 +184,7 @@ final class WorldShellPeerConversationBridgeV212 {
         }
         ScrollView scroll = new ScrollView(activity);
         scroll.addView(transcript);
-        new AlertDialog.Builder(activity)
+        AppDialog.builder(activity)
                 .setTitle(firstName + " ↔ " + secondName + " · 観測")
                 .setMessage("あなたはこの会話の参加者ではありません。")
                 .setView(scroll)

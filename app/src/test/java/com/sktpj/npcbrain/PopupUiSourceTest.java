@@ -1,0 +1,89 @@
+package com.sktpj.npcbrain;
+
+import org.junit.Test;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Stream;
+
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+public final class PopupUiSourceTest {
+    @Test
+    public void productionPopupCreationUsesSharedDarkThemeHelpers() throws Exception {
+        Path root = Paths.get("src/main/java");
+        List<String> violations = new ArrayList<>();
+        try (Stream<Path> files = Files.walk(root)) {
+            files.filter(path -> path.toString().endsWith(".java"))
+                    .forEach(path -> {
+                        try {
+                            String source = read(path);
+                            String name = path.getFileName().toString();
+                            if (!"AppDialog.java".equals(name)
+                                    && source.contains("new AlertDialog.Builder(")) {
+                                violations.add(path + " uses raw AlertDialog.Builder");
+                            }
+                            if (!"AppPopupMenu.java".equals(name)
+                                    && source.contains("new PopupMenu(")) {
+                                violations.add(path + " uses raw PopupMenu");
+                            }
+                        } catch (Exception error) {
+                            throw new RuntimeException(error);
+                        }
+                    });
+        }
+        assertTrue("Raw popup creation remains: " + violations, violations.isEmpty());
+
+        String manifest = read(Paths.get("src/main/AndroidManifest.xml"));
+        String styles = read(Paths.get("src/main/res/values/styles.xml"));
+        assertTrue(manifest.contains("android:theme=\"@style/NpcBrainTheme\""));
+        assertTrue(styles.contains("name=\"NpcBrainTheme\""));
+        assertTrue(styles.contains("name=\"NpcBrainAlertDialogTheme\""));
+        assertTrue(styles.contains("name=\"NpcBrainPopupTheme\""));
+        assertTrue(styles.contains("android:windowBackground"));
+        assertTrue(styles.contains("android:textColorPrimary"));
+        assertTrue(styles.contains("android:textColorSecondary"));
+        assertTrue(styles.contains("android:textColorAlertDialogListItem"));
+
+        String dialogHelper = read(Paths.get(
+                "src/main/java/com/sktpj/npcbrain/AppDialog.java"));
+        assertTrue(dialogHelper.contains("styleCustomContent(view)"));
+        assertTrue(dialogHelper.contains("setBackgroundColor(AppUiTheme.APP_SURFACE)"));
+        assertTrue(dialogHelper.contains("setTextColor(AppUiTheme.APP_TEXT)"));
+        assertTrue(dialogHelper.contains("setHintTextColor(AppUiTheme.APP_MUTED)"));
+        assertTrue(dialogHelper.contains("setButtonTintList"));
+        assertTrue(dialogHelper.contains("AppUiTheme.APP_ACCENT"));
+    }
+
+    @Test
+    public void clefBackendPickerUsesVisibleRadioButtonsWithoutImplementationNotes() throws Exception {
+        String source = read(Paths.get(
+                "src/main/java/com/sktpj/npcbrain/SettingsActivity.java"));
+        int start = source.indexOf("private void showClefExecutionBackendPicker");
+        int end = source.indexOf("private void handleClefModelButton", start);
+        assertTrue(start >= 0);
+        assertTrue(end > start);
+        String picker = source.substring(start, end);
+
+        assertTrue(picker.contains("RadioGroup"));
+        assertTrue(picker.contains("RadioButton"));
+        assertTrue(picker.contains("\"GPU\""));
+        assertTrue(picker.contains("\"CPU\""));
+        assertTrue(picker.contains("getCheckedRadioButtonId()"));
+        assertTrue(picker.contains(".setView("));
+        assertFalse(picker.contains(".setSingleChoiceItems("));
+        assertFalse(picker.contains(".setMessage("));
+        assertFalse(picker.contains("自動切替"));
+        assertFalse(picker.contains("失敗してもCPU"));
+        assertFalse(picker.contains("GPUは試行しません"));
+    }
+
+    private static String read(Path path) throws Exception {
+        return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+    }
+}

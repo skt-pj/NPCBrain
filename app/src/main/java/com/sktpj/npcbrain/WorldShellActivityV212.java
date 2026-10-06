@@ -561,7 +561,7 @@ public final class WorldShellActivityV212 extends Activity {
                     .append("\n")
                     .append(stage.optString("summary", ""));
         }
-        new AlertDialog.Builder(this)
+        AppDialog.builder(this)
                 .setTitle(message.optString("sender_name", "NPC") + " · 脳内トレース")
                 .setMessage(body.toString())
                 .setPositiveButton("閉じる", null)
