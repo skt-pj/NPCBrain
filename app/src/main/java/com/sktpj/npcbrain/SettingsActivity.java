@@ -1248,6 +1248,7 @@ public final class SettingsActivity extends Activity {
                         + String.format(Locale.JAPAN, "%,d", snapshot.lifetimeTotalTokens)
                         + "\ninput " + String.format(Locale.JAPAN, "%,d", snapshot.lifetimeInputTokens)
                         + "  ·  cached " + String.format(Locale.JAPAN, "%,d", snapshot.lifetimeCachedInputTokens)
+                        + "  ·  cache write " + String.format(Locale.JAPAN, "%,d", snapshot.lifetimeCacheWriteInputTokens)
                         + "  ·  output " + String.format(Locale.JAPAN, "%,d", snapshot.lifetimeOutputTokens),
                 11,
                 AppUiTheme.APP_MUTED,
