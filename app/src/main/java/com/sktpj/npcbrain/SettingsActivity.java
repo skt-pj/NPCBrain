@@ -25,15 +25,18 @@ import java.util.Locale;
 /** Global app settings and canonical per-NPC AI budget controls. */
 public final class SettingsActivity extends Activity {
     private SecureApiKeyStore apiKeyStore;
+    private SecureTypeSafeApiKeyStore typeSafeApiKeyStore;
     private ModelSettingsStore modelSettingsStore;
     private RoutingSettingsStore routingSettingsStore;
     private LocalInferenceSettingsStore localInferenceSettingsStore;
     private SpecialistInferenceSettingsStore specialistInferenceSettingsStore;
+    private DecisionModelSettingsStore decisionModelSettingsStore;
     private ClefSettingsStore clefSettingsStore;
     private ClefPerformanceStore clefPerformanceStore;
     private NpcRegistryStore registryStore;
     private NpcAiStaminaStore staminaStore;
     private TextView apiKeyStatus;
+    private TextView typeSafeApiKeyStatus;
     private TextView clefModelStatus;
     private Button clefModelButton;
     private TextView clefPerformanceStatus;
@@ -50,10 +53,12 @@ public final class SettingsActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         apiKeyStore = new SecureApiKeyStore(this);
+        typeSafeApiKeyStore = new SecureTypeSafeApiKeyStore(this);
         modelSettingsStore = new ModelSettingsStore(this);
         routingSettingsStore = new RoutingSettingsStore(this);
         localInferenceSettingsStore = new LocalInferenceSettingsStore(this);
         specialistInferenceSettingsStore = new SpecialistInferenceSettingsStore(this);
+        decisionModelSettingsStore = new DecisionModelSettingsStore(this);
         clefSettingsStore = new ClefSettingsStore(this);
         clefPerformanceStore = new ClefPerformanceStore(this);
         registryStore = new NpcRegistryStore(this);
@@ -139,7 +144,7 @@ public final class SettingsActivity extends Activity {
             body.addView(buildPromptCacheDebugCard(), cacheParams);
         }
 
-        TextView budgetTitle = text("NPC別 OpenAI Luna費用", 18, AppUiTheme.APP_TEXT, true);
+        TextView budgetTitle = text("NPC別 API費用", 18, AppUiTheme.APP_TEXT, true);
         LinearLayout.LayoutParams budgetTitleParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -147,7 +152,7 @@ public final class SettingsActivity extends Activity {
         body.addView(budgetTitle, budgetTitleParams);
 
         TextView budgetNote = text(
-                "上限は各NPCの会話・自発会話・記憶処理・ダンジョン認知など、NPCに紐づくOpenAI利用全体へ適用されます。リセットしても累計は残ります。",
+                "上限は各NPCに紐づく有料クラウドAI利用全体へ適用されます。リセットしても累計は残ります。",
                 11,
                 AppUiTheme.APP_MUTED,
                 false);
@@ -177,8 +182,11 @@ public final class SettingsActivity extends Activity {
                 card,
                 "分割脳（9専門）",
                 specialistInferenceSettingsStore.usesDecisionModel()
-                        ? "判断モデル / ローカル / CLEF-Flash 9B Q4_K_M / "
-                        + ClefSettingsStore.executionBackendLabel(clefSettingsStore.executionBackend())
+                        ? (decisionModelSettingsStore.usesCloudJev()
+                        ? "判断モデル / クラウド / TypeSafe / Jev"
+                        : "判断モデル / ローカル / CLEF-Flash 9B Q4_K_M / "
+                        + ClefSettingsStore.executionBackendLabel(
+                                clefSettingsStore.executionBackend()))
                         : "通常LLM / " + routeSummary(routingSettingsStore.specialistModel()));
         return card;
     }
@@ -513,22 +521,31 @@ public final class SettingsActivity extends Activity {
         headingParams.topMargin = dp(18);
         card.addView(heading, headingParams);
         card.addView(text(
-                "9専門すべてで同じ推論カテゴリを使います。判断モデルでは各専門が固定反応信号だけを返し、詳細な解釈と最終判断はGlobal Workspaceが行います。",
+                "9専門すべてで同じ推論カテゴリを使います。判断モデルは固定反応信号を返し、詳細な解釈と最終判断はGlobal Workspaceが行います。",
                 10,
                 AppUiTheme.APP_MUTED,
                 false));
 
         RadioGroup group = new RadioGroup(this);
         RadioButton normal = routeRadio("通常LLM");
-        RadioButton decision = routeRadio("判断モデル（CLEF-Flash）");
+        RadioButton localDecision = routeRadio("判断モデル（ローカル CLEF-Flash）");
+        RadioButton cloudDecision = routeRadio("判断モデル（クラウド Jev）");
         int normalId = View.generateViewId();
-        int decisionId = View.generateViewId();
+        int localDecisionId = View.generateViewId();
+        int cloudDecisionId = View.generateViewId();
         normal.setId(normalId);
-        decision.setId(decisionId);
+        localDecision.setId(localDecisionId);
+        cloudDecision.setId(cloudDecisionId);
         group.addView(normal);
-        group.addView(decision);
-        group.check(specialistInferenceSettingsStore.usesDecisionModel()
-                ? decisionId : normalId);
+        group.addView(localDecision);
+        group.addView(cloudDecision);
+
+        int initialCheckedId = !specialistInferenceSettingsStore.usesDecisionModel()
+                ? normalId
+                : decisionModelSettingsStore.usesCloudJev()
+                ? cloudDecisionId
+                : localDecisionId;
+        group.check(initialCheckedId);
 
         group.setOnCheckedChangeListener((radioGroup, checkedId) -> {
             if (checkedId == normalId) {
@@ -540,58 +557,104 @@ public final class SettingsActivity extends Activity {
                 return;
             }
 
-            ClefLocalDownloadManager.Snapshot snapshot =
-                    ClefLocalDownloadManager.snapshot(this);
-            if (snapshot.downloaded) {
-                if (!specialistInferenceSettingsStore.usesDecisionModel()) {
-                    if (clefSettingsStore.executionBackend().isEmpty()) {
-                        radioGroup.check(normalId);
-                        showClefExecutionBackendPicker(() -> {
-                            specialistInferenceSettingsStore.setMode(
-                                    SpecialistInferenceSettingsStore.MODE_DECISION_MODEL);
-                            rebuildContent();
-                        });
-                    } else {
+            if (checkedId == cloudDecisionId) {
+                if (specialistInferenceSettingsStore.usesDecisionModel()
+                        && decisionModelSettingsStore.usesCloudJev()) {
+                    return;
+                }
+                if (!hasTypeSafeApiKey()) {
+                    radioGroup.check(initialCheckedId);
+                    showTypeSafeApiKeyDialog(() -> {
+                        decisionModelSettingsStore.setRoute(
+                                DecisionModelSettingsStore.ROUTE_CLOUD_JEV);
                         specialistInferenceSettingsStore.setMode(
                                 SpecialistInferenceSettingsStore.MODE_DECISION_MODEL);
                         rebuildContent();
-                    }
+                    });
+                    return;
                 }
+                decisionModelSettingsStore.setRoute(
+                        DecisionModelSettingsStore.ROUTE_CLOUD_JEV);
+                specialistInferenceSettingsStore.setMode(
+                        SpecialistInferenceSettingsStore.MODE_DECISION_MODEL);
+                rebuildContent();
                 return;
             }
 
-            radioGroup.check(normalId);
-            AppDialog.builder(this)
-                    .setTitle("CLEF-Flashが未ダウンロードです")
-                    .setMessage("判断モデルを選ぶには、約6.49GBのCLEF-Flashを先にダウンロードします。")
-                    .setPositiveButton("ダウンロード", (dialog, which) -> {
-                        ClefLocalDownloadManager.startDownload(this);
-                        refreshClef();
-                    })
-                    .setNegativeButton("キャンセル", null)
-                    .show();
+            if (specialistInferenceSettingsStore.usesDecisionModel()
+                    && decisionModelSettingsStore.usesLocalClef()) {
+                return;
+            }
+            ClefLocalDownloadManager.Snapshot snapshot =
+                    ClefLocalDownloadManager.snapshot(this);
+            if (!snapshot.downloaded) {
+                radioGroup.check(initialCheckedId);
+                AppDialog.builder(this)
+                        .setTitle("CLEF-Flashが未ダウンロードです")
+                        .setMessage("ローカルCLEF-Flashを使用するにはモデルをダウンロードしてください。")
+                        .setPositiveButton("ダウンロード", (dialog, which) -> {
+                            ClefLocalDownloadManager.startDownload(this);
+                            refreshClef();
+                        })
+                        .setNegativeButton("キャンセル", null)
+                        .show();
+                return;
+            }
+            if (clefSettingsStore.executionBackend().isEmpty()) {
+                radioGroup.check(initialCheckedId);
+                showClefExecutionBackendPicker(() -> {
+                    decisionModelSettingsStore.setRoute(
+                            DecisionModelSettingsStore.ROUTE_LOCAL_CLEF);
+                    specialistInferenceSettingsStore.setMode(
+                            SpecialistInferenceSettingsStore.MODE_DECISION_MODEL);
+                    rebuildContent();
+                });
+                return;
+            }
+            decisionModelSettingsStore.setRoute(
+                    DecisionModelSettingsStore.ROUTE_LOCAL_CLEF);
+            specialistInferenceSettingsStore.setMode(
+                    SpecialistInferenceSettingsStore.MODE_DECISION_MODEL);
+            rebuildContent();
         });
         card.addView(group, matchTop(dp(7)));
 
         if (specialistInferenceSettingsStore.usesDecisionModel()) {
-            ClefLocalDownloadManager.Snapshot snapshot =
-                    ClefLocalDownloadManager.snapshot(this);
-            String backend = clefSettingsStore.executionBackend();
-            card.addView(text(
-                    "実行場所  ローカル"
-                            + "\nモデル  CLEF-Flash 9B · Q4_K_M"
-                            + "\n実行方式  " + ClefSettingsStore.executionBackendLabel(backend)
-                            + "\n処理  9専門を独立キュー項目としてFIFO実行"
-                            + "\ncontext  2048 tokens内へgrounded snapshotを自動圧縮"
-                            + "\n状態  " + snapshot.displayText(),
-                    10,
-                    AppUiTheme.APP_MUTED,
-                    false),
-                    matchTop(dp(6)));
-            Button backendButton = actionButton(
-                    backend.isEmpty() ? "実行方式を選択" : "実行方式を変更");
-            backendButton.setOnClickListener(v -> showClefExecutionBackendPicker(this::rebuildContent));
-            card.addView(backendButton, matchTop(dp(6)));
+            if (decisionModelSettingsStore.usesCloudJev()) {
+                card.addView(text(
+                        "実行場所  クラウド"
+                                + "\nProvider  TypeSafe"
+                                + "\nモデル  Jev · jev-latest"
+                                + "\n処理  9専門を並列実行"
+                                + "\nAPIキー  " + (hasTypeSafeApiKey() ? "設定済み" : "未設定"),
+                        10,
+                        AppUiTheme.APP_MUTED,
+                        false),
+                        matchTop(dp(6)));
+                Button keyButton = actionButton("TypeSafe APIキー設定");
+                keyButton.setOnClickListener(v -> showTypeSafeApiKeyDialog());
+                card.addView(keyButton, matchTop(dp(6)));
+            } else {
+                ClefLocalDownloadManager.Snapshot snapshot =
+                        ClefLocalDownloadManager.snapshot(this);
+                String backend = clefSettingsStore.executionBackend();
+                card.addView(text(
+                        "実行場所  ローカル"
+                                + "\nモデル  CLEF-Flash 9B · Q4_K_M"
+                                + "\n実行方式  " + ClefSettingsStore.executionBackendLabel(backend)
+                                + "\n処理  9専門を独立キュー項目としてFIFO実行"
+                                + "\ncontext  2048 tokens内へgrounded snapshotを自動圧縮"
+                                + "\n状態  " + snapshot.displayText(),
+                        10,
+                        AppUiTheme.APP_MUTED,
+                        false),
+                        matchTop(dp(6)));
+                Button backendButton = actionButton(
+                        backend.isEmpty() ? "実行方式を選択" : "実行方式を変更");
+                backendButton.setOnClickListener(
+                        v -> showClefExecutionBackendPicker(this::rebuildContent));
+                card.addView(backendButton, matchTop(dp(6)));
+            }
         }
     }
 
@@ -672,6 +735,7 @@ public final class SettingsActivity extends Activity {
     private View buildAiSettingsCard() {
         LinearLayout card = card();
         card.addView(text("クラウド設定", 18, AppUiTheme.APP_TEXT, true));
+
         card.addView(text("Provider  OpenAI", 12, AppUiTheme.APP_TEXT, true), matchTop(dp(7)));
         card.addView(text("モデル  GPT-6 Luna / GPT-5.6 Luna", 11, AppUiTheme.APP_MUTED, false));
         card.addView(text(
@@ -679,30 +743,38 @@ public final class SettingsActivity extends Activity {
                 11,
                 AppUiTheme.APP_MUTED,
                 false));
-        card.addView(text(
-                usesAnyOpenAiRoute()
-                        ? "現在の選択中ルートでOpenAIを使用します。"
-                        : "現在の選択中ルートではOpenAIを使用しないため、APIキーは不要です。",
-                10,
-                AppUiTheme.APP_MUTED,
-                false),
-                matchTop(dp(5)));
-
         apiKeyStatus = text("", 12, AppUiTheme.APP_TEXT, true);
-        card.addView(apiKeyStatus, matchTop(dp(8)));
+        card.addView(apiKeyStatus, matchTop(dp(6)));
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout openAiActions = new LinearLayout(this);
+        openAiActions.setOrientation(LinearLayout.HORIZONTAL);
         Button details = actionButton("OpenAI共通詳細");
         details.setOnClickListener(v -> showOpenAiDetailDialog("OpenAI 共通設定"));
-        actions.addView(details, new LinearLayout.LayoutParams(0, dp(44), 1f));
-
+        openAiActions.addView(details, new LinearLayout.LayoutParams(0, dp(44), 1f));
         Button clearKey = actionButton("APIキー削除");
         clearKey.setOnClickListener(v -> confirmClearApiKey());
         LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(dp(104), dp(44));
         clearParams.leftMargin = dp(6);
-        actions.addView(clearKey, clearParams);
-        card.addView(actions, matchTop(dp(8)));
+        openAiActions.addView(clearKey, clearParams);
+        card.addView(openAiActions, matchTop(dp(8)));
+
+        card.addView(text("Provider  TypeSafe", 12, AppUiTheme.APP_TEXT, true), matchTop(dp(16)));
+        card.addView(text("モデル  Jev · jev-latest", 11, AppUiTheme.APP_MUTED, false));
+        typeSafeApiKeyStatus = text("", 12, AppUiTheme.APP_TEXT, true);
+        card.addView(typeSafeApiKeyStatus, matchTop(dp(6)));
+
+        LinearLayout typeSafeActions = new LinearLayout(this);
+        typeSafeActions.setOrientation(LinearLayout.HORIZONTAL);
+        Button setTypeSafeKey = actionButton("TypeSafe APIキー設定");
+        setTypeSafeKey.setOnClickListener(v -> showTypeSafeApiKeyDialog());
+        typeSafeActions.addView(setTypeSafeKey, new LinearLayout.LayoutParams(0, dp(44), 1f));
+        Button clearTypeSafeKey = actionButton("APIキー削除");
+        clearTypeSafeKey.setOnClickListener(v -> confirmClearTypeSafeApiKey());
+        LinearLayout.LayoutParams typeSafeClearParams =
+                new LinearLayout.LayoutParams(dp(104), dp(44));
+        typeSafeClearParams.leftMargin = dp(6);
+        typeSafeActions.addView(clearTypeSafeKey, typeSafeClearParams);
+        card.addView(typeSafeActions, matchTop(dp(8)));
         return card;
     }
 
@@ -808,10 +880,13 @@ public final class SettingsActivity extends Activity {
         }
         AppDialog.builder(this)
                 .setTitle("CLEF-Flashモデルを削除")
-                .setMessage("約6.49 GBのCLEF-Flashモデルを端末から削除します。分割脳は通常LLMへ戻ります。")
+                .setMessage("約6.49 GBのCLEF-Flashモデルを端末から削除します。")
                 .setPositiveButton("削除", (dialog, which) -> {
-                    specialistInferenceSettingsStore.setMode(
-                            SpecialistInferenceSettingsStore.MODE_NORMAL_LLM);
+                    if (specialistInferenceSettingsStore.usesDecisionModel()
+                            && decisionModelSettingsStore.usesLocalClef()) {
+                        specialistInferenceSettingsStore.setMode(
+                                SpecialistInferenceSettingsStore.MODE_NORMAL_LLM);
+                    }
                     if (!ClefLocalDownloadManager.deleteModel(this)) {
                         Toast.makeText(this, "CLEFモデルを削除できませんでした。", Toast.LENGTH_LONG).show();
                     }
@@ -925,7 +1000,9 @@ public final class SettingsActivity extends Activity {
 
     private void refreshClef() {
         ClefLocalDownloadManager.Snapshot snapshot = ClefLocalDownloadManager.snapshot(this);
-        if (!snapshot.downloaded && specialistInferenceSettingsStore.usesDecisionModel()) {
+        if (!snapshot.downloaded
+                && specialistInferenceSettingsStore.usesDecisionModel()
+                && decisionModelSettingsStore.usesLocalClef()) {
             specialistInferenceSettingsStore.setMode(
                     SpecialistInferenceSettingsStore.MODE_NORMAL_LLM);
         }
@@ -934,6 +1011,7 @@ public final class SettingsActivity extends Activity {
                     + " · 実行方式 "
                     + ClefSettingsStore.executionBackendLabel(clefSettingsStore.executionBackend())
                     + (specialistInferenceSettingsStore.usesDecisionModel()
+                    && decisionModelSettingsStore.usesLocalClef()
                     ? " · 分割脳9専門で使用中" : ""));
         }
         if (clefModelButton != null) {
@@ -979,6 +1057,15 @@ public final class SettingsActivity extends Activity {
             if (NpcInferenceAccess.usesOpenAi(this, npcId)) return true;
         }
         return false;
+    }
+
+    private boolean usesJevRoute() {
+        return specialistInferenceSettingsStore.usesDecisionModel()
+                && decisionModelSettingsStore.usesCloudJev();
+    }
+
+    private boolean usesBillableCloudForNpc(String npcId) {
+        return usesJevRoute() || NpcInferenceAccess.usesOpenAi(this, npcId);
     }
 
     private boolean shouldShowOpenAiPromptCacheProbe() {
@@ -1093,6 +1180,15 @@ public final class SettingsActivity extends Activity {
                         : "OpenAI APIキー  必要・未設定");
             }
         }
+        if (typeSafeApiKeyStatus != null) {
+            if (!usesJevRoute()) {
+                typeSafeApiKeyStatus.setText("TypeSafe APIキー  現在の選択中ルートでは不要");
+            } else {
+                typeSafeApiKeyStatus.setText(hasTypeSafeApiKey()
+                        ? "TypeSafe APIキー  設定済み（値は非表示）"
+                        : "TypeSafe APIキー  必要・未設定");
+            }
+        }
         renderBudgetCards();
     }
 
@@ -1102,13 +1198,13 @@ public final class SettingsActivity extends Activity {
         List<String> ids = registryStore.npcIds();
         int shown = 0;
         for (String npcId : ids) {
-            if (!NpcInferenceAccess.usesOpenAi(this, npcId)) continue;
+            if (!usesBillableCloudForNpc(npcId)) continue;
             budgetContainer.addView(buildBudgetCard(npcId));
             shown++;
         }
         if (shown == 0) {
             budgetContainer.addView(text(
-                    "OpenAI Lunaを選択中のNPCはいません。",
+                    "有料クラウドルートを選択中のNPCはいません。",
                     12, AppUiTheme.APP_MUTED, false));
         }
     }
@@ -1152,6 +1248,7 @@ public final class SettingsActivity extends Activity {
                         + String.format(Locale.JAPAN, "%,d", snapshot.lifetimeTotalTokens)
                         + "\ninput " + String.format(Locale.JAPAN, "%,d", snapshot.lifetimeInputTokens)
                         + "  ·  cached " + String.format(Locale.JAPAN, "%,d", snapshot.lifetimeCachedInputTokens)
+                        + "  ·  cache write " + String.format(Locale.JAPAN, "%,d", snapshot.lifetimeCacheWriteInputTokens)
                         + "  ·  output " + String.format(Locale.JAPAN, "%,d", snapshot.lifetimeOutputTokens),
                 11,
                 AppUiTheme.APP_MUTED,
@@ -1251,6 +1348,46 @@ public final class SettingsActivity extends Activity {
                 .show();
     }
 
+    private void showTypeSafeApiKeyDialog() {
+        showTypeSafeApiKeyDialog(this::rebuildContent);
+    }
+
+    private void showTypeSafeApiKeyDialog(Runnable onSaved) {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("TypeSafe API key");
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        int pad = dp(20);
+        input.setPadding(pad, dp(6), pad, dp(6));
+        AppDialog.builder(this)
+                .setTitle("TypeSafe APIキー")
+                .setView(input)
+                .setPositiveButton("保存", (dialog, which) -> {
+                    String value = input.getText() == null ? "" : input.getText().toString().trim();
+                    if (value.isEmpty()) return;
+                    try {
+                        typeSafeApiKeyStore.save(value);
+                        if (onSaved != null) onSaved.run();
+                    } catch (Exception error) {
+                        Toast.makeText(this, "APIキー保存失敗", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton("キャンセル", null)
+                .show();
+    }
+
+    private void confirmClearTypeSafeApiKey() {
+        AppDialog.builder(this)
+                .setTitle("TypeSafe APIキーを削除")
+                .setMessage("保存済みのTypeSafe APIキーを削除します。")
+                .setPositiveButton("削除", (dialog, which) -> {
+                    typeSafeApiKeyStore.clear();
+                    rebuildContent();
+                })
+                .setNegativeButton("キャンセル", null)
+                .show();
+    }
+
     private void confirmClearApiKey() {
         AppDialog.builder(this)
                 .setTitle("APIキーを削除")
@@ -1261,6 +1398,14 @@ public final class SettingsActivity extends Activity {
                 })
                 .setNegativeButton("キャンセル", null)
                 .show();
+    }
+
+    private boolean hasTypeSafeApiKey() {
+        try {
+            return !typeSafeApiKeyStore.load().trim().isEmpty();
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private boolean hasApiKey() {

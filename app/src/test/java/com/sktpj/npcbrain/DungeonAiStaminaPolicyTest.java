@@ -10,13 +10,13 @@ public class DungeonAiStaminaPolicyTest {
     private static final double EPS = 0.000001;
 
     @Test
-    public void costUsesUncachedCachedAndOutputRates() {
-        assertEquals(0.20 * DungeonTokenCostPolicy.USD_TO_JPY,
-                DungeonTokenCostPolicy.costJpy(1_000_000L, 0L, 0L), EPS);
+    public void costUsesGpt56ShortContextRates() {
         assertEquals(0.02 * DungeonTokenCostPolicy.USD_TO_JPY,
-                DungeonTokenCostPolicy.costJpy(1_000_000L, 1_000_000L, 0L), EPS);
-        assertEquals(1.20 * DungeonTokenCostPolicy.USD_TO_JPY,
-                DungeonTokenCostPolicy.costJpy(0L, 0L, 1_000_000L), EPS);
+                DungeonTokenCostPolicy.costJpy(100_000L, 0L, 0L), EPS);
+        assertEquals(0.002 * DungeonTokenCostPolicy.USD_TO_JPY,
+                DungeonTokenCostPolicy.costJpy(100_000L, 100_000L, 0L), EPS);
+        assertEquals(0.12 * DungeonTokenCostPolicy.USD_TO_JPY,
+                DungeonTokenCostPolicy.costJpy(0L, 0L, 100_000L), EPS);
     }
 
     @Test

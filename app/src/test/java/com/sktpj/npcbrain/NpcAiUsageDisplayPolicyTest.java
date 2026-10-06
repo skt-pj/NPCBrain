@@ -60,6 +60,22 @@ public class NpcAiUsageDisplayPolicyTest {
     }
 
     @Test
+    public void aggregateSumsCacheWriteTokens() {
+        NpcAiStaminaStore.Snapshot first = new NpcAiStaminaStore.Snapshot(
+                0.5, 10.0,
+                100, 20, 15, 30, 130,
+                0.5, 100, 20, 15, 30, 130);
+        NpcAiStaminaStore.Snapshot second = new NpcAiStaminaStore.Snapshot(
+                0.75, 10.0,
+                200, 40, 25, 60, 260,
+                0.75, 200, 40, 25, 60, 260);
+
+        NpcAiUsageDisplayPolicy.Aggregate total =
+                NpcAiUsageDisplayPolicy.aggregate(Arrays.asList(first, second));
+        assertEquals(40L, total.cacheWriteInputTokens);
+    }
+
+    @Test
     public void resetLikeSnapshotCanHaveZeroCurrentAndPreservedLifetime() {
         NpcAiStaminaStore.Snapshot snapshot = new NpcAiStaminaStore.Snapshot(
                 0.0, 42.0,

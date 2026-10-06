@@ -4,23 +4,22 @@ final class DungeonTokenCostPolicy {
     static final double DEFAULT_BUDGET_JPY = 10.0;
     // Compatibility alias for older tests/UI. New budget checks use the NPC-specific limit.
     static final double MAX_BUDGET_JPY = DEFAULT_BUDGET_JPY;
-    static final double INPUT_USD_PER_MILLION = 0.20;
-    static final double CACHED_INPUT_USD_PER_MILLION = 0.02;
-    static final double OUTPUT_USD_PER_MILLION = 1.20;
-    static final double USD_TO_JPY = 158.975;
+    static final double USD_TO_JPY = ApiPricingPolicy.USD_TO_JPY;
 
     private DungeonTokenCostPolicy() {
     }
 
+    /**
+     * Legacy GPT-5.6 Luna compatibility entry. Production billing resolves the actual model
+     * through ApiPricingPolicy before recording usage.
+     */
     static double costJpy(long inputTokens, long cachedInputTokens, long outputTokens) {
-        long input = Math.max(0L, inputTokens);
-        long cached = Math.max(0L, Math.min(input, cachedInputTokens));
-        long uncached = input - cached;
-        long output = Math.max(0L, outputTokens);
-        double usd = (uncached * INPUT_USD_PER_MILLION
-                + cached * CACHED_INPUT_USD_PER_MILLION
-                + output * OUTPUT_USD_PER_MILLION) / 1_000_000.0;
-        return Math.max(0.0, usd * USD_TO_JPY);
+        return ApiPricingPolicy.costJpy(
+                ApiPricingPolicy.MODEL_GPT56_LUNA,
+                inputTokens,
+                cachedInputTokens,
+                0L,
+                outputTokens);
     }
 
     static double remainingJpy(double spentJpy) {

@@ -16,7 +16,8 @@ public final class RoutingSettingsSourceTest {
         assertTrue(settings.contains("Global Workspace"));
         assertTrue(settings.contains("分割脳（9専門）"));
         assertTrue(settings.contains("通常LLM"));
-        assertTrue(settings.contains("判断モデル（CLEF-Flash）"));
+        assertTrue(settings.contains("判断モデル（ローカル CLEF-Flash）"));
+        assertTrue(settings.contains("判断モデル（クラウド Jev）"));
         assertTrue(settings.contains("OpenAI 共通設定"));
         assertTrue(settings.contains("routingSettingsStore.setGlobalModel"));
         assertTrue(settings.contains("routingSettingsStore.setSpecialistModel"));

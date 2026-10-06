@@ -34,6 +34,9 @@ public final class ProcessingQueueUiSourceTest {
         assertTrue(viewModel.contains("Global Workspace"));
         assertTrue(viewModel.contains("\"decision_model\".equals(entry.type)"));
         assertTrue(viewModel.contains("判断モデル · ローカル"));
+        assertTrue(viewModel.contains("判断モデル · クラウド"));
+        assertTrue(viewModel.contains("TypeSafe"));
+        assertTrue(viewModel.contains("provider="));
         assertTrue(viewModel.contains("backend="));
         assertTrue(viewModel.contains("executionBackendLabel"));
 

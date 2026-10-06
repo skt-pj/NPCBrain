@@ -174,7 +174,14 @@ final class NpcBrainQueueViewModel {
     static String modelLabel(ProcessingQueueRegistry.Entry entry) {
         if (entry == null) return "";
         if (isDecisionModel(entry)) {
-            String backend = taggedValue(entry.detail, "backend=");
+            String detail = safe(entry.detail);
+            String provider = taggedValue(detail, "provider=");
+            if ("typesafe".equals(provider) || detail.contains(" · cloud · ")) {
+                String model = taggedValue(detail, "model=");
+                if (model.isEmpty()) model = JevClient.MODEL;
+                return "判断モデル · クラウド · TypeSafe / " + model;
+            }
+            String backend = taggedValue(detail, "backend=");
             return "判断モデル · ローカル · CLEF-Flash 9B · Q4_K_M · "
                     + ClefSettingsStore.executionBackendLabel(backend);
         }

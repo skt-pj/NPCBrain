@@ -58,12 +58,25 @@ final class OpenAiClient {
     static final class Usage {
         final long inputTokens;
         final long cachedInputTokens;
+        final long cacheWriteTokens;
         final long outputTokens;
         final long totalTokens;
 
         Usage(long inputTokens, long cachedInputTokens, long outputTokens, long totalTokens) {
+            this(inputTokens, cachedInputTokens, 0L, outputTokens, totalTokens);
+        }
+
+        Usage(
+                long inputTokens,
+                long cachedInputTokens,
+                long cacheWriteTokens,
+                long outputTokens,
+                long totalTokens
+        ) {
             this.inputTokens = Math.max(0L, inputTokens);
             this.cachedInputTokens = Math.max(0L, Math.min(this.inputTokens, cachedInputTokens));
+            long remaining = this.inputTokens - this.cachedInputTokens;
+            this.cacheWriteTokens = Math.max(0L, Math.min(remaining, cacheWriteTokens));
             this.outputTokens = Math.max(0L, outputTokens);
             long fallbackTotal = safeAdd(this.inputTokens, this.outputTokens);
             this.totalTokens = totalTokens > 0L ? totalTokens : fallbackTotal;
@@ -71,13 +84,16 @@ final class OpenAiClient {
 
         static Usage fromResponse(JSONObject response) {
             JSONObject usage = response == null ? null : response.optJSONObject("usage");
-            if (usage == null) return new Usage(0L, 0L, 0L, 0L);
+            if (usage == null) return new Usage(0L, 0L, 0L, 0L, 0L);
             long input = usage.optLong("input_tokens", 0L);
             JSONObject inputDetails = usage.optJSONObject("input_tokens_details");
             long cached = inputDetails == null ? 0L : inputDetails.optLong("cached_tokens", 0L);
+            long cacheWrite = inputDetails == null
+                    ? 0L
+                    : inputDetails.optLong("cache_write_tokens", 0L);
             long output = usage.optLong("output_tokens", 0L);
             long total = usage.optLong("total_tokens", 0L);
-            return new Usage(input, cached, output, total);
+            return new Usage(input, cached, cacheWrite, output, total);
         }
 
         private static long safeAdd(long a, long b) {
@@ -364,6 +380,7 @@ final class OpenAiClient {
             int maxOutputTokens
     ) throws Exception {
         byte[] request = body.toString().getBytes(StandardCharsets.UTF_8);
+        String billingModel = body.optString("model", MODEL);
         IOException firstFailure = null;
         String attributedNpcId = attributedNpcId(attributionPrompt);
 
@@ -381,7 +398,7 @@ final class OpenAiClient {
             if (preferred != null) {
                 try {
                     JSONObject result = executeRequest(
-                            preferred, request, attributedNpcId, tool, maxOutputTokens);
+                            preferred, request, attributedNpcId, tool, maxOutputTokens, billingModel);
                     rememberNetwork(preferred);
                     return result;
                 } catch (IOException error) {
@@ -395,7 +412,7 @@ final class OpenAiClient {
 
             try {
                 JSONObject result = executeRequest(
-                        null, request, attributedNpcId, tool, maxOutputTokens);
+                        null, request, attributedNpcId, tool, maxOutputTokens, billingModel);
                 rememberActiveNetwork();
                 return result;
             } catch (IOException error) {
@@ -409,7 +426,7 @@ final class OpenAiClient {
                 if (network == null || network.equals(preferred)) continue;
                 try {
                     JSONObject result = executeRequest(
-                            network, request, attributedNpcId, tool, maxOutputTokens);
+                            network, request, attributedNpcId, tool, maxOutputTokens, billingModel);
                     rememberNetwork(network);
                     return result;
                 } catch (IOException error) {
@@ -431,10 +448,11 @@ final class OpenAiClient {
             byte[] request,
             String attributedNpcId,
             FunctionTool tool,
-            int maxOutputTokens
+            int maxOutputTokens,
+            String billingModel
     ) throws Exception {
         JSONObject response = executeResponse(
-                network, request, attributedNpcId, maxOutputTokens);
+                network, request, attributedNpcId, maxOutputTokens, billingModel);
         if (tool != null) {
             FunctionCall call = extractFunctionCall(response, tool.name());
             if (call != null) {
@@ -452,7 +470,8 @@ final class OpenAiClient {
                         network,
                         continuation.toString().getBytes(StandardCharsets.UTF_8),
                         attributedNpcId,
-                        maxOutputTokens);
+                        maxOutputTokens,
+                        continuation.optString("model", billingModel));
                 return parseJsonOutput(finalResponse);
             }
         }
@@ -463,13 +482,15 @@ final class OpenAiClient {
             Network network,
             byte[] request,
             String attributedNpcId,
-            int maxOutputTokens
+            int maxOutputTokens,
+            String billingModel
     ) throws Exception {
         NpcAiStaminaStore budgetStore = null;
         NpcAiStaminaStore.Reservation reservation = null;
         if (attributedNpcId != null && !attributedNpcId.isEmpty()) {
             budgetStore = new NpcAiStaminaStore(appContext);
             double requestReservation = NpcAiBudgetPolicy.reservationJpy(
+                    billingModel,
                     request == null ? 0 : request.length,
                     maxOutputTokens);
             reservation = budgetStore.tryReserve(attributedNpcId, requestReservation);
@@ -507,7 +528,8 @@ final class OpenAiClient {
             }
 
             JSONObject response = new JSONObject(responseText);
-            notifyUsage(Usage.fromResponse(response), attributedNpcId);
+            String actualModel = response.optString("model", billingModel);
+            notifyUsage(Usage.fromResponse(response), actualModel, attributedNpcId);
             return response;
         } finally {
             if (connection != null) connection.disconnect();
@@ -555,7 +577,7 @@ final class OpenAiClient {
         return null;
     }
 
-    private void notifyUsage(Usage usage, String attributedNpcId) {
+    private void notifyUsage(Usage usage, String billingModel, String attributedNpcId) {
         if (usage == null) return;
         if (usageListener != null) {
             try {
@@ -566,7 +588,14 @@ final class OpenAiClient {
         }
         if (attributedNpcId == null || attributedNpcId.isEmpty()) return;
         try {
-            new NpcAiStaminaStore(appContext).recordUsage(attributedNpcId, usage);
+            new NpcAiStaminaStore(appContext).recordUsage(
+                    attributedNpcId,
+                    billingModel,
+                    usage.inputTokens,
+                    usage.cachedInputTokens,
+                    usage.cacheWriteTokens,
+                    usage.outputTokens,
+                    usage.totalTokens);
         } catch (RuntimeException ignored) {
         }
     }
