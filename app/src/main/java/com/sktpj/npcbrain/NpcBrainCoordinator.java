@@ -82,10 +82,13 @@ final class NpcBrainCoordinator {
         BrainEngine engine = request.clientOverride == null
                 ? sessionFactory.create(request.npcId, request.apiKey, request.reasoningEffort)
                 : sessionFactory.create(request.npcId, request.clientOverride);
-        BrainEngine.Decision decision = engine.thinkDecision(
-                prompt,
-                request.listener,
-                request.recordMemory);
+        BrainEngine.Decision decision;
+        try (BrainContextScopeV210.Scope ignored = BrainContextScopeV210.enter(request.npcId, frozen)) {
+            decision = engine.thinkDecision(
+                    prompt,
+                    request.listener,
+                    request.recordMemory);
+        }
         return new BrainDecisionEnvelope(
                 request.npcId,
                 basisRevision,

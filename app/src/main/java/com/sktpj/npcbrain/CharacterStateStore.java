@@ -221,9 +221,11 @@ final class CharacterStateStore {
         long basis = brainBasisStateVersion >= 0L
                 ? brainBasisStateVersion
                 : current == null ? -1L : current.stateVersion();
+        long basisRevision = BrainContextScopeV210.basisRevision(npcId);
         JSONObject payload = new JSONObject();
         try {
             payload.put("basis_state_version", basis);
+            if (basisRevision >= 0L) payload.put("basis_revision", basisRevision);
             payload.put("dynamic_state", sanitized);
         } catch (Exception ignored) {
         }
@@ -325,6 +327,8 @@ final class CharacterStateStore {
     }
 
     private CanonicalNpcStateV210 canonicalState() {
+        JSONObject frozenNpc = BrainContextScopeV210.frozenNpc(npcId);
+        if (frozenNpc != null) return CanonicalNpcStateV210.fromJson(npcId, frozenNpc);
         if (!canonicalEnabled()) return null;
         try {
             WorldDatabaseV210 db = WorldKernelV210.get(appContext).database();
