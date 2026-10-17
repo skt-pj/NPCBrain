@@ -41,7 +41,8 @@ public final class AiManagementHierarchySourceTest {
         String settings = read("src/main/java/com/sktpj/npcbrain/SettingsActivity.java");
         assertTrue(settings.contains("分割脳（9専門）"));
         assertTrue(settings.contains("通常LLM"));
-        assertTrue(settings.contains("判断モデル（CLEF-Flash）"));
+        assertTrue(settings.contains("判断モデル（ローカル CLEF-Flash）"));
+        assertTrue(settings.contains("判断モデル（クラウド Jev）"));
         assertTrue(settings.contains("9専門すべてで同じ推論カテゴリを使います"));
         assertFalse(settings.contains("Action Selection専用"));
         assertFalse(settings.contains("Specialist Brainと同じ"));

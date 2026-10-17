@@ -357,7 +357,11 @@ final class BrainEngine {
                 .put("mode", EXECUTION_MODE)
                 .put("parallel_specialists", MODULES.size())
                 .put("inference_family", decisionSpecialists ? "decision_model" : "normal_llm")
-                .put("decision_model_queue", decisionSpecialists ? "independent_fifo_items" : "not_applicable")
+                .put("decision_model_queue", decisionSpecialists
+                        ? (clefSpecialistRuntime.usesCloudJev()
+                        ? "parallel_cloud_requests"
+                        : "independent_fifo_items")
+                        : "not_applicable")
                 .put("result_order", "canonical_module_identity_not_temporal_completion"));
         finalContext.put("cognitive_graph_focus", safeGraphFocus(cognitiveGraph, GLOBAL_ID));
 

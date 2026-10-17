@@ -16,7 +16,9 @@ final class NpcAiStaminaStore {
     private static final String LIFETIME_INITIALIZED = "lifetime_initialized";
     private static final String LIFETIME_SPENT_BITS = "lifetime_spent_bits";
     private static final String LIFETIME_INPUT_TOKENS = "lifetime_input_tokens";
+    private static final String CACHE_WRITE_INPUT_TOKENS = "cache_write_input_tokens";
     private static final String LIFETIME_CACHED_INPUT_TOKENS = "lifetime_cached_input_tokens";
+    private static final String LIFETIME_CACHE_WRITE_INPUT_TOKENS = "lifetime_cache_write_input_tokens";
     private static final String LIFETIME_OUTPUT_TOKENS = "lifetime_output_tokens";
     private static final String LIFETIME_TOTAL_TOKENS = "lifetime_total_tokens";
     private static final Object GLOBAL_BUDGET_LOCK = new Object();
@@ -29,11 +31,13 @@ final class NpcAiStaminaStore {
         final int remainingPercent;
         final long inputTokens;
         final long cachedInputTokens;
+        final long cacheWriteInputTokens;
         final long outputTokens;
         final long totalTokens;
         final double lifetimeSpentJpy;
         final long lifetimeInputTokens;
         final long lifetimeCachedInputTokens;
+        final long lifetimeCacheWriteInputTokens;
         final long lifetimeOutputTokens;
         final long lifetimeTotalTokens;
 
@@ -49,11 +53,13 @@ final class NpcAiStaminaStore {
                     DungeonTokenCostPolicy.DEFAULT_BUDGET_JPY,
                     inputTokens,
                     cachedInputTokens,
+                    0L,
                     outputTokens,
                     totalTokens,
                     spentJpy,
                     inputTokens,
                     cachedInputTokens,
+                    0L,
                     outputTokens,
                     totalTokens);
         }
@@ -71,6 +77,37 @@ final class NpcAiStaminaStore {
                 long lifetimeOutputTokens,
                 long lifetimeTotalTokens
         ) {
+            this(
+                    spentJpy,
+                    budgetLimitJpy,
+                    inputTokens,
+                    cachedInputTokens,
+                    0L,
+                    outputTokens,
+                    totalTokens,
+                    lifetimeSpentJpy,
+                    lifetimeInputTokens,
+                    lifetimeCachedInputTokens,
+                    0L,
+                    lifetimeOutputTokens,
+                    lifetimeTotalTokens);
+        }
+
+        Snapshot(
+                double spentJpy,
+                double budgetLimitJpy,
+                long inputTokens,
+                long cachedInputTokens,
+                long cacheWriteInputTokens,
+                long outputTokens,
+                long totalTokens,
+                double lifetimeSpentJpy,
+                long lifetimeInputTokens,
+                long lifetimeCachedInputTokens,
+                long lifetimeCacheWriteInputTokens,
+                long lifetimeOutputTokens,
+                long lifetimeTotalTokens
+        ) {
             this.spentJpy = sanitizeMoney(spentJpy);
             this.budgetLimitJpy = NpcAiBudgetPolicy.normalizeBudgetLimitJpy(budgetLimitJpy);
             this.remainingJpy = DungeonTokenCostPolicy.remainingJpy(
@@ -79,11 +116,13 @@ final class NpcAiStaminaStore {
                     this.spentJpy, this.budgetLimitJpy);
             this.inputTokens = Math.max(0L, inputTokens);
             this.cachedInputTokens = Math.max(0L, cachedInputTokens);
+            this.cacheWriteInputTokens = Math.max(0L, cacheWriteInputTokens);
             this.outputTokens = Math.max(0L, outputTokens);
             this.totalTokens = Math.max(0L, totalTokens);
             this.lifetimeSpentJpy = sanitizeMoney(lifetimeSpentJpy);
             this.lifetimeInputTokens = Math.max(0L, lifetimeInputTokens);
             this.lifetimeCachedInputTokens = Math.max(0L, lifetimeCachedInputTokens);
+            this.lifetimeCacheWriteInputTokens = Math.max(0L, lifetimeCacheWriteInputTokens);
             this.lifetimeOutputTokens = Math.max(0L, lifetimeOutputTokens);
             this.lifetimeTotalTokens = Math.max(0L, lifetimeTotalTokens);
         }
@@ -121,39 +160,71 @@ final class NpcAiStaminaStore {
     }
 
     Snapshot recordUsage(String npcId, OpenAiClient.Usage usage) {
+        if (usage == null) return snapshot(npcId);
+        return recordUsage(
+                npcId,
+                ApiPricingPolicy.MODEL_GPT56_LUNA,
+                usage.inputTokens,
+                usage.cachedInputTokens,
+                usage.cacheWriteTokens,
+                usage.outputTokens,
+                usage.totalTokens);
+    }
+
+    Snapshot recordUsage(
+            String npcId,
+            String billingModel,
+            long inputTokens,
+            long cachedInputTokens,
+            long cacheWriteInputTokens,
+            long outputTokens,
+            long totalTokens
+    ) {
         synchronized (GLOBAL_BUDGET_LOCK) {
             String prefix = prefix(npcId);
             ensureLifetimeInitialized(prefix);
             ensureCurrentPeriod(prefix, currentMonthIndex());
             Snapshot before = readSnapshot(prefix);
-            if (usage == null) return before;
 
-            double added = DungeonTokenCostPolicy.costJpy(
-                    usage.inputTokens,
-                    usage.cachedInputTokens,
-                    usage.outputTokens);
+            long inputDelta = Math.max(0L, inputTokens);
+            long cachedDelta = Math.max(0L, Math.min(inputDelta, cachedInputTokens));
+            long remaining = inputDelta - cachedDelta;
+            long cacheWriteDelta = Math.max(0L, Math.min(remaining, cacheWriteInputTokens));
+            long outputDelta = Math.max(0L, outputTokens);
+            long totalDelta = Math.max(0L, totalTokens);
+
+            double added = ApiPricingPolicy.costJpy(
+                    billingModel,
+                    inputDelta,
+                    cachedDelta,
+                    cacheWriteDelta,
+                    outputDelta);
             double spent = before.spentJpy + added;
-            long input = safeAdd(before.inputTokens, usage.inputTokens);
-            long cached = safeAdd(before.cachedInputTokens, usage.cachedInputTokens);
-            long output = safeAdd(before.outputTokens, usage.outputTokens);
-            long total = safeAdd(before.totalTokens, usage.totalTokens);
+            long input = safeAdd(before.inputTokens, inputDelta);
+            long cached = safeAdd(before.cachedInputTokens, cachedDelta);
+            long cacheWrite = safeAdd(before.cacheWriteInputTokens, cacheWriteDelta);
+            long output = safeAdd(before.outputTokens, outputDelta);
+            long total = safeAdd(before.totalTokens, totalDelta);
 
             double lifetimeSpent = before.lifetimeSpentJpy + added;
-            long lifetimeInput = safeAdd(before.lifetimeInputTokens, usage.inputTokens);
-            long lifetimeCached = safeAdd(
-                    before.lifetimeCachedInputTokens, usage.cachedInputTokens);
-            long lifetimeOutput = safeAdd(before.lifetimeOutputTokens, usage.outputTokens);
-            long lifetimeTotal = safeAdd(before.lifetimeTotalTokens, usage.totalTokens);
+            long lifetimeInput = safeAdd(before.lifetimeInputTokens, inputDelta);
+            long lifetimeCached = safeAdd(before.lifetimeCachedInputTokens, cachedDelta);
+            long lifetimeCacheWrite = safeAdd(
+                    before.lifetimeCacheWriteInputTokens, cacheWriteDelta);
+            long lifetimeOutput = safeAdd(before.lifetimeOutputTokens, outputDelta);
+            long lifetimeTotal = safeAdd(before.lifetimeTotalTokens, totalDelta);
 
             preferences.edit()
                     .putLong(prefix + "spent_bits", Double.doubleToLongBits(spent))
                     .putLong(prefix + "input_tokens", input)
                     .putLong(prefix + "cached_input_tokens", cached)
+                    .putLong(prefix + CACHE_WRITE_INPUT_TOKENS, cacheWrite)
                     .putLong(prefix + "output_tokens", output)
                     .putLong(prefix + "total_tokens", total)
                     .putLong(prefix + LIFETIME_SPENT_BITS, Double.doubleToLongBits(lifetimeSpent))
                     .putLong(prefix + LIFETIME_INPUT_TOKENS, lifetimeInput)
                     .putLong(prefix + LIFETIME_CACHED_INPUT_TOKENS, lifetimeCached)
+                    .putLong(prefix + LIFETIME_CACHE_WRITE_INPUT_TOKENS, lifetimeCacheWrite)
                     .putLong(prefix + LIFETIME_OUTPUT_TOKENS, lifetimeOutput)
                     .putLong(prefix + LIFETIME_TOTAL_TOKENS, lifetimeTotal)
                     .commit();
@@ -182,6 +253,7 @@ final class NpcAiStaminaStore {
                     .putLong(prefix + "spent_bits", Double.doubleToLongBits(0.0))
                     .putLong(prefix + "input_tokens", 0L)
                     .putLong(prefix + "cached_input_tokens", 0L)
+                    .putLong(prefix + CACHE_WRITE_INPUT_TOKENS, 0L)
                     .putLong(prefix + "output_tokens", 0L)
                     .putLong(prefix + "total_tokens", 0L)
                     .putInt(prefix + MONTH_SUFFIX, currentMonthIndex())
@@ -236,12 +308,14 @@ final class NpcAiStaminaStore {
                 budgetLimit,
                 preferences.getLong(prefix + "input_tokens", 0L),
                 preferences.getLong(prefix + "cached_input_tokens", 0L),
+                preferences.getLong(prefix + CACHE_WRITE_INPUT_TOKENS, 0L),
                 preferences.getLong(prefix + "output_tokens", 0L),
                 preferences.getLong(prefix + "total_tokens", 0L),
                 sanitizeMoney(Double.longBitsToDouble(preferences.getLong(
                         prefix + LIFETIME_SPENT_BITS, Double.doubleToLongBits(0.0)))),
                 preferences.getLong(prefix + LIFETIME_INPUT_TOKENS, 0L),
                 preferences.getLong(prefix + LIFETIME_CACHED_INPUT_TOKENS, 0L),
+                preferences.getLong(prefix + LIFETIME_CACHE_WRITE_INPUT_TOKENS, 0L),
                 preferences.getLong(prefix + LIFETIME_OUTPUT_TOKENS, 0L),
                 preferences.getLong(prefix + LIFETIME_TOTAL_TOKENS, 0L));
     }
@@ -260,6 +334,8 @@ final class NpcAiStaminaStore {
                         Math.max(0L, preferences.getLong(prefix + "input_tokens", 0L)))
                 .putLong(prefix + LIFETIME_CACHED_INPUT_TOKENS,
                         Math.max(0L, preferences.getLong(prefix + "cached_input_tokens", 0L)))
+                .putLong(prefix + LIFETIME_CACHE_WRITE_INPUT_TOKENS,
+                        Math.max(0L, preferences.getLong(prefix + CACHE_WRITE_INPUT_TOKENS, 0L)))
                 .putLong(prefix + LIFETIME_OUTPUT_TOKENS,
                         Math.max(0L, preferences.getLong(prefix + "output_tokens", 0L)))
                 .putLong(prefix + LIFETIME_TOTAL_TOKENS,
@@ -288,6 +364,7 @@ final class NpcAiStaminaStore {
             editor.putLong(prefix + "spent_bits", Double.doubleToLongBits(0.0));
             editor.putLong(prefix + "input_tokens", 0L);
             editor.putLong(prefix + "cached_input_tokens", 0L);
+            editor.putLong(prefix + CACHE_WRITE_INPUT_TOKENS, 0L);
             editor.putLong(prefix + "output_tokens", 0L);
             editor.putLong(prefix + "total_tokens", 0L);
         }

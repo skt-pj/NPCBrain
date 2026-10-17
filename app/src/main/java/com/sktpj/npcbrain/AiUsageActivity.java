@@ -67,7 +67,7 @@ public final class AiUsageActivity extends Activity {
         header.addView(back, new LinearLayout.LayoutParams(dp(88), dp(46)));
         content.addView(header);
 
-        TextView note = text("現在の予算枠 + リセットされない生涯累計 · Responses API usage の概算", 11,
+        TextView note = text("現在の予算枠 + リセットされない生涯累計 · API usage の概算", 11,
                 Color.rgb(132, 157, 190), false);
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -122,6 +122,7 @@ public final class AiUsageActivity extends Activity {
                             + " · total token " + String.format(Locale.JAPAN, "%,d", snapshot.lifetimeTotalTokens)
                             + "\n現在枠 token: input " + String.format(Locale.JAPAN, "%,d", snapshot.inputTokens)
                             + " · cached " + String.format(Locale.JAPAN, "%,d", snapshot.cachedInputTokens)
+                            + " · cache write " + String.format(Locale.JAPAN, "%,d", snapshot.cacheWriteInputTokens)
                             + " · output " + String.format(Locale.JAPAN, "%,d", snapshot.outputTokens)
                             + " · total " + String.format(Locale.JAPAN, "%,d", snapshot.totalTokens),
                     12,
@@ -144,6 +145,7 @@ public final class AiUsageActivity extends Activity {
                 + "\n残額 " + NpcAiUsageDisplayPolicy.formatRemainingJpy(aggregate.remainingJpy)
                 + "\ninput " + String.format(Locale.JAPAN, "%,d", aggregate.inputTokens)
                 + " · cached " + String.format(Locale.JAPAN, "%,d", aggregate.cachedInputTokens)
+                + " · cache write " + String.format(Locale.JAPAN, "%,d", aggregate.cacheWriteInputTokens)
                 + "\noutput " + String.format(Locale.JAPAN, "%,d", aggregate.outputTokens)
                 + " · total " + String.format(Locale.JAPAN, "%,d", aggregate.totalTokens);
     }

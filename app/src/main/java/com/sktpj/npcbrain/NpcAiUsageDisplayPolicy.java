@@ -12,6 +12,7 @@ final class NpcAiUsageDisplayPolicy {
         final double budgetJpy;
         final long inputTokens;
         final long cachedInputTokens;
+        final long cacheWriteInputTokens;
         final long outputTokens;
         final long totalTokens;
 
@@ -22,6 +23,7 @@ final class NpcAiUsageDisplayPolicy {
                 double budgetJpy,
                 long inputTokens,
                 long cachedInputTokens,
+                long cacheWriteInputTokens,
                 long outputTokens,
                 long totalTokens
         ) {
@@ -31,6 +33,7 @@ final class NpcAiUsageDisplayPolicy {
             this.budgetJpy = Math.max(0.0, budgetJpy);
             this.inputTokens = Math.max(0L, inputTokens);
             this.cachedInputTokens = Math.max(0L, cachedInputTokens);
+            this.cacheWriteInputTokens = Math.max(0L, cacheWriteInputTokens);
             this.outputTokens = Math.max(0L, outputTokens);
             this.totalTokens = Math.max(0L, totalTokens);
         }
@@ -56,13 +59,14 @@ final class NpcAiUsageDisplayPolicy {
 
     static Aggregate aggregate(List<NpcAiStaminaStore.Snapshot> snapshots) {
         if (snapshots == null || snapshots.isEmpty()) {
-            return new Aggregate(0, 0.0, 0.0, 0.0, 0L, 0L, 0L, 0L);
+            return new Aggregate(0, 0.0, 0.0, 0.0, 0L, 0L, 0L, 0L, 0L);
         }
         double spent = 0.0;
         double remaining = 0.0;
         double budget = 0.0;
         long input = 0L;
         long cached = 0L;
+        long cacheWrite = 0L;
         long output = 0L;
         long total = 0L;
         int count = 0;
@@ -74,6 +78,7 @@ final class NpcAiUsageDisplayPolicy {
             budget += snapshot.budgetLimitJpy;
             input = safeAdd(input, snapshot.inputTokens);
             cached = safeAdd(cached, snapshot.cachedInputTokens);
+            cacheWrite = safeAdd(cacheWrite, snapshot.cacheWriteInputTokens);
             output = safeAdd(output, snapshot.outputTokens);
             total = safeAdd(total, snapshot.totalTokens);
         }
@@ -84,6 +89,7 @@ final class NpcAiUsageDisplayPolicy {
                 budget,
                 input,
                 cached,
+                cacheWrite,
                 output,
                 total);
     }
